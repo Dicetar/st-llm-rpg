@@ -7,6 +7,13 @@ const DEFAULT_SETTINGS = Object.freeze({
   showFloatingPanel: true,
   injectNarrationBlockIntoChat: true,
   keepExecutionLog: true,
+  sectionOpen: {
+    overview: true,
+    inventory: true,
+    quests: false,
+    events: false,
+    log: true,
+  },
 });
 
 function getContextSafe() {
@@ -56,6 +63,32 @@ function getSettings() {
   }
 
   return extensionSettings[MODULE_NAME];
+}
+
+function getSectionOpenState() {
+  const settings = getSettings();
+
+  if (!settings.sectionOpen || typeof settings.sectionOpen !== 'object') {
+    settings.sectionOpen = structuredClone(DEFAULT_SETTINGS.sectionOpen);
+  }
+
+  for (const [key, value] of Object.entries(DEFAULT_SETTINGS.sectionOpen)) {
+    if (!(key in settings.sectionOpen)) {
+      settings.sectionOpen[key] = value;
+    }
+  }
+
+  return settings.sectionOpen;
+}
+
+function isSectionOpen(sectionKey) {
+  return getSectionOpenState()[sectionKey] !== false;
+}
+
+function setSectionOpen(sectionKey, open) {
+  const sectionState = getSectionOpenState();
+  sectionState[sectionKey] = Boolean(open);
+  saveSettings();
 }
 
 function saveSettings() {
@@ -169,6 +202,64 @@ function buildNarrationBlock(apiResponse) {
   return lines.join('\n');
 }
 
+function buildActionChatBlock(apiResponse) {
+  const lines = ['[RPG Action]'];
+
+  for (const result of apiResponse.results || []) {
+    const commandText = `/${result.name}${result.argument ? ` ${result.argument}` : ''}`;
+    lines.push(`${commandText} — ${result.ok ? 'success' : 'failed'}`);
+    lines.push(result.message || '');
+
+    if (Array.isArray(result.mutations) && result.mutations.length) {
+      for (const mutation of result.mutations) {
+        lines.push(`- ${mutation.path || mutation.kind}: ${mutation.note || ''} (before=${JSON.stringify(mutation.before)} after=${JSON.stringify(mutation.after)})`);
+      }
+    }
+
+    lines.push('');
+  }
+
+  lines.push('[/RPG Action]');
+  return lines.join('\n');
+}
+
+async function appendActionMessageToChat(apiResponse) {
+  const context = getContextSafe();
+  const message = {
+    name: 'RPG Action',
+    is_user: false,
+    is_system: true,
+    mes: buildActionChatBlock(apiResponse),
+    send_date: Date.now(),
+    extra: {
+      type: 'rpg_action',
+    },
+  };
+
+  try {
+    if (typeof context.addOneMessage === 'function') {
+      await context.addOneMessage(message);
+      return;
+    }
+
+    if (Array.isArray(context.chat)) {
+      context.chat.push(message);
+    }
+
+    if (typeof context.saveChat === 'function') {
+      await context.saveChat();
+    } else if (typeof context.saveChatDebounced === 'function') {
+      context.saveChatDebounced();
+    }
+
+    if (typeof context.reloadCurrentChat === 'function') {
+      await context.reloadCurrentChat();
+    }
+  } catch (error) {
+    warn('Failed to append visible RPG action message to chat.', error);
+  }
+}
+
 function appendExecutionLog(apiResponse) {
   const root = document.querySelector('#llm-rpg-log');
   if (!root) return;
@@ -181,6 +272,16 @@ function appendExecutionLog(apiResponse) {
     ${(apiResponse.results || []).map(renderExecutionResult).join('')}
   `;
   root.prepend(block);
+}
+
+function renderCollapsibleSection(sectionKey, title, contentId, contentClass = 'llm-rpg-box') {
+  const openAttr = isSectionOpen(sectionKey) ? 'open' : '';
+  return `
+    <details class="llm-rpg-section llm-rpg-collapsible" data-section="${escapeHtml(sectionKey)}" ${openAttr}>
+      <summary class="llm-rpg-summary">${escapeHtml(title)}</summary>
+      <div id="${escapeHtml(contentId)}" class="${escapeHtml(contentClass)}">Loading…</div>
+    </details>
+  `;
 }
 
 async function refreshPanel() {
@@ -211,22 +312,22 @@ async function refreshPanel() {
   }
 
   if (questsRoot) {
-	const rawQuests = quests.active_quests || [];
-	const questItems = Array.isArray(rawQuests)
-	  ? rawQuests.map(q => typeof q === 'string' ? q : (q.title || q.id || 'Unknown quest'))
-	  : Object.entries(rawQuests).map(([key, value]) => {
-		  if (typeof value === 'string') return value;
-		  return value?.title || key || 'Unknown quest';
-		});
+    const rawQuests = quests.active_quests || [];
+    const questItems = Array.isArray(rawQuests)
+      ? rawQuests.map(q => typeof q === 'string' ? q : (q.title || q.id || 'Unknown quest'))
+      : Object.entries(rawQuests).map(([key, value]) => {
+          if (typeof value === 'string') return value;
+          return value?.title || key || 'Unknown quest';
+        });
 
-	questsRoot.innerHTML = renderSimpleArray(questItems);
+    questsRoot.innerHTML = renderSimpleArray(questItems);
   }
 
   if (eventsRoot) {
     const items = events.events || [];
-	eventsRoot.innerHTML = items.length
-	  ? `<ul class="llm-rpg-list">${items.map(item => `<li>${escapeHtml(item.command_name || item.event_type || item.type || 'event')} — ${escapeHtml(item.summary || item.message || item.id || '')}</li>`).join('')}</ul>`
-	  : '<div class="llm-rpg-empty">—</div>';
+    eventsRoot.innerHTML = items.length
+      ? `<ul class="llm-rpg-list">${items.map(item => `<li>${escapeHtml(item.command_name || item.event_type || item.type || 'event')} — ${escapeHtml(item.summary || item.message || item.id || '')}</li>`).join('')}</ul>`
+      : '<div class="llm-rpg-empty">—</div>';
   }
 }
 
@@ -243,6 +344,8 @@ async function executeAgainstBackend(rawText) {
   if (settings.keepExecutionLog) {
     appendExecutionLog(apiResponse);
   }
+
+  await appendActionMessageToChat(apiResponse);
 
   await setPendingNarrationContext({
     created_at: Date.now(),
@@ -283,30 +386,11 @@ function getPanelHtml() {
         <button id="llm-rpg-clear-pending" class="menu_button">Clear Pending Narration</button>
       </div>
 
-      <div class="llm-rpg-section">
-        <h4>Overview</h4>
-        <div id="llm-rpg-overview" class="llm-rpg-box">Loading…</div>
-      </div>
-
-      <div class="llm-rpg-section">
-        <h4>Inventory</h4>
-        <div id="llm-rpg-inventory" class="llm-rpg-box">Loading…</div>
-      </div>
-
-      <div class="llm-rpg-section">
-        <h4>Quests</h4>
-        <div id="llm-rpg-quests" class="llm-rpg-box">Loading…</div>
-      </div>
-
-      <div class="llm-rpg-section">
-        <h4>Recent Events</h4>
-        <div id="llm-rpg-events" class="llm-rpg-box">Loading…</div>
-      </div>
-
-      <div class="llm-rpg-section">
-        <h4>Last Executions</h4>
-        <div id="llm-rpg-log" class="llm-rpg-log"></div>
-      </div>
+      ${renderCollapsibleSection('overview', 'Overview', 'llm-rpg-overview')}
+      ${renderCollapsibleSection('inventory', 'Inventory', 'llm-rpg-inventory')}
+      ${renderCollapsibleSection('quests', 'Quests', 'llm-rpg-quests')}
+      ${renderCollapsibleSection('events', 'Recent Events', 'llm-rpg-events')}
+      ${renderCollapsibleSection('log', 'Last Executions', 'llm-rpg-log', 'llm-rpg-log')}
     </div>
 
     <button id="llm-rpg-open" class="menu_button llm-rpg-open-button">RPG</button>
@@ -347,6 +431,15 @@ function mountPanel() {
     await clearPendingNarrationContext();
     notify('Pending narration context cleared.', 'info');
   });
+
+  for (const details of document.querySelectorAll('.llm-rpg-collapsible')) {
+    details.addEventListener('toggle', () => {
+      const sectionKey = details.dataset.section;
+      if (sectionKey) {
+        setSectionOpen(sectionKey, details.open);
+      }
+    });
+  }
 
   if (getSettings().showFloatingPanel) {
     openPanel();
