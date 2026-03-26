@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable
+from typing import Any, Callable
 
 from app.domain.models import (
     CommandExecutionRequest,
@@ -23,6 +23,19 @@ COMMAND_PATTERN = re.compile(
 class CommandEngine:
     def __init__(self, repository: JsonStateRepository) -> None:
         self.repository = repository
+        self.command_handlers: dict[str, Callable[[str, CommandInvocation], CommandExecutionResult]] = {
+            "inventory": self._handle_inventory,
+            "use_item": self._handle_use_item,
+            "cast": self._handle_cast,
+            "equip": self._handle_equip,
+            "quest": self._handle_quest,
+            "quests": self._handle_quest,
+            "journal": self._handle_journal,
+            "new": self._handle_new,
+            "new_item": self._handle_new_item,
+            "new_spell": self._handle_new_spell,
+            "new_custom_skill": self._handle_new_custom_skill,
+        }
 
     def parse_text(self, text: str) -> list[CommandInvocation]:
         commands: list[CommandInvocation] = []
@@ -93,43 +106,33 @@ class CommandEngine:
             hp_max=actor["hp_max"],
             spell_slots=actor["spell_slots"],
             gold=actor["gold"],
-            inventory=actor["inventory"],
-            equipment=actor["equipment"],
+            inventory=actor.get("inventory", {}),
+            equipment=actor.get("equipment", {}),
             current_scene_id=scene_state.get("scene_id", "unknown_scene"),
             current_location=scene_state.get("location", "Unknown Location"),
             active_quests=active_quests,
         )
 
     def _dispatch(self, actor_id: str, scene_id: str | None, invocation: CommandInvocation) -> CommandExecutionResult:
-        name = invocation.name
-        if name == "inventory":
-            return self._handle_inventory(actor_id, invocation)
-        if name == "use_item":
-            return self._handle_use_item(actor_id, invocation)
-        if name == "cast":
-            return self._handle_cast(actor_id, invocation)
-        if name == "equip":
-            return self._handle_equip(actor_id, invocation)
-        if name == "quest":
-            return self._handle_quest(actor_id, invocation)
-        if name == "journal":
-            return self._handle_journal(actor_id, invocation)
-        return CommandExecutionResult(
-            name=name,
-            argument=invocation.argument,
-            ok=False,
-            message=f"Unknown command '/{name}'.",
-        )
+        handler = self.command_handlers.get(invocation.name)
+        if handler is None:
+            return CommandExecutionResult(
+                name=invocation.name,
+                argument=invocation.argument,
+                ok=False,
+                message=f"Unknown command '/{invocation.name}'.",
+            )
+        return handler(actor_id, invocation)
 
     def _handle_inventory(self, actor_id: str, invocation: CommandInvocation) -> CommandExecutionResult:
         actor = self._require_actor(self.repository.load_character_state(), actor_id)
-        inventory = dict(sorted(actor["inventory"].items(), key=lambda item: item[0]))
+        inventory = dict(sorted(actor.get("inventory", {}).items(), key=lambda item: item[0]))
         return CommandExecutionResult(
             name=invocation.name,
             argument=invocation.argument,
             ok=True,
             message="Inventory retrieved.",
-            data={"inventory": inventory},
+            data={"inventory": inventory, "item_notes": actor.get("item_notes", {})},
         )
 
     def _handle_use_item(self, actor_id: str, invocation: CommandInvocation) -> CommandExecutionResult:
@@ -139,7 +142,8 @@ class CommandEngine:
         character_state = self.repository.load_character_state()
         actor = self._require_actor(character_state, actor_id)
         item_registry = self.repository.load_item_registry().get("items", {})
-        canonical_item = self._find_inventory_item(actor["inventory"], invocation.argument)
+        inventory = actor.setdefault("inventory", {})
+        canonical_item = self._find_inventory_item(inventory, invocation.argument)
         if canonical_item is None:
             return CommandExecutionResult(
                 name=invocation.name,
@@ -171,12 +175,12 @@ class CommandEngine:
             actor["hp_current"] = after_hp
             mutations.append(StateMutation(kind="set", path=f"actors.{actor_id}.hp_current", before=before_hp, after=after_hp, note="Healing item used."))
 
-        before_qty = actor["inventory"][canonical_item]
+        before_qty = inventory[canonical_item]
         after_qty = before_qty - 1
         if after_qty <= 0:
-            del actor["inventory"][canonical_item]
+            del inventory[canonical_item]
         else:
-            actor["inventory"][canonical_item] = after_qty
+            inventory[canonical_item] = after_qty
         mutations.append(StateMutation(kind="set", path=f"actors.{actor_id}.inventory.{canonical_item}", before=before_qty, after=max(after_qty, 0), note="Consumable quantity decremented."))
         self.repository.save_character_state(character_state)
 
@@ -199,7 +203,8 @@ class CommandEngine:
 
         character_state = self.repository.load_character_state()
         actor = self._require_actor(character_state, actor_id)
-        canonical_spell = self._find_known_spell(actor["known_spells"], invocation.argument)
+        known_spells = actor.setdefault("known_spells", {})
+        canonical_spell = self._find_known_spell(known_spells, invocation.argument)
         if canonical_spell is None:
             return CommandExecutionResult(
                 name=invocation.name,
@@ -239,7 +244,7 @@ class CommandEngine:
                 ok=True,
                 message=f"{actor['name']} casts {canonical_spell}, spending one level {level} spell slot.",
                 mutations=mutations,
-                data={"spell_level": level, "remaining_slots": actor["spell_slots"][slot_key]},
+                data={"spell_level": level, "remaining_slots": actor['spell_slots'][slot_key]},
             )
 
         return CommandExecutionResult(
@@ -256,7 +261,8 @@ class CommandEngine:
 
         character_state = self.repository.load_character_state()
         actor = self._require_actor(character_state, actor_id)
-        canonical_item = self._find_inventory_item(actor["inventory"], invocation.argument)
+        inventory = actor.setdefault("inventory", {})
+        canonical_item = self._find_inventory_item(inventory, invocation.argument)
         if canonical_item is None:
             return CommandExecutionResult(name=invocation.name, argument=invocation.argument, ok=False, message=f"{actor['name']} does not have '{invocation.argument}'.")
 
@@ -265,8 +271,9 @@ class CommandEngine:
         if not slot:
             return CommandExecutionResult(name=invocation.name, argument=canonical_item, ok=False, message=f"{canonical_item} is not equippable.")
 
-        before = actor["equipment"].get(slot)
-        actor["equipment"][slot] = canonical_item
+        equipment = actor.setdefault("equipment", {})
+        before = equipment.get(slot)
+        equipment[slot] = canonical_item
         self.repository.save_character_state(character_state)
         mutation = StateMutation(kind="set", path=f"actors.{actor_id}.equipment.{slot}", before=before, after=canonical_item, note="Equipped item set.")
         return CommandExecutionResult(
@@ -300,6 +307,183 @@ class CommandEngine:
             data={"entries": entries},
         )
 
+    def _handle_new(self, actor_id: str, invocation: CommandInvocation) -> CommandExecutionResult:
+        if not invocation.argument:
+            return CommandExecutionResult(name=invocation.name, ok=False, message="/new requires a target type and payload.")
+
+        target_type, builder_argument = self._parse_new_target(invocation.argument)
+        alias_map = {
+            "item": "new_item",
+            "spell": "new_spell",
+            "custom_skill": "new_custom_skill",
+            "skill": "new_custom_skill",
+        }
+        target_command = alias_map.get(target_type)
+        if target_command is None:
+            return CommandExecutionResult(name=invocation.name, argument=invocation.argument, ok=False, message=f"Unsupported /new target '{target_type}'.")
+
+        delegated = CommandInvocation(name=target_command, argument=builder_argument)
+        return self.command_handlers[target_command](actor_id, delegated)
+
+    def _handle_new_item(self, actor_id: str, invocation: CommandInvocation) -> CommandExecutionResult:
+        if not invocation.argument:
+            return CommandExecutionResult(name=invocation.name, ok=False, message="/new_item requires at least an item name.")
+
+        parts = self._split_builder_parts(invocation.argument)
+        if not parts:
+            return CommandExecutionResult(name=invocation.name, ok=False, message="/new_item requires at least an item name.")
+
+        item_name = parts[0]
+        quantity = self._safe_int(parts[1], 1) if len(parts) > 1 else 1
+        item_kind = parts[2] if len(parts) > 2 else "misc"
+        description = parts[3] if len(parts) > 3 else f"Player-defined item: {item_name}."
+
+        if quantity <= 0:
+            return CommandExecutionResult(name=invocation.name, argument=invocation.argument, ok=False, message="Item quantity must be greater than zero.")
+
+        character_state = self.repository.load_character_state()
+        actor = self._require_actor(character_state, actor_id)
+        inventory = actor.setdefault("inventory", {})
+        item_notes = actor.setdefault("item_notes", {})
+        item_registry_wrapper = self.repository.load_item_registry()
+        item_registry = item_registry_wrapper.setdefault("items", {})
+
+        canonical_item = self._find_inventory_item(inventory, item_name) or item_name
+        before_qty = int(inventory.get(canonical_item, 0))
+        after_qty = before_qty + quantity
+        inventory[canonical_item] = after_qty
+
+        item_registry[canonical_item.lower()] = {
+          "name": canonical_item,
+          "kind": item_kind,
+          "consumable": item_kind.lower() == "consumable",
+          "description": description,
+          "narration_hint": description,
+        }
+
+        item_notes[canonical_item] = {
+          "description": description,
+          "tags": [item_kind.lower(), "player_defined"],
+          "source": "builder_command",
+          "active": True,
+        }
+
+        self.repository.save_character_state(character_state)
+        self.repository.save_item_registry(item_registry_wrapper)
+
+        existed = before_qty > 0
+        return CommandExecutionResult(
+            name=invocation.name,
+            argument=canonical_item,
+            ok=True,
+            message=(
+                f"Item '{canonical_item}' updated. Quantity is now {after_qty}."
+                if existed else f"Item '{canonical_item}' created and added to inventory. Quantity is now {after_qty}."
+            ),
+            mutations=[
+                StateMutation(kind="set", path=f"actors.{actor_id}.inventory.{canonical_item}", before=before_qty, after=after_qty, note="Inventory quantity updated."),
+                StateMutation(kind="set", path=f"actors.{actor_id}.item_notes.{canonical_item}", before=None if canonical_item not in item_notes else item_notes[canonical_item], after=item_notes[canonical_item], note="Item note upserted."),
+                StateMutation(kind="set", path=f"item_registry.items.{canonical_item.lower()}", before=None, after=item_registry[canonical_item.lower()], note="Item registry entry upserted."),
+            ],
+            data={"quantity": after_qty, "kind": item_kind, "description": description},
+        )
+
+    def _handle_new_spell(self, actor_id: str, invocation: CommandInvocation) -> CommandExecutionResult:
+        if not invocation.argument:
+            return CommandExecutionResult(name=invocation.name, ok=False, message="/new_spell requires at least a spell name.")
+
+        parts = self._split_builder_parts(invocation.argument)
+        if not parts:
+            return CommandExecutionResult(name=invocation.name, ok=False, message="/new_spell requires at least a spell name.")
+
+        spell_name = parts[0]
+        spell_level = self._safe_int(parts[1], 0) if len(parts) > 1 else 0
+        description = parts[2] if len(parts) > 2 else f"Player-defined spell: {spell_name}."
+        school = parts[3] if len(parts) > 3 else "custom"
+
+        if spell_level < 0:
+            return CommandExecutionResult(name=invocation.name, argument=invocation.argument, ok=False, message="Spell level cannot be negative.")
+
+        character_state = self.repository.load_character_state()
+        actor = self._require_actor(character_state, actor_id)
+        known_spells = actor.setdefault("known_spells", {})
+        spell_registry_wrapper = self.repository.load_spell_registry()
+        spell_registry = spell_registry_wrapper.setdefault("spells", {})
+
+        key = self._normalize_key(spell_name)
+        existed = key in known_spells
+        before_spell = known_spells.get(key)
+        known_spells[key] = {
+            "name": spell_name,
+            "description": description,
+            "tags": ["custom", "player_defined", "spell"],
+            "source": "builder_command",
+        }
+        spell_registry[key] = {
+            "name": spell_name,
+            "level": spell_level,
+            "school": school,
+            "description": description,
+        }
+
+        self.repository.save_character_state(character_state)
+        self.repository.save_spell_registry(spell_registry_wrapper)
+
+        return CommandExecutionResult(
+            name=invocation.name,
+            argument=spell_name,
+            ok=True,
+            message=(f"Spell '{spell_name}' updated." if existed else f"Spell '{spell_name}' created and added to known spells."),
+            mutations=[
+                StateMutation(kind="set", path=f"actors.{actor_id}.known_spells.{key}", before=before_spell, after=known_spells[key], note="Known spell upserted."),
+                StateMutation(kind="set", path=f"spell_registry.spells.{key}", before=None, after=spell_registry[key], note="Spell registry entry upserted."),
+            ],
+            data={"spell_level": spell_level, "school": school},
+        )
+
+    def _handle_new_custom_skill(self, actor_id: str, invocation: CommandInvocation) -> CommandExecutionResult:
+        if not invocation.argument:
+            return CommandExecutionResult(name=invocation.name, ok=False, message="/new_custom_skill requires at least a skill name.")
+
+        parts = self._split_builder_parts(invocation.argument)
+        if not parts:
+            return CommandExecutionResult(name=invocation.name, ok=False, message="/new_custom_skill requires at least a skill name.")
+
+        skill_name = parts[0]
+        skill_value = self._safe_int(parts[1], 1) if len(parts) > 1 else 1
+        description = parts[2] if len(parts) > 2 else f"Player-defined custom skill: {skill_name}."
+
+        character_state = self.repository.load_character_state()
+        actor = self._require_actor(character_state, actor_id)
+        custom_skills = actor.setdefault("custom_skills", {})
+        custom_skill_notes = actor.setdefault("custom_skill_notes", {})
+
+        key = self._normalize_key(skill_name)
+        existed = key in custom_skills
+        before_value = custom_skills.get(key)
+        before_note = custom_skill_notes.get(key)
+        custom_skills[key] = skill_value
+        custom_skill_notes[key] = {
+            "description": description,
+            "tags": ["custom", "player_defined", "skill"],
+            "source": "builder_command",
+            "active": True,
+        }
+
+        self.repository.save_character_state(character_state)
+
+        return CommandExecutionResult(
+            name=invocation.name,
+            argument=skill_name,
+            ok=True,
+            message=(f"Custom skill '{skill_name}' updated to {skill_value}." if existed else f"Custom skill '{skill_name}' created at {skill_value}."),
+            mutations=[
+                StateMutation(kind="set", path=f"actors.{actor_id}.custom_skills.{key}", before=before_value, after=skill_value, note="Custom skill value upserted."),
+                StateMutation(kind="set", path=f"actors.{actor_id}.custom_skill_notes.{key}", before=before_note, after=custom_skill_notes[key], note="Custom skill note upserted."),
+            ],
+            data={"skill_value": skill_value, "description": description},
+        )
+
     def _require_actor(self, character_state: dict[str, Any], actor_id: str) -> dict[str, Any]:
         actors = character_state.get("actors", {})
         if actor_id not in actors:
@@ -322,5 +506,35 @@ class CommandEngine:
                     return payload.get("name") or key
         return None
 
+    def _parse_new_target(self, raw_argument: str) -> tuple[str, str]:
+        if "|" in raw_argument:
+            parts = self._split_builder_parts(raw_argument)
+            if len(parts) < 2:
+                raise ValueError("/new requires a target type and payload.")
+            return self._normalize(parts[0]), " | ".join(parts[1:])
+
+        raw_argument = raw_argument.strip()
+        first, _, remainder = raw_argument.partition(" ")
+        target_type = self._normalize(first)
+        if not remainder.strip():
+            raise ValueError("/new requires a payload after the target type.")
+        return target_type, remainder.strip()
+
+    def _split_builder_parts(self, raw_argument: str) -> list[str]:
+        if not raw_argument:
+            return []
+        if "|" not in raw_argument:
+            return [raw_argument.strip()] if raw_argument.strip() else []
+        return [part.strip() for part in raw_argument.split("|") if part.strip()]
+
+    def _safe_int(self, raw_value: str, default: int) -> int:
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return default
+
     def _normalize(self, value: str) -> str:
         return value.strip().lower().replace("_", " ")
+
+    def _normalize_key(self, value: str) -> str:
+        return self._normalize(value).replace(" ", "_")

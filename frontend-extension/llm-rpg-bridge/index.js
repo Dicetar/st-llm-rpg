@@ -540,6 +540,13 @@ async function registerSlashCommands() {
     ['equip', 'Apply equipment change and return a narration block.'],
     ['quest', 'Return current quest information from backend.'],
     ['journal', 'Return journal guidance from backend.'],
+    ['actor', 'Return richer actor detail from backend.'],
+    ['campaign', 'Return campaign detail from backend.'],
+    ['scene', 'Return current scene detail from backend.'],
+    ['new', 'Builder command for new item, spell, or custom skill.'],
+    ['new_item', 'Create or update an inventory item and registry entry.'],
+    ['new_spell', 'Create or update a known spell and spell registry entry.'],
+    ['new_custom_skill', 'Create or update a custom skill and note entry.'],
     ['rpg_refresh', 'Refresh the bridge panel from the backend.'],
   ];
 
@@ -563,7 +570,7 @@ async function registerSlashCommands() {
         name,
         callback: async (_namedArgs, unnamedArgs) => {
           const text = Array.isArray(unnamedArgs) ? unnamedArgs.join(' ') : String(unnamedArgs ?? '');
-          if (!text.trim() && name !== 'inventory' && name !== 'quest' && name !== 'journal') {
+          if (!text.trim() && !['inventory', 'quest', 'journal', 'actor', 'campaign', 'scene'].includes(name)) {
             throw new Error(`/${name} requires an argument.`);
           }
 
@@ -598,6 +605,37 @@ async function registerSlashCommands() {
               `${count} recent ${count === 1 ? 'entry' : 'entries'} loaded.`,
             ]);
             return `[RPG JOURNAL]\n${JSON.stringify(entries, null, 2)}\n[/RPG JOURNAL]`;
+          }
+
+          if (name === 'actor') {
+            const actor = await requestJson('/state/actor/detail');
+            const customSkillCount = Object.keys(actor.custom_skills || {}).length;
+            const spellCount = Object.keys(actor.known_spells || {}).length;
+            await appendInfoMessageToChat('RPG Info', [
+              '/actor — detail loaded',
+              `${customSkillCount} custom skills, ${spellCount} known spells.`,
+            ]);
+            return `[RPG ACTOR]\n${JSON.stringify(actor, null, 2)}\n[/RPG ACTOR]`;
+          }
+
+          if (name === 'campaign') {
+            const campaign = await requestJson('/state/campaign/detail');
+            const questCount = Object.keys(campaign.quests || {}).length;
+            await appendInfoMessageToChat('RPG Info', [
+              '/campaign — detail loaded',
+              `${questCount} quest records available.`,
+            ]);
+            return `[RPG CAMPAIGN]\n${JSON.stringify(campaign, null, 2)}\n[/RPG CAMPAIGN]`;
+          }
+
+          if (name === 'scene') {
+            const scene = await requestJson('/state/scene/detail');
+            const objectCount = Array.isArray(scene.notable_objects) ? scene.notable_objects.length : 0;
+            await appendInfoMessageToChat('RPG Info', [
+              '/scene — detail loaded',
+              `${objectCount} notable scene objects tracked.`,
+            ]);
+            return `[RPG SCENE]\n${JSON.stringify(scene, null, 2)}\n[/RPG SCENE]`;
           }
 
           return await commandCallback(name, text.trim());
