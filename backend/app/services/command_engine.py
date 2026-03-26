@@ -19,6 +19,8 @@ COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+BUILDER_DELIMITERS = ("::", ";;", "|")
+
 
 class CommandEngine:
     def __init__(self, repository: JsonStateRepository) -> None:
@@ -297,7 +299,7 @@ class CommandEngine:
             data={"active_quests": active},
         )
 
-    def _handle_journal(self, actor_id: str, invocation: CommandExecutionResult) -> CommandExecutionResult:
+    def _handle_journal(self, actor_id: str, invocation: CommandInvocation) -> CommandExecutionResult:
         entries = self.repository.list_journal(limit=10)
         return CommandExecutionResult(
             name=invocation.name,
@@ -316,6 +318,7 @@ class CommandEngine:
             "item": "new_item",
             "spell": "new_spell",
             "custom_skill": "new_custom_skill",
+            "custom skill": "new_custom_skill",
             "skill": "new_custom_skill",
         }
         target_command = alias_map.get(target_type)
@@ -519,11 +522,12 @@ class CommandEngine:
         return compact_equipment
 
     def _parse_new_target(self, raw_argument: str) -> tuple[str, str]:
-        if "|" in raw_argument:
-            parts = self._split_builder_parts(raw_argument)
-            if len(parts) < 2:
-                raise ValueError("/new requires a target type and payload.")
-            return self._normalize(parts[0]), " | ".join(parts[1:])
+        for delimiter in BUILDER_DELIMITERS:
+            if delimiter in raw_argument:
+                parts = self._split_builder_parts(raw_argument)
+                if len(parts) < 2:
+                    raise ValueError("/new requires a target type and payload.")
+                return self._normalize(parts[0]), self._join_builder_parts(parts[1:])
 
         raw_argument = raw_argument.strip()
         first, _, remainder = raw_argument.partition(" ")
@@ -535,9 +539,13 @@ class CommandEngine:
     def _split_builder_parts(self, raw_argument: str) -> list[str]:
         if not raw_argument:
             return []
-        if "|" not in raw_argument:
-            return [raw_argument.strip()] if raw_argument.strip() else []
-        return [part.strip() for part in raw_argument.split("|") if part.strip()]
+        for delimiter in BUILDER_DELIMITERS:
+            if delimiter in raw_argument:
+                return [part.strip() for part in raw_argument.split(delimiter) if part.strip()]
+        return [raw_argument.strip()] if raw_argument.strip() else []
+
+    def _join_builder_parts(self, parts: list[str]) -> str:
+        return " :: ".join(parts)
 
     def _safe_int(self, raw_value: str, default: int) -> int:
         try:

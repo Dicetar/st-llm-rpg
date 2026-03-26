@@ -26,28 +26,37 @@ That gives the system a safe and simple growth path:
 
 ## Supported commands
 
-### Generic builder
-- `/new custom_skill | swimming | 3 | Competent in water movement and breath control.`
-- `/new spell | feather fall | 1 | Slow the fall of nearby creatures. | transmutation`
-- `/new item | rope | 2 | tool | 50 feet of braided hemp rope.`
+### Recommended generic builder syntax
+- `/new custom_skill :: swimming :: 3 :: Competent in water movement and breath control.`
+- `/new spell :: feather fall :: 1 :: Slow the fall of nearby creatures. :: transmutation`
+- `/new item :: rope :: 2 :: tool :: 50 feet of braided hemp rope.`
+
+### Recommended proxy syntax inside SillyTavern
+- `/rpg new custom_skill :: swimming :: 3 :: Competent in water movement and breath control.`
+- `/rpg new spell :: feather fall :: 1 :: Slow the fall of nearby creatures. :: transmutation`
+- `/rpg new item :: rope :: 2 :: tool :: 50 feet of braided hemp rope.`
 
 ### Direct aliases
-- `/new_custom_skill swimming | 3 | Competent in water movement and breath control.`
-- `/new_spell feather fall | 1 | Slow the fall of nearby creatures. | transmutation`
-- `/new_item rope | 2 | tool | 50 feet of braided hemp rope.`
+- `/new_custom_skill swimming :: 3 :: Competent in water movement and breath control.`
+- `/new_spell feather fall :: 1 :: Slow the fall of nearby creatures. :: transmutation`
+- `/new_item rope :: 2 :: tool :: 50 feet of braided hemp rope.`
+
+## Legacy separator support
+
+The backend still accepts `|` and `;;` separators for compatibility, but `::` is the recommended default because it is less likely to collide with SillyTavern slash-command parsing behavior.
 
 ## Positional format
 
-The commands use pipe-separated fields because it is much easier to parse reliably inside a chat shell.
+The commands use separator-delimited fields because it is much easier to parse reliably inside a chat shell.
 
 ### `new_custom_skill`
-`name | value | description`
+`name :: value :: description`
 
 ### `new_spell`
-`name | level | description | school`
+`name :: level :: description :: school`
 
 ### `new_item`
-`name | quantity | kind | description`
+`name :: quantity :: kind :: description`
 
 ## Why this matters for maintainability
 
