@@ -211,14 +211,22 @@ async function refreshPanel() {
   }
 
   if (questsRoot) {
-    questsRoot.innerHTML = renderSimpleArray((quests.active_quests || []).map(q => typeof q === 'string' ? q : (q.title || q.id || 'Unknown quest')));
+	const rawQuests = quests.active_quests || [];
+	const questItems = Array.isArray(rawQuests)
+	  ? rawQuests.map(q => typeof q === 'string' ? q : (q.title || q.id || 'Unknown quest'))
+	  : Object.entries(rawQuests).map(([key, value]) => {
+		  if (typeof value === 'string') return value;
+		  return value?.title || key || 'Unknown quest';
+		});
+
+	questsRoot.innerHTML = renderSimpleArray(questItems);
   }
 
   if (eventsRoot) {
     const items = events.events || [];
-    eventsRoot.innerHTML = items.length
-      ? `<ul class="llm-rpg-list">${items.map(item => `<li>${escapeHtml(item.event_type || item.type || 'event')} — ${escapeHtml(item.summary || item.message || item.id || '')}</li>`).join('')}</ul>`
-      : '<div class="llm-rpg-empty">—</div>';
+	eventsRoot.innerHTML = items.length
+	  ? `<ul class="llm-rpg-list">${items.map(item => `<li>${escapeHtml(item.command_name || item.event_type || item.type || 'event')} — ${escapeHtml(item.summary || item.message || item.id || '')}</li>`).join('')}</ul>`
+	  : '<div class="llm-rpg-empty">—</div>';
   }
 }
 
