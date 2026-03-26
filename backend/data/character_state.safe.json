@@ -1,0 +1,88 @@
+{
+  "schema_version": "0.1.0",
+  "actors": {
+    "player": {
+      "actor_id": "player",
+      "name": "Lavitz Harcourt",
+      "hp_current": 28,
+      "hp_max": 28,
+      "temp_hp": 0,
+      "exhaustion_level": 0,
+      "inspiration": false,
+      "conditions": [],
+      "active_effects": {},
+      "spell_slots": {
+        "1": 4,
+        "2": 2
+      },
+      "gold": 245,
+      "attributes": {
+        "strength": 17,
+        "dexterity": 19,
+        "constitution": 17,
+        "intelligence": 17,
+        "wisdom": 16,
+        "charisma": 20
+      },
+      "skills": {
+        "athletics": 2,
+        "arcana": 5,
+        "deception": 4,
+        "insight": 4,
+        "intimidation": 5,
+        "persuasion": 6,
+        "perception": 3,
+        "performance": 4,
+        "history": 3,
+        "etiquette": 5
+      },
+      "known_spells": {
+        "prestidigitation": {
+          "name": "prestidigitation",
+          "description": "Minor arcane cantrip for harmless sensory tricks, cleaning, flavoring, and tiny magical flourishes.",
+          "tags": ["cantrip", "utility", "arcane"]
+        },
+        "mage_hand": {
+          "name": "mage hand",
+          "description": "Summon a spectral hand to manipulate small objects at a distance.",
+          "tags": ["cantrip", "utility", "telekinesis"]
+        },
+        "charm_person": {
+          "name": "charm person",
+          "description": "Temporarily soften a humanoid's attitude and make them view you as a friendly acquaintance.",
+          "tags": ["enchantment", "social", "humanoid"]
+        },
+        "dragon_breath": {
+          "name": "dragon breath",
+          "description": "Imbue a creature with a short-lived breath weapon of elemental force.",
+          "tags": ["transmutation", "combat", "draconic"]
+        },
+        "command": {
+          "name": "command",
+          "description": "Speak a magically compelling one-word order that can force immediate obedience.",
+          "tags": ["enchantment", "control", "divine_tone"]
+        },
+        "suggestion": {
+          "name": "suggestion",
+          "description": "Plant a persuasive magical course of action in a target's mind for a longer span than simple charm.",
+          "tags": ["enchantment", "social", "subtle_control"]
+        }
+      },
+      "equipment": {
+        "main_hand": null,
+        "off_hand": null,
+        "cloak": null,
+        "focus": null
+      },
+      "inventory": {
+        "health potion": 2,
+        "ceremonial dagger": 1,
+        "wand of suggestion": 1,
+        "spellbook": 1,
+        "journal (leather-bound, half-filled)": 1,
+        "silver grooming kit": 1
+      },
+      "notes": "Sanitized bootstrap actor state for backend prototyping. Project-specific unsupported fields were intentionally excluded."
+    }
+  }
+}
