@@ -57,13 +57,25 @@ class JsonStateRepository:
         with self._lock:
             return self._read_json(self.cast_registry_path)
 
+    def save_cast_registry(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._write_json(self.cast_registry_path, payload)
+
     def load_item_registry(self) -> dict[str, Any]:
         with self._lock:
             return self._read_json(self.item_registry_path)
 
+    def save_item_registry(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._write_json(self.item_registry_path, payload)
+
     def load_spell_registry(self) -> dict[str, Any]:
         with self._lock:
             return self._read_json(self.spell_registry_path)
+
+    def save_spell_registry(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._write_json(self.spell_registry_path, payload)
 
     def append_event(self, payload: dict[str, Any]) -> None:
         with self._lock:
