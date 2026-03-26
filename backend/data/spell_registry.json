@@ -1,0 +1,35 @@
+{
+  "schema_version": "0.1.0",
+  "spells": {
+    "prestidigitation": {
+      "name": "prestidigitation",
+      "level": 0,
+      "school": "transmutation"
+    },
+    "mage hand": {
+      "name": "mage hand",
+      "level": 0,
+      "school": "conjuration"
+    },
+    "charm person": {
+      "name": "charm person",
+      "level": 1,
+      "school": "enchantment"
+    },
+    "dragon breath": {
+      "name": "dragon breath",
+      "level": 2,
+      "school": "transmutation"
+    },
+    "command": {
+      "name": "command",
+      "level": 1,
+      "school": "enchantment"
+    },
+    "suggestion": {
+      "name": "suggestion",
+      "level": 2,
+      "school": "enchantment"
+    }
+  }
+}
