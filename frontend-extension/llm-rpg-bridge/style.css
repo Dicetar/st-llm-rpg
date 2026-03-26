@@ -56,7 +56,8 @@
   opacity: 0.85;
 }
 
-.llm-rpg-section input {
+.llm-rpg-section input,
+.llm-rpg-settings-grid input {
   width: 100%;
   box-sizing: border-box;
 }
@@ -157,6 +158,23 @@
   line-height: 1.4;
 }
 
+.llm-rpg-log-note {
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+}
+
+.llm-rpg-log-note-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.llm-rpg-log-note-body {
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.9;
+}
+
 .llm-rpg-collapsible {
   margin-bottom: 14px;
 }
@@ -186,4 +204,9 @@
 .llm-rpg-collapsible > .llm-rpg-box,
 .llm-rpg-collapsible > .llm-rpg-log {
   margin-top: 8px;
+}
+
+.llm-rpg-settings-grid {
+  display: grid;
+  gap: 8px;
 }

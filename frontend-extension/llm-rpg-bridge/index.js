@@ -13,8 +13,12 @@ const DEFAULT_SETTINGS = Object.freeze({
     quests: false,
     events: false,
     log: true,
+    settings: false,
   },
 });
+
+const READ_ONLY_COMMANDS = new Set(['inventory', 'quest', 'journal', 'actor', 'campaign', 'scene']);
+const MUTATION_COMMANDS = new Set(['use_item', 'cast', 'equip', 'new', 'new_item', 'new_spell', 'new_custom_skill']);
 
 function getContextSafe() {
   if (!globalThis.SillyTavern || typeof globalThis.SillyTavern.getContext !== 'function') {
@@ -123,6 +127,11 @@ function clearPendingNarrationContext() {
   const chatMetadata = getChatMetadata();
   delete chatMetadata[`${MODULE_NAME}_pending_narration`];
   return saveMetadata();
+}
+
+function buildActorQuery() {
+  const actorId = getSettings().actorId?.trim();
+  return actorId ? `?actor_id=${encodeURIComponent(actorId)}` : '';
 }
 
 async function requestJson(path, options = {}) {
@@ -282,23 +291,42 @@ async function appendInfoMessageToChat(title, lines) {
   });
 }
 
-function appendExecutionLog(apiResponse) {
+function ensureExecutionLogRoot() {
   const root = document.querySelector('#llm-rpg-log');
-  if (!root) return;
-
+  if (!root) return null;
   if (!root.dataset.initialized) {
     root.innerHTML = '';
     root.dataset.initialized = 'true';
   }
+  return root;
+}
 
+function prependExecutionHtml(html) {
+  const root = ensureExecutionLogRoot();
+  if (!root) return;
   const block = document.createElement('div');
   block.className = 'llm-rpg-log-entry';
+  block.innerHTML = html;
+  root.prepend(block);
+}
+
+function appendExecutionLog(apiResponse) {
   const timestamp = new Date().toLocaleTimeString();
-  block.innerHTML = `
+  prependExecutionHtml(`
     <div class="llm-rpg-log-time">${escapeHtml(timestamp)}</div>
     ${(apiResponse.results || []).map(renderExecutionResult).join('')}
-  `;
-  root.prepend(block);
+  `);
+}
+
+function appendInfoLog(title, message) {
+  const timestamp = new Date().toLocaleTimeString();
+  prependExecutionHtml(`
+    <div class="llm-rpg-log-time">${escapeHtml(timestamp)}</div>
+    <div class="llm-rpg-log-note">
+      <div class="llm-rpg-log-note-title">${escapeHtml(title)}</div>
+      <div class="llm-rpg-log-note-body">${escapeHtml(message)}</div>
+    </div>
+  `);
 }
 
 function renderCollapsibleSection(sectionKey, title, contentId, contentClass = 'llm-rpg-box', initialContent = 'Loading…') {
@@ -311,8 +339,18 @@ function renderCollapsibleSection(sectionKey, title, contentId, contentClass = '
   `;
 }
 
+function renderRawCollapsibleSection(sectionKey, title, innerHtml) {
+  const openAttr = isSectionOpen(sectionKey) ? 'open' : '';
+  return `
+    <details class="llm-rpg-section llm-rpg-collapsible" data-section="${escapeHtml(sectionKey)}" ${openAttr}>
+      <summary class="llm-rpg-summary">${escapeHtml(title)}</summary>
+      <div class="llm-rpg-box">${innerHtml}</div>
+    </details>
+  `;
+}
+
 async function refreshPanel() {
-  const overview = await requestJson('/state/overview');
+  const overview = await requestJson(`/state/overview${buildActorQuery()}`);
   const quests = await requestJson('/state/quests');
   const events = await requestJson('/events/recent');
 
@@ -385,8 +423,109 @@ async function executeAgainstBackend(rawText) {
   return apiResponse;
 }
 
+async function handleReadOnlyCommand(commandName) {
+  if (commandName === 'inventory') {
+    const inventory = await requestJson(`/state/inventory${buildActorQuery()}`);
+    await refreshPanel();
+    const itemCount = Object.keys(inventory.inventory || {}).length;
+    const message = `${itemCount} tracked item ${itemCount === 1 ? 'entry' : 'entries'}.`;
+    appendInfoLog('/inventory', message);
+    await appendInfoMessageToChat('RPG Info', ['/inventory — refreshed', message]);
+    return `[RPG INVENTORY]\n${JSON.stringify(inventory, null, 2)}\n[/RPG INVENTORY]`;
+  }
+
+  if (commandName === 'quest') {
+    const quests = await requestJson('/state/quests');
+    await refreshPanel();
+    const rawQuests = quests.active_quests || {};
+    const questCount = Array.isArray(rawQuests) ? rawQuests.length : Object.keys(rawQuests).length;
+    const message = `${questCount} active ${questCount === 1 ? 'quest' : 'quests'}.`;
+    appendInfoLog('/quest', message);
+    await appendInfoMessageToChat('RPG Info', ['/quest — refreshed', message]);
+    return `[RPG QUESTS]\n${JSON.stringify(quests, null, 2)}\n[/RPG QUESTS]`;
+  }
+
+  if (commandName === 'journal') {
+    const entries = await requestJson('/journal/entries');
+    const count = Array.isArray(entries.entries) ? entries.entries.length : 0;
+    const message = `${count} recent ${count === 1 ? 'entry' : 'entries'} loaded.`;
+    appendInfoLog('/journal', message);
+    await appendInfoMessageToChat('RPG Info', ['/journal — refreshed', message]);
+    return `[RPG JOURNAL]\n${JSON.stringify(entries, null, 2)}\n[/RPG JOURNAL]`;
+  }
+
+  if (commandName === 'actor') {
+    const actor = await requestJson(`/state/actor/detail${buildActorQuery()}`);
+    const customSkillCount = Object.keys(actor.custom_skills || {}).length;
+    const spellCount = Object.keys(actor.known_spells || {}).length;
+    const message = `${customSkillCount} custom skills, ${spellCount} known spells.`;
+    appendInfoLog('/actor', message);
+    await appendInfoMessageToChat('RPG Info', ['/actor — detail loaded', message]);
+    return `[RPG ACTOR]\n${JSON.stringify(actor, null, 2)}\n[/RPG ACTOR]`;
+  }
+
+  if (commandName === 'campaign') {
+    const campaign = await requestJson('/state/campaign/detail');
+    const questCount = Object.keys(campaign.quests || {}).length;
+    const message = `${questCount} quest records available.`;
+    appendInfoLog('/campaign', message);
+    await appendInfoMessageToChat('RPG Info', ['/campaign — detail loaded', message]);
+    return `[RPG CAMPAIGN]\n${JSON.stringify(campaign, null, 2)}\n[/RPG CAMPAIGN]`;
+  }
+
+  if (commandName === 'scene') {
+    const scene = await requestJson('/state/scene/detail');
+    const objectCount = Array.isArray(scene.notable_objects) ? scene.notable_objects.length : 0;
+    const message = `${objectCount} notable scene objects tracked.`;
+    appendInfoLog('/scene', message);
+    await appendInfoMessageToChat('RPG Info', ['/scene — detail loaded', message]);
+    return `[RPG SCENE]\n${JSON.stringify(scene, null, 2)}\n[/RPG SCENE]`;
+  }
+
+  throw new Error(`Unsupported read-only command '/${commandName}'.`);
+}
+
+function parseRpgProxyText(text) {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed) return { subcommand: '', remainder: '' };
+  const [subcommand, ...rest] = trimmed.split(' ');
+  return { subcommand: subcommand.trim().toLowerCase(), remainder: rest.join(' ').trim() };
+}
+
+async function dispatchRegisteredCommand(commandName, text) {
+  if (commandName === 'rpg') {
+    const { subcommand, remainder } = parseRpgProxyText(text);
+    if (!subcommand) {
+      throw new Error('Usage: /rpg actor | campaign | scene | inventory | quest | journal | new ...');
+    }
+    if (READ_ONLY_COMMANDS.has(subcommand)) {
+      return await handleReadOnlyCommand(subcommand);
+    }
+    if (MUTATION_COMMANDS.has(subcommand)) {
+      return await commandCallback(subcommand, remainder);
+    }
+    throw new Error(`Unknown /rpg subcommand '${subcommand}'.`);
+  }
+
+  if (READ_ONLY_COMMANDS.has(commandName)) {
+    return await handleReadOnlyCommand(commandName);
+  }
+
+  return await commandCallback(commandName, text.trim());
+}
+
 function getPanelHtml() {
   const settings = getSettings();
+  const settingsInner = `
+    <div class="llm-rpg-settings-grid">
+      <label for="llm-rpg-backend-url">Backend URL</label>
+      <input id="llm-rpg-backend-url" type="text" value="${escapeHtml(settings.backendBaseUrl)}" />
+      <label for="llm-rpg-actor-id">Actor ID</label>
+      <input id="llm-rpg-actor-id" type="text" value="${escapeHtml(settings.actorId)}" />
+      <button id="llm-rpg-save-settings" class="menu_button">Save</button>
+    </div>
+  `;
+
   return `
     <div id="llm-rpg-bridge-panel" class="llm-rpg-panel">
       <div class="llm-rpg-header">
@@ -397,18 +536,7 @@ function getPanelHtml() {
         <button id="llm-rpg-toggle" class="menu_button">×</button>
       </div>
 
-      <div class="llm-rpg-section">
-        <label>Backend URL</label>
-        <input id="llm-rpg-backend-url" type="text" value="${escapeHtml(settings.backendBaseUrl)}" />
-      </div>
-
-      <div class="llm-rpg-section">
-        <label>Actor ID</label>
-        <input id="llm-rpg-actor-id" type="text" value="${escapeHtml(settings.actorId)}" />
-      </div>
-
       <div class="llm-rpg-actions">
-        <button id="llm-rpg-save-settings" class="menu_button">Save</button>
         <button id="llm-rpg-refresh" class="menu_button">Refresh</button>
         <button id="llm-rpg-clear-pending" class="menu_button">Clear Pending Narration</button>
       </div>
@@ -417,7 +545,8 @@ function getPanelHtml() {
       ${renderCollapsibleSection('inventory', 'Inventory', 'llm-rpg-inventory')}
       ${renderCollapsibleSection('quests', 'Quests', 'llm-rpg-quests')}
       ${renderCollapsibleSection('events', 'Recent Events', 'llm-rpg-events')}
-      ${renderCollapsibleSection('log', 'Last Executions', 'llm-rpg-log', 'llm-rpg-log', '<div class="llm-rpg-empty">—</div>')}
+      ${renderCollapsibleSection('log', 'Last Executions', 'llm-rpg-log', 'llm-rpg-log', '<div class="llm-rpg-empty">No executions yet.</div>')}
+      ${renderRawCollapsibleSection('settings', 'Connection & Actor', settingsInner)}
     </div>
 
     <button id="llm-rpg-open" class="menu_button llm-rpg-open-button">RPG</button>
@@ -547,6 +676,7 @@ async function registerSlashCommands() {
     ['new_item', 'Create or update an inventory item and registry entry.'],
     ['new_spell', 'Create or update a known spell and spell registry entry.'],
     ['new_custom_skill', 'Create or update a custom skill and note entry.'],
+    ['rpg', 'Namespaced RPG command proxy. Example: /rpg actor or /rpg new item | rope | 2 | tool | 50 feet of rope.'],
     ['rpg_refresh', 'Refresh the bridge panel from the backend.'],
   ];
 
@@ -570,75 +700,10 @@ async function registerSlashCommands() {
         name,
         callback: async (_namedArgs, unnamedArgs) => {
           const text = Array.isArray(unnamedArgs) ? unnamedArgs.join(' ') : String(unnamedArgs ?? '');
-          if (!text.trim() && !['inventory', 'quest', 'journal', 'actor', 'campaign', 'scene'].includes(name)) {
+          if (!text.trim() && MUTATION_COMMANDS.has(name)) {
             throw new Error(`/${name} requires an argument.`);
           }
-
-          if (name === 'inventory') {
-            const inventory = await requestJson('/state/inventory');
-            await refreshPanel();
-            const itemCount = Object.keys(inventory.inventory || {}).length;
-            await appendInfoMessageToChat('RPG Info', [
-              '/inventory — refreshed',
-              `${itemCount} tracked item ${itemCount === 1 ? 'entry' : 'entries'}.`,
-            ]);
-            return `[RPG INVENTORY]\n${JSON.stringify(inventory, null, 2)}\n[/RPG INVENTORY]`;
-          }
-
-          if (name === 'quest') {
-            const quests = await requestJson('/state/quests');
-            await refreshPanel();
-            const rawQuests = quests.active_quests || {};
-            const questCount = Array.isArray(rawQuests) ? rawQuests.length : Object.keys(rawQuests).length;
-            await appendInfoMessageToChat('RPG Info', [
-              '/quest — refreshed',
-              `${questCount} active ${questCount === 1 ? 'quest' : 'quests'}.`,
-            ]);
-            return `[RPG QUESTS]\n${JSON.stringify(quests, null, 2)}\n[/RPG QUESTS]`;
-          }
-
-          if (name === 'journal') {
-            const entries = await requestJson('/journal/entries');
-            const count = Array.isArray(entries.entries) ? entries.entries.length : 0;
-            await appendInfoMessageToChat('RPG Info', [
-              '/journal — refreshed',
-              `${count} recent ${count === 1 ? 'entry' : 'entries'} loaded.`,
-            ]);
-            return `[RPG JOURNAL]\n${JSON.stringify(entries, null, 2)}\n[/RPG JOURNAL]`;
-          }
-
-          if (name === 'actor') {
-            const actor = await requestJson('/state/actor/detail');
-            const customSkillCount = Object.keys(actor.custom_skills || {}).length;
-            const spellCount = Object.keys(actor.known_spells || {}).length;
-            await appendInfoMessageToChat('RPG Info', [
-              '/actor — detail loaded',
-              `${customSkillCount} custom skills, ${spellCount} known spells.`,
-            ]);
-            return `[RPG ACTOR]\n${JSON.stringify(actor, null, 2)}\n[/RPG ACTOR]`;
-          }
-
-          if (name === 'campaign') {
-            const campaign = await requestJson('/state/campaign/detail');
-            const questCount = Object.keys(campaign.quests || {}).length;
-            await appendInfoMessageToChat('RPG Info', [
-              '/campaign — detail loaded',
-              `${questCount} quest records available.`,
-            ]);
-            return `[RPG CAMPAIGN]\n${JSON.stringify(campaign, null, 2)}\n[/RPG CAMPAIGN]`;
-          }
-
-          if (name === 'scene') {
-            const scene = await requestJson('/state/scene/detail');
-            const objectCount = Array.isArray(scene.notable_objects) ? scene.notable_objects.length : 0;
-            await appendInfoMessageToChat('RPG Info', [
-              '/scene — detail loaded',
-              `${objectCount} notable scene objects tracked.`,
-            ]);
-            return `[RPG SCENE]\n${JSON.stringify(scene, null, 2)}\n[/RPG SCENE]`;
-          }
-
-          return await commandCallback(name, text.trim());
+          return await dispatchRegisteredCommand(name, text);
         },
         returns: 'authoritative RPG command narration block',
         unnamedArgumentList: [
