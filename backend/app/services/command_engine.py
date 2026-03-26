@@ -107,7 +107,7 @@ class CommandEngine:
             spell_slots=actor["spell_slots"],
             gold=actor["gold"],
             inventory=actor.get("inventory", {}),
-            equipment=actor.get("equipment", {}),
+            equipment=self._build_overview_equipment(actor.get("equipment", {})),
             current_scene_id=scene_state.get("scene_id", "unknown_scene"),
             current_location=scene_state.get("location", "Unknown Location"),
             active_quests=active_quests,
@@ -297,7 +297,7 @@ class CommandEngine:
             data={"active_quests": active},
         )
 
-    def _handle_journal(self, actor_id: str, invocation: CommandInvocation) -> CommandExecutionResult:
+    def _handle_journal(self, actor_id: str, invocation: CommandExecutionResult) -> CommandExecutionResult:
         entries = self.repository.list_journal(limit=10)
         return CommandExecutionResult(
             name=invocation.name,
@@ -353,6 +353,9 @@ class CommandEngine:
         after_qty = before_qty + quantity
         inventory[canonical_item] = after_qty
 
+        previous_note = item_notes.get(canonical_item)
+        previous_registry = item_registry.get(canonical_item.lower())
+
         item_registry[canonical_item.lower()] = {
           "name": canonical_item,
           "kind": item_kind,
@@ -382,8 +385,8 @@ class CommandEngine:
             ),
             mutations=[
                 StateMutation(kind="set", path=f"actors.{actor_id}.inventory.{canonical_item}", before=before_qty, after=after_qty, note="Inventory quantity updated."),
-                StateMutation(kind="set", path=f"actors.{actor_id}.item_notes.{canonical_item}", before=None if canonical_item not in item_notes else item_notes[canonical_item], after=item_notes[canonical_item], note="Item note upserted."),
-                StateMutation(kind="set", path=f"item_registry.items.{canonical_item.lower()}", before=None, after=item_registry[canonical_item.lower()], note="Item registry entry upserted."),
+                StateMutation(kind="set", path=f"actors.{actor_id}.item_notes.{canonical_item}", before=previous_note, after=item_notes[canonical_item], note="Item note upserted."),
+                StateMutation(kind="set", path=f"item_registry.items.{canonical_item.lower()}", before=previous_registry, after=item_registry[canonical_item.lower()], note="Item registry entry upserted."),
             ],
             data={"quantity": after_qty, "kind": item_kind, "description": description},
         )
@@ -413,6 +416,7 @@ class CommandEngine:
         key = self._normalize_key(spell_name)
         existed = key in known_spells
         before_spell = known_spells.get(key)
+        previous_registry = spell_registry.get(key)
         known_spells[key] = {
             "name": spell_name,
             "description": description,
@@ -436,7 +440,7 @@ class CommandEngine:
             message=(f"Spell '{spell_name}' updated." if existed else f"Spell '{spell_name}' created and added to known spells."),
             mutations=[
                 StateMutation(kind="set", path=f"actors.{actor_id}.known_spells.{key}", before=before_spell, after=known_spells[key], note="Known spell upserted."),
-                StateMutation(kind="set", path=f"spell_registry.spells.{key}", before=None, after=spell_registry[key], note="Spell registry entry upserted."),
+                StateMutation(kind="set", path=f"spell_registry.spells.{key}", before=previous_registry, after=spell_registry[key], note="Spell registry entry upserted."),
             ],
             data={"spell_level": spell_level, "school": school},
         )
@@ -505,6 +509,14 @@ class CommandEngine:
                 if self._normalize(candidate) == normalized:
                     return payload.get("name") or key
         return None
+
+    def _build_overview_equipment(self, raw_equipment: dict[str, Any]) -> dict[str, str | None]:
+        compact_slots = ("main_hand", "off_hand", "cloak", "focus")
+        compact_equipment: dict[str, str | None] = {}
+        for slot in compact_slots:
+            value = raw_equipment.get(slot)
+            compact_equipment[slot] = value if isinstance(value, str) or value is None else str(value)
+        return compact_equipment
 
     def _parse_new_target(self, raw_argument: str) -> tuple[str, str]:
         if "|" in raw_argument:
