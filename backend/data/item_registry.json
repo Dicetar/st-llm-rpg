@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "items": {
     "health potion": {
       "name": "health potion",
@@ -22,6 +22,108 @@
       "consumable": false,
       "equippable_slot": "focus",
       "narration_hint": "A pale ash wand tipped with dragon fang."
+    },
+    "linen shirt": {
+      "name": "linen shirt",
+      "kind": "shirt",
+      "consumable": false,
+      "description": "A soft white undershirt suitable for layering.",
+      "narration_hint": "A soft white undershirt suitable for layering.",
+      "wear": {
+        "category": "clothing",
+        "kind": "shirt",
+        "placements": [
+          {
+            "region": "torso",
+            "layer": 1
+          },
+          {
+            "region": "arms",
+            "layer": 1
+          }
+        ]
+      }
+    },
+    "house doublet": {
+      "name": "house doublet",
+      "kind": "doublet",
+      "consumable": false,
+      "description": "A fitted noble doublet in Harcourt colors.",
+      "narration_hint": "A fitted noble doublet in Harcourt colors.",
+      "wear": {
+        "category": "clothing",
+        "kind": "doublet",
+        "placements": [
+          {
+            "region": "torso",
+            "layer": 2
+          },
+          {
+            "region": "arms",
+            "layer": 2
+          }
+        ]
+      }
+    },
+    "gambison": {
+      "name": "gambison",
+      "kind": "gambison",
+      "consumable": false,
+      "description": "A padded arming layer worn under heavier protection.",
+      "narration_hint": "A padded arming layer worn under heavier protection.",
+      "wear": {
+        "category": "armor",
+        "kind": "gambison",
+        "placements": [
+          {
+            "region": "torso",
+            "layer": 2
+          },
+          {
+            "region": "arms",
+            "layer": 2
+          }
+        ]
+      }
+    },
+    "chainmail shirt": {
+      "name": "chainmail shirt",
+      "kind": "chainmail",
+      "consumable": false,
+      "description": "An interlinked mail shirt for serious protection.",
+      "narration_hint": "An interlinked mail shirt for serious protection.",
+      "wear": {
+        "category": "armor",
+        "kind": "chainmail",
+        "placements": [
+          {
+            "region": "torso",
+            "layer": 3
+          },
+          {
+            "region": "arms",
+            "layer": 3
+          }
+        ]
+      }
+    },
+    "house harcourt signet ring": {
+      "name": "House Harcourt signet ring",
+      "kind": "ring",
+      "consumable": false,
+      "description": "Formal seal of identity and authority within House Harcourt.",
+      "narration_hint": "A signet ring carrying Harcourt authority.",
+      "wear": {
+        "category": "accessory",
+        "kind": "ring",
+        "placements": [
+          {
+            "region": "left_hand",
+            "layer": 1
+          }
+        ],
+        "notes": "Formal seal of identity and authority within House Harcourt."
+      }
     },
     "spellbook": {
       "name": "spellbook",

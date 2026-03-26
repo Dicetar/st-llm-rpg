@@ -36,23 +36,10 @@ def get_inventory(actor_id: str = Query(default="player")):
 
 @router.get("/state/actor/detail")
 def get_actor_detail(actor_id: str = Query(default="player")):
-    actor = _get_actor_or_404(actor_id)
-    return {
-        "actor_id": actor_id,
-        "name": actor.get("name"),
-        "attributes": actor.get("attributes", {}),
-        "skills": actor.get("skills", {}),
-        "custom_skills": actor.get("custom_skills", {}),
-        "custom_skill_notes": actor.get("custom_skill_notes", {}),
-        "known_spells": actor.get("known_spells", {}),
-        "feats": actor.get("feats", {}),
-        "equipment": actor.get("equipment", {}),
-        "inventory": actor.get("inventory", {}),
-        "item_notes": actor.get("item_notes", {}),
-        "conditions": actor.get("conditions", []),
-        "active_effects": actor.get("active_effects", {}),
-        "notes": actor.get("notes", ""),
-    }
+    try:
+        return engine.build_actor_detail(actor_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/state/campaign/detail")

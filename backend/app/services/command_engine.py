@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from typing import Any, Callable
+from uuid import uuid4
 
 from app.domain.models import (
     CommandExecutionRequest,
@@ -20,6 +22,7 @@ COMMAND_PATTERN = re.compile(
 )
 
 BUILDER_DELIMITERS = ("::", ";;", "|")
+HELD_SLOTS = ("main_hand", "off_hand", "focus")
 
 
 class CommandEngine:
@@ -98,6 +101,9 @@ class CommandEngine:
     def build_overview(self, actor_id: str) -> StateOverview:
         character_state = self.repository.load_character_state()
         actor = self._require_actor(character_state, actor_id)
+        equipment, migrated = self._ensure_equipment_model(actor)
+        if migrated:
+            self.repository.save_character_state(character_state)
         scene_state = self.repository.load_scene_state()
         campaign_state = self.repository.load_campaign_state()
         active_quests = [name for name, quest in campaign_state.get("quests", {}).items() if quest.get("status") == "active"]
@@ -109,11 +115,36 @@ class CommandEngine:
             spell_slots=actor["spell_slots"],
             gold=actor["gold"],
             inventory=actor.get("inventory", {}),
-            equipment=self._build_overview_equipment(actor.get("equipment", {})),
+            equipment=self._build_overview_equipment(equipment),
             current_scene_id=scene_state.get("scene_id", "unknown_scene"),
             current_location=scene_state.get("location", "Unknown Location"),
             active_quests=active_quests,
         )
+
+    def build_actor_detail(self, actor_id: str) -> dict[str, Any]:
+        character_state = self.repository.load_character_state()
+        actor = deepcopy(self._require_actor(character_state, actor_id))
+        equipment, _ = self._ensure_equipment_model(actor)
+        equipment["accessories"] = [
+            deepcopy(entry) for entry in equipment.get("worn_items", []) if entry.get("category") == "accessory"
+        ]
+        equipment["worn_item_layers"] = self._group_worn_items_by_region(equipment.get("worn_items", []))
+        return {
+            "actor_id": actor_id,
+            "name": actor.get("name"),
+            "attributes": actor.get("attributes", {}),
+            "skills": actor.get("skills", {}),
+            "custom_skills": actor.get("custom_skills", {}),
+            "custom_skill_notes": actor.get("custom_skill_notes", {}),
+            "known_spells": actor.get("known_spells", {}),
+            "feats": actor.get("feats", {}),
+            "equipment": equipment,
+            "inventory": actor.get("inventory", {}),
+            "item_notes": actor.get("item_notes", {}),
+            "conditions": actor.get("conditions", []),
+            "active_effects": actor.get("active_effects", {}),
+            "notes": actor.get("notes", ""),
+        }
 
     def _dispatch(self, actor_id: str, scene_id: str | None, invocation: CommandInvocation) -> CommandExecutionResult:
         handler = self.command_handlers.get(invocation.name)
@@ -263,28 +294,82 @@ class CommandEngine:
 
         character_state = self.repository.load_character_state()
         actor = self._require_actor(character_state, actor_id)
+        equipment, migrated = self._ensure_equipment_model(actor)
         inventory = actor.setdefault("inventory", {})
         canonical_item = self._find_inventory_item(inventory, invocation.argument)
         if canonical_item is None:
             return CommandExecutionResult(name=invocation.name, argument=invocation.argument, ok=False, message=f"{actor['name']} does not have '{invocation.argument}'.")
 
-        item_def = self.repository.load_item_registry().get("items", {}).get(canonical_item.lower())
-        slot = (item_def or {}).get("equippable_slot")
-        if not slot:
-            return CommandExecutionResult(name=invocation.name, argument=canonical_item, ok=False, message=f"{canonical_item} is not equippable.")
+        item_def = self.repository.load_item_registry().get("items", {}).get(canonical_item.lower(), {})
+        quantity_owned = int(inventory.get(canonical_item, 0))
+        equipped_count = self._count_active_item_assignments(equipment, canonical_item)
 
-        equipment = actor.setdefault("equipment", {})
-        before = equipment.get(slot)
-        equipment[slot] = canonical_item
+        slot = item_def.get("equippable_slot")
+        if slot in HELD_SLOTS:
+            held = equipment.setdefault("held", self._default_held())
+            before = held.get(slot)
+            if before == canonical_item:
+                if migrated:
+                    self.repository.save_character_state(character_state)
+                return CommandExecutionResult(
+                    name=invocation.name,
+                    argument=canonical_item,
+                    ok=True,
+                    message=f"{canonical_item} is already assigned to {slot}.",
+                    data={"slot": slot, "already_equipped": True},
+                )
+            if equipped_count >= quantity_owned:
+                return CommandExecutionResult(
+                    name=invocation.name,
+                    argument=canonical_item,
+                    ok=False,
+                    message=f"No unassigned copy of {canonical_item} remains to equip.",
+                )
+            held[slot] = canonical_item
+            self.repository.save_character_state(character_state)
+            mutation = StateMutation(kind="set", path=f"actors.{actor_id}.equipment.held.{slot}", before=before, after=canonical_item, note="Held slot updated.")
+            return CommandExecutionResult(
+                name=invocation.name,
+                argument=canonical_item,
+                ok=True,
+                message=f"{actor['name']} equips {canonical_item} in slot '{slot}'.",
+                mutations=[mutation],
+                data={"slot": slot},
+            )
+
+        if not self._is_wearable_item(item_def):
+            if migrated:
+                self.repository.save_character_state(character_state)
+            return CommandExecutionResult(name=invocation.name, argument=canonical_item, ok=False, message=f"{canonical_item} is not equippable or wearable.")
+
+        if equipped_count >= quantity_owned:
+            return CommandExecutionResult(
+                name=invocation.name,
+                argument=canonical_item,
+                ok=False,
+                message=f"No unworn copy of {canonical_item} remains to wear.",
+            )
+
+        worn_items = equipment.setdefault("worn_items", [])
+        before_len = len(worn_items)
+        worn_entry = self._build_worn_entry(canonical_item, item_def, worn_items)
+        worn_items.append(worn_entry)
         self.repository.save_character_state(character_state)
-        mutation = StateMutation(kind="set", path=f"actors.{actor_id}.equipment.{slot}", before=before, after=canonical_item, note="Equipped item set.")
+        layer_summary = ", ".join(f"{placement['region']}[{placement['layer']}]" for placement in worn_entry.get("placements", []))
+        mutation = StateMutation(
+            kind="append",
+            path=f"actors.{actor_id}.equipment.worn_items",
+            before=before_len,
+            after=before_len + 1,
+            note=f"Worn item entry added for {canonical_item}.",
+        )
         return CommandExecutionResult(
             name=invocation.name,
             argument=canonical_item,
             ok=True,
-            message=f"{actor['name']} equips {canonical_item} in slot '{slot}'.",
+            message=f"{actor['name']} wears {canonical_item} ({layer_summary}).",
             mutations=[mutation],
-            data={"slot": slot},
+            data={"worn_entry": worn_entry},
         )
 
     def _handle_quest(self, actor_id: str, invocation: CommandInvocation) -> CommandExecutionResult:
@@ -360,18 +445,18 @@ class CommandEngine:
         previous_registry = item_registry.get(canonical_item.lower())
 
         item_registry[canonical_item.lower()] = {
-          "name": canonical_item,
-          "kind": item_kind,
-          "consumable": item_kind.lower() == "consumable",
-          "description": description,
-          "narration_hint": description,
+            "name": canonical_item,
+            "kind": item_kind,
+            "consumable": item_kind.lower() == "consumable",
+            "description": description,
+            "narration_hint": description,
         }
 
         item_notes[canonical_item] = {
-          "description": description,
-          "tags": [item_kind.lower(), "player_defined"],
-          "source": "builder_command",
-          "active": True,
+            "description": description,
+            "tags": [item_kind.lower(), "player_defined"],
+            "source": "builder_command",
+            "active": True,
         }
 
         self.repository.save_character_state(character_state)
@@ -497,6 +582,218 @@ class CommandEngine:
             raise KeyError(f"Unknown actor_id '{actor_id}'.")
         return actors[actor_id]
 
+    def _ensure_equipment_model(self, actor: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        equipment = actor.setdefault("equipment", {})
+        migrated = False
+
+        if "held" in equipment and "worn_items" in equipment:
+            normalized = {
+                "held": self._normalize_held(equipment.get("held", {}), equipment),
+                "worn_items": self._normalize_worn_items(equipment.get("worn_items", [])),
+            }
+            if equipment != normalized:
+                actor["equipment"] = normalized
+                migrated = True
+            return actor["equipment"], migrated
+
+        worn_items: list[dict[str, Any]] = []
+        legacy_accessories = equipment.get("accessories") or equipment.get("jewelry") or []
+        legacy_clothing = equipment.get("worn_clothing") or []
+        legacy_armor = equipment.get("armor_pieces") or []
+        cloak = equipment.get("cloak")
+
+        for entry in legacy_accessories:
+            worn_items.append(self._normalize_worn_item_entry(entry, default_category="accessory"))
+        for entry in legacy_clothing:
+            worn_items.append(self._normalize_worn_item_entry(entry, default_category="clothing"))
+        for entry in legacy_armor:
+            worn_items.append(self._normalize_worn_item_entry(entry, default_category="armor"))
+        if cloak:
+            worn_items.append(self._normalize_worn_item_entry({"item": cloak, "kind": "cloak", "wear_location": "shoulders", "worn": True}, default_category="clothing"))
+
+        actor["equipment"] = {
+            "held": self._normalize_held({}, equipment),
+            "worn_items": self._normalize_worn_items(worn_items),
+        }
+        return actor["equipment"], True
+
+    def _normalize_held(self, held: dict[str, Any], legacy_equipment: dict[str, Any] | None = None) -> dict[str, str | None]:
+        legacy_equipment = legacy_equipment or {}
+        return {
+            "main_hand": self._clean_slot_value(held.get("main_hand", legacy_equipment.get("main_hand"))),
+            "off_hand": self._clean_slot_value(held.get("off_hand", legacy_equipment.get("off_hand"))),
+            "focus": self._clean_slot_value(held.get("focus", legacy_equipment.get("focus"))),
+        }
+
+    def _clean_slot_value(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return value.get("item") or value.get("name")
+        return str(value)
+
+    def _normalize_worn_items(self, worn_items: list[Any]) -> list[dict[str, Any]]:
+        return [self._normalize_worn_item_entry(entry) for entry in worn_items]
+
+    def _normalize_worn_item_entry(self, entry: Any, default_category: str | None = None) -> dict[str, Any]:
+        raw = entry if isinstance(entry, dict) else {"item": entry}
+        item_name = raw.get("item") or raw.get("name") or "unknown item"
+        category = raw.get("category") or default_category or self._infer_category_from_kind(raw.get("kind"))
+        kind = raw.get("kind") or category or "misc"
+        placements = self._normalize_placements(raw.get("placements"), raw.get("wear_location"), raw.get("layer"), category, kind, item_name)
+        return {
+            "entry_id": raw.get("entry_id") or f"wear_{uuid4().hex[:8]}",
+            "item": item_name,
+            "category": category,
+            "kind": kind,
+            "worn": bool(raw.get("worn", True)),
+            "placements": placements,
+            "notes": raw.get("notes"),
+        }
+
+    def _normalize_placements(
+        self,
+        placements_raw: Any,
+        legacy_wear_location: Any,
+        legacy_layer: Any,
+        category: str,
+        kind: str,
+        item_name: str,
+    ) -> list[dict[str, Any]]:
+        placements: list[dict[str, Any]] = []
+        if isinstance(placements_raw, list):
+            for placement in placements_raw:
+                if not isinstance(placement, dict):
+                    continue
+                region = self._normalize_region(placement.get("region") or placement.get("wear_location"))
+                if not region:
+                    continue
+                placements.append({"region": region, "layer": max(1, self._safe_int(placement.get("layer"), 1))})
+        elif legacy_wear_location:
+            region = self._normalize_region(legacy_wear_location)
+            if region:
+                placements.append({"region": region, "layer": max(1, self._safe_int(legacy_layer, 1))})
+
+        if placements:
+            return placements
+        return self._infer_default_placements(category, kind, item_name)
+
+    def _infer_category_from_kind(self, kind: Any) -> str:
+        value = self._normalize(str(kind or ""))
+        if any(token in value for token in ("ring", "amulet", "necklace", "bracelet", "brooch", "circlet", "accessory")):
+            return "accessory"
+        if any(token in value for token in ("armor", "mail", "gambison", "brigandine", "plate")):
+            return "armor"
+        return "clothing"
+
+    def _infer_default_placements(self, category: str, kind: str, item_name: str) -> list[dict[str, Any]]:
+        kind_value = self._normalize(kind)
+        item_value = self._normalize(item_name)
+        if "ring" in kind_value or "ring" in item_value:
+            return [{"region": "left_hand", "layer": 1}]
+        if any(token in kind_value for token in ("amulet", "necklace", "pendant")):
+            return [{"region": "neck", "layer": 1}]
+        if "cloak" in kind_value or "cloak" in item_value:
+            return [{"region": "shoulders", "layer": 3}, {"region": "back", "layer": 3}]
+        if "shirt" in kind_value or "shirt" in item_value:
+            return [{"region": "torso", "layer": 1}, {"region": "arms", "layer": 1}]
+        if any(token in kind_value for token in ("doublet", "jacket", "coat")):
+            return [{"region": "torso", "layer": 2}, {"region": "arms", "layer": 2}]
+        if any(token in kind_value for token in ("gambison", "padded armor")):
+            return [{"region": "torso", "layer": 2}, {"region": "arms", "layer": 2}]
+        if any(token in kind_value for token in ("mail", "chainmail", "mail shirt")):
+            return [{"region": "torso", "layer": 3}, {"region": "arms", "layer": 3}]
+        if category == "accessory":
+            return [{"region": "neck", "layer": 1}]
+        if category == "armor":
+            return [{"region": "torso", "layer": 2}]
+        return [{"region": "torso", "layer": 1}]
+
+    def _is_wearable_item(self, item_def: dict[str, Any]) -> bool:
+        if item_def.get("wear"):
+            return True
+        return self._infer_category_from_kind(item_def.get("kind")) in {"accessory", "clothing", "armor"}
+
+    def _build_worn_entry(self, item_name: str, item_def: dict[str, Any], existing_worn_items: list[dict[str, Any]]) -> dict[str, Any]:
+        wear_info = item_def.get("wear", {})
+        category = wear_info.get("category") or self._infer_category_from_kind(item_def.get("kind"))
+        kind = wear_info.get("kind") or item_def.get("kind") or category
+        base_placements = self._normalize_placements(
+            wear_info.get("placements"),
+            wear_info.get("wear_location"),
+            wear_info.get("layer"),
+            category,
+            kind,
+            item_name,
+        )
+        layer_shift = self._compute_layer_shift(existing_worn_items, base_placements)
+        shifted_placements = [{"region": placement["region"], "layer": placement["layer"] + layer_shift} for placement in base_placements]
+        return {
+            "entry_id": f"wear_{uuid4().hex[:8]}",
+            "item": item_name,
+            "category": category,
+            "kind": kind,
+            "worn": True,
+            "placements": shifted_placements,
+            "notes": wear_info.get("notes") or item_def.get("description") or item_def.get("narration_hint"),
+        }
+
+    def _compute_layer_shift(self, existing_worn_items: list[dict[str, Any]], requested_placements: list[dict[str, Any]]) -> int:
+        offset = 0
+        while True:
+            conflict = False
+            for requested in requested_placements:
+                target_region = requested["region"]
+                target_layer = requested["layer"] + offset
+                for worn_entry in existing_worn_items:
+                    if not worn_entry.get("worn", True):
+                        continue
+                    for placement in worn_entry.get("placements", []):
+                        if self._normalize_region(placement.get("region")) != target_region:
+                            continue
+                        if self._safe_int(placement.get("layer"), 1) == target_layer:
+                            conflict = True
+                            break
+                    if conflict:
+                        break
+                if conflict:
+                    break
+            if not conflict:
+                return offset
+            offset += 1
+
+    def _count_active_item_assignments(self, equipment: dict[str, Any], item_name: str) -> int:
+        total = 0
+        held = equipment.get("held", {})
+        total += sum(1 for value in held.values() if value == item_name)
+        total += sum(1 for entry in equipment.get("worn_items", []) if entry.get("item") == item_name and entry.get("worn", True))
+        return total
+
+    def _group_worn_items_by_region(self, worn_items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for entry in worn_items:
+            if not entry.get("worn", True):
+                continue
+            for placement in entry.get("placements", []):
+                region = self._normalize_region(placement.get("region"))
+                if not region:
+                    continue
+                grouped.setdefault(region, []).append(
+                    {
+                        "entry_id": entry.get("entry_id"),
+                        "item": entry.get("item"),
+                        "category": entry.get("category"),
+                        "kind": entry.get("kind"),
+                        "layer": self._safe_int(placement.get("layer"), 1),
+                        "notes": entry.get("notes"),
+                    }
+                )
+        for region in grouped:
+            grouped[region].sort(key=lambda entry: (entry.get("layer", 0), entry.get("item", "")))
+        return grouped
+
     def _find_inventory_item(self, inventory: dict[str, int], raw_name: str) -> str | None:
         normalized = self._normalize(raw_name)
         for name in inventory:
@@ -513,13 +810,9 @@ class CommandEngine:
                     return payload.get("name") or key
         return None
 
-    def _build_overview_equipment(self, raw_equipment: dict[str, Any]) -> dict[str, str | None]:
-        compact_slots = ("main_hand", "off_hand", "cloak", "focus")
-        compact_equipment: dict[str, str | None] = {}
-        for slot in compact_slots:
-            value = raw_equipment.get(slot)
-            compact_equipment[slot] = value if isinstance(value, str) or value is None else str(value)
-        return compact_equipment
+    def _build_overview_equipment(self, equipment: dict[str, Any]) -> dict[str, str | None]:
+        held = equipment.get("held", {}) if isinstance(equipment, dict) else {}
+        return {slot: self._clean_slot_value(held.get(slot)) for slot in HELD_SLOTS}
 
     def _parse_new_target(self, raw_argument: str) -> tuple[str, str]:
         for delimiter in BUILDER_DELIMITERS:
@@ -547,7 +840,7 @@ class CommandEngine:
     def _join_builder_parts(self, parts: list[str]) -> str:
         return " :: ".join(parts)
 
-    def _safe_int(self, raw_value: str, default: int) -> int:
+    def _safe_int(self, raw_value: Any, default: int) -> int:
         try:
             return int(raw_value)
         except (TypeError, ValueError):
@@ -558,3 +851,9 @@ class CommandEngine:
 
     def _normalize_key(self, value: str) -> str:
         return self._normalize(value).replace(" ", "_")
+
+    def _normalize_region(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = self._normalize(str(value))
+        return normalized.replace(" ", "_") or None

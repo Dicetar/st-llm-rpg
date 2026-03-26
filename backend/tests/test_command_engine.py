@@ -43,9 +43,36 @@ def test_equip_dagger_sets_main_hand(tmp_path):
     repository = make_repo(tmp_path)
     engine = CommandEngine(repository)
     response = engine.execute(CommandExecutionRequest(actor_id="player", commands=[{"name": "equip", "argument": "ceremonial dagger"}]))
-    updated = repository.load_character_state()["actors"]["player"]["equipment"]["main_hand"]
+    updated = repository.load_character_state()["actors"]["player"]["equipment"]["held"]["main_hand"]
     assert response.results[0].ok is True
     assert updated == "ceremonial dagger"
+
+
+def test_equip_multiple_shirts_auto_shifts_layer_upward(tmp_path):
+    repository = make_repo(tmp_path)
+    engine = CommandEngine(repository)
+    state = repository.load_character_state()
+    actor = state["actors"]["player"]
+    actor["equipment"] = {
+        "held": {"main_hand": None, "off_hand": None, "focus": None},
+        "worn_items": [],
+    }
+    actor["inventory"]["linen shirt"] = 2
+    repository.save_character_state(state)
+
+    first = engine.execute(CommandExecutionRequest(actor_id="player", commands=[{"name": "equip", "argument": "linen shirt"}]))
+    second = engine.execute(CommandExecutionRequest(actor_id="player", commands=[{"name": "equip", "argument": "linen shirt"}]))
+    updated = repository.load_character_state()["actors"]["player"]["equipment"]["worn_items"]
+    torso_layers = sorted(
+        placement["layer"]
+        for entry in updated
+        for placement in entry["placements"]
+        if placement["region"] == "torso"
+    )
+
+    assert first.results[0].ok is True
+    assert second.results[0].ok is True
+    assert torso_layers == [1, 2]
 
 
 def test_new_custom_skill_creates_skill(tmp_path):

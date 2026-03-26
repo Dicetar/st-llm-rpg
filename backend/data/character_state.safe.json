@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "actors": {
     "player": {
       "actor_id": "player",
@@ -128,26 +128,55 @@
         }
       },
       "equipment": {
-        "main_hand": null,
-        "off_hand": null,
-        "cloak": null,
-        "focus": null,
-        "worn_clothing": [],
-        "jewelry": [
+        "held": {
+          "main_hand": null,
+          "off_hand": null,
+          "focus": null
+        },
+        "worn_items": [
           {
+            "entry_id": "wear_seed_ring",
             "item": "House Harcourt signet ring",
+            "category": "accessory",
             "kind": "ring",
-            "wear_location": "left hand",
             "worn": true,
+            "placements": [
+              {
+                "region": "left_hand",
+                "layer": 1
+              }
+            ],
             "notes": "Formal seal of identity and authority within House Harcourt."
+          },
+          {
+            "entry_id": "wear_seed_shirt",
+            "item": "linen shirt",
+            "category": "clothing",
+            "kind": "shirt",
+            "worn": true,
+            "placements": [
+              {
+                "region": "torso",
+                "layer": 1
+              },
+              {
+                "region": "arms",
+                "layer": 1
+              }
+            ],
+            "notes": "A light inner layer worn against the skin."
           }
-        ],
-        "armor_pieces": []
+        ]
       },
       "inventory": {
         "health potion": 2,
         "ceremonial dagger": 1,
         "wand of suggestion": 1,
+        "house harcourt signet ring": 1,
+        "linen shirt": 2,
+        "house doublet": 1,
+        "gambison": 1,
+        "chainmail shirt": 1,
         "spellbook": 1,
         "journal (leather-bound, half-filled)": 1,
         "silver grooming kit": 1
@@ -171,6 +200,36 @@
           "source": "seed_data",
           "active": true
         },
+        "House Harcourt signet ring": {
+          "description": "Formal seal of identity and authority within House Harcourt.",
+          "tags": ["accessory", "ring", "noble"],
+          "source": "seed_data",
+          "active": true
+        },
+        "linen shirt": {
+          "description": "A soft undershirt intended as the first torso and arm layer.",
+          "tags": ["clothing", "layering", "shirt"],
+          "source": "seed_data",
+          "active": true
+        },
+        "house doublet": {
+          "description": "A fitted noble outer garment meant to sit over lighter layers.",
+          "tags": ["clothing", "noble", "outerwear"],
+          "source": "seed_data",
+          "active": true
+        },
+        "gambison": {
+          "description": "A padded arming garment that naturally wants a higher torso layer than a shirt.",
+          "tags": ["armor", "padding", "layering"],
+          "source": "seed_data",
+          "active": true
+        },
+        "chainmail shirt": {
+          "description": "Heavy interlinked mail that usually rides over padded layers.",
+          "tags": ["armor", "mail", "layering"],
+          "source": "seed_data",
+          "active": true
+        },
         "spellbook": {
           "description": "Dark leather volume of known spells, annotations, and private arcane study.",
           "tags": ["magic", "study", "arcane"],
@@ -190,7 +249,7 @@
           "active": true
         }
       },
-      "notes": "Sanitized bootstrap actor state for backend prototyping. Expanded with richer but gameplay-safe detail fields."
+      "notes": "Sanitized bootstrap actor state for backend prototyping. Expanded with held slots plus layered worn items."
     }
   }
 }
