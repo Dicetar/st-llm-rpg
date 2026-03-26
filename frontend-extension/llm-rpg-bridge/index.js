@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   sectionOpen: {
     overview: true,
     inventory: true,
+    builder: false,
     quests: false,
     events: false,
     log: true,
@@ -462,9 +463,116 @@ function makePanelDraggable(panel, handle, settingKey, defaultBuilder) {
   });
 }
 
-function renderDetailSummaryList(items, formatter) {
-  if (!items || !items.length) return '<div class="llm-rpg-empty">—</div>';
-  return `<ul class="llm-rpg-detail-list">${items.map(item => `<li>${formatter(item)}</li>`).join('')}</ul>`;
+function getBuilderConfig(type) {
+  switch (type) {
+    case 'spell':
+      return {
+        commandName: 'new_spell',
+        secondaryLabel: 'Level',
+        secondaryPlaceholder: '1',
+        tertiaryLabel: 'School',
+        tertiaryPlaceholder: 'transmutation',
+        descriptionLabel: 'Description',
+        descriptionPlaceholder: 'Slow the fall of nearby creatures.',
+        showTertiary: true,
+      };
+    case 'item':
+      return {
+        commandName: 'new_item',
+        secondaryLabel: 'Quantity',
+        secondaryPlaceholder: '2',
+        tertiaryLabel: 'Kind',
+        tertiaryPlaceholder: 'tool',
+        descriptionLabel: 'Description',
+        descriptionPlaceholder: '50 feet of braided hemp rope.',
+        showTertiary: true,
+      };
+    default:
+      return {
+        commandName: 'new_custom_skill',
+        secondaryLabel: 'Value',
+        secondaryPlaceholder: '3',
+        tertiaryLabel: 'Extra',
+        tertiaryPlaceholder: '',
+        descriptionLabel: 'Description',
+        descriptionPlaceholder: 'Competent in water movement and breath control.',
+        showTertiary: false,
+      };
+  }
+}
+
+function updateBuilderComposerForm() {
+  const type = document.querySelector('#llm-rpg-builder-type')?.value || 'custom_skill';
+  const config = getBuilderConfig(type);
+  const secondaryLabel = document.querySelector('#llm-rpg-builder-secondary-label');
+  const tertiaryLabel = document.querySelector('#llm-rpg-builder-tertiary-label');
+  const secondaryInput = document.querySelector('#llm-rpg-builder-secondary');
+  const tertiaryInput = document.querySelector('#llm-rpg-builder-tertiary');
+  const descriptionLabel = document.querySelector('#llm-rpg-builder-description-label');
+  const descriptionInput = document.querySelector('#llm-rpg-builder-description');
+  const tertiaryRow = document.querySelector('#llm-rpg-builder-tertiary-row');
+  const executeButton = document.querySelector('#llm-rpg-builder-submit');
+
+  if (secondaryLabel) secondaryLabel.textContent = config.secondaryLabel;
+  if (tertiaryLabel) tertiaryLabel.textContent = config.tertiaryLabel;
+  if (secondaryInput) secondaryInput.placeholder = config.secondaryPlaceholder;
+  if (tertiaryInput) tertiaryInput.placeholder = config.tertiaryPlaceholder;
+  if (descriptionLabel) descriptionLabel.textContent = config.descriptionLabel;
+  if (descriptionInput) descriptionInput.placeholder = config.descriptionPlaceholder;
+  if (tertiaryRow) tertiaryRow.style.display = config.showTertiary ? 'grid' : 'none';
+  if (executeButton) executeButton.textContent = `Create / Update ${type.replace('_', ' ')}`;
+}
+
+function buildBuilderCommandPayload() {
+  const type = document.querySelector('#llm-rpg-builder-type')?.value || 'custom_skill';
+  const config = getBuilderConfig(type);
+  const name = document.querySelector('#llm-rpg-builder-name')?.value?.trim() || '';
+  const secondary = document.querySelector('#llm-rpg-builder-secondary')?.value?.trim() || '';
+  const tertiary = document.querySelector('#llm-rpg-builder-tertiary')?.value?.trim() || '';
+  const description = document.querySelector('#llm-rpg-builder-description')?.value?.trim() || '';
+
+  if (!name) {
+    throw new Error('Builder requires a name.');
+  }
+
+  if (type === 'spell') {
+    return {
+      commandName: config.commandName,
+      argument: [name, secondary || '0', description || `Player-defined spell: ${name}.`, tertiary || 'custom'].join(' :: '),
+    };
+  }
+
+  if (type === 'item') {
+    return {
+      commandName: config.commandName,
+      argument: [name, secondary || '1', tertiary || 'misc', description || `Player-defined item: ${name}.`].join(' :: '),
+    };
+  }
+
+  return {
+    commandName: config.commandName,
+    argument: [name, secondary || '1', description || `Player-defined custom skill: ${name}.`].join(' :: '),
+  };
+}
+
+async function submitBuilderComposer() {
+  const payload = buildBuilderCommandPayload();
+  await commandCallback(payload.commandName, payload.argument);
+  notify(`${payload.commandName} sent to backend.`, 'success');
+}
+
+function clearBuilderComposer() {
+  const ids = [
+    '#llm-rpg-builder-name',
+    '#llm-rpg-builder-secondary',
+    '#llm-rpg-builder-tertiary',
+    '#llm-rpg-builder-description',
+  ];
+  for (const selector of ids) {
+    const element = document.querySelector(selector);
+    if (element) element.value = '';
+  }
+  updateBuilderComposerForm();
 }
 
 function renderActorDetail(actor) {
@@ -473,7 +581,12 @@ function renderActorDetail(actor) {
   const featNames = Object.keys(actor.feats || {});
   const spellNames = Object.values(actor.known_spells || {}).map(spell => spell.name || 'Unknown spell');
   const itemNoteNames = Object.keys(actor.item_notes || {});
-  const jewelry = Array.isArray(actor.equipment?.jewelry) ? actor.equipment.jewelry.map(item => item.item || item.kind || 'Jewelry') : [];
+  const accessoriesSource = Array.isArray(actor.equipment?.accessories)
+    ? actor.equipment.accessories
+    : Array.isArray(actor.equipment?.jewelry)
+      ? actor.equipment.jewelry
+      : [];
+  const accessories = accessoriesSource.map(item => item.item || item.kind || 'Accessory');
 
   return `
     <div class="llm-rpg-grid llm-rpg-detail-grid">
@@ -488,8 +601,8 @@ function renderActorDetail(actor) {
     ${renderSimpleArray(spellNames)}
     <h4>Feats</h4>
     ${renderSimpleArray(featNames)}
-    <h4>Jewelry</h4>
-    ${renderSimpleArray(jewelry)}
+    <h4>Accessories</h4>
+    ${renderSimpleArray(accessories)}
     <h4>Item Notes</h4>
     ${renderSimpleArray(itemNoteNames)}
   `;
@@ -736,6 +849,38 @@ async function dispatchRegisteredCommand(commandName, text) {
   return await commandCallback(commandName, text.trim());
 }
 
+function getBuilderComposerHtml() {
+  return `
+    <div class="llm-rpg-builder-grid">
+      <label for="llm-rpg-builder-type">Builder Type</label>
+      <select id="llm-rpg-builder-type">
+        <option value="custom_skill">Custom Skill</option>
+        <option value="spell">Spell</option>
+        <option value="item">Item</option>
+      </select>
+
+      <label for="llm-rpg-builder-name">Name</label>
+      <input id="llm-rpg-builder-name" type="text" placeholder="swimming" />
+
+      <label for="llm-rpg-builder-secondary" id="llm-rpg-builder-secondary-label">Value</label>
+      <input id="llm-rpg-builder-secondary" type="text" placeholder="3" />
+
+      <div id="llm-rpg-builder-tertiary-row" class="llm-rpg-builder-row">
+        <label for="llm-rpg-builder-tertiary" id="llm-rpg-builder-tertiary-label">Extra</label>
+        <input id="llm-rpg-builder-tertiary" type="text" placeholder="" />
+      </div>
+
+      <label for="llm-rpg-builder-description" id="llm-rpg-builder-description-label">Description</label>
+      <textarea id="llm-rpg-builder-description" rows="4" placeholder="Competent in water movement and breath control."></textarea>
+
+      <div class="llm-rpg-builder-actions">
+        <button id="llm-rpg-builder-submit" class="menu_button">Create / Update custom skill</button>
+        <button id="llm-rpg-builder-clear" class="menu_button">Clear</button>
+      </div>
+    </div>
+  `;
+}
+
 function getMainPanelHtml() {
   const settings = getSettings();
   const settingsInner = `
@@ -769,6 +914,7 @@ function getMainPanelHtml() {
 
       ${renderCollapsibleSection('overview', 'Overview', 'llm-rpg-overview')}
       ${renderCollapsibleSection('inventory', 'Inventory', 'llm-rpg-inventory')}
+      ${renderRawCollapsibleSection('builder', 'Builder / Composer', getBuilderComposerHtml())}
       ${renderCollapsibleSection('quests', 'Quests', 'llm-rpg-quests')}
       ${renderCollapsibleSection('events', 'Recent Events', 'llm-rpg-events')}
       ${renderCollapsibleSection('log', 'Last Executions', 'llm-rpg-log', 'llm-rpg-log', '<div class="llm-rpg-empty">No executions yet.</div>')}
@@ -902,6 +1048,19 @@ function mountPanel() {
     resetPanelPosition(inspector, 'inspectorPosition', buildInspectorDefaultPosition);
     notify('Inspector position reset.', 'info');
   });
+
+  document.querySelector('#llm-rpg-builder-type')?.addEventListener('change', updateBuilderComposerForm);
+  document.querySelector('#llm-rpg-builder-submit')?.addEventListener('click', async () => {
+    try {
+      await submitBuilderComposer();
+    } catch (error) {
+      notify(error.message, 'error');
+    }
+  });
+  document.querySelector('#llm-rpg-builder-clear')?.addEventListener('click', () => {
+    clearBuilderComposer();
+  });
+  updateBuilderComposerForm();
 
   for (const details of document.querySelectorAll('.llm-rpg-collapsible')) {
     details.addEventListener('toggle', () => {

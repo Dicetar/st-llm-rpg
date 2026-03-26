@@ -3,8 +3,10 @@
   top: 72px;
   left: calc(100vw - 376px);
   width: 360px;
+  min-height: 300px;
   max-height: calc(100vh - 32px);
   overflow: auto;
+  resize: vertical;
   background: rgba(20, 23, 29, 0.96);
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 14px;
@@ -26,6 +28,16 @@
 .llm-rpg-inspector-panel {
   width: 420px;
   z-index: 10000;
+}
+
+.llm-rpg-inspector-panel h4 {
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.llm-rpg-inspector-panel h4:first-of-type {
+  margin-top: 12px;
 }
 
 .llm-rpg-open-button {
@@ -90,7 +102,12 @@ body.llm-rpg-dragging {
 }
 
 .llm-rpg-section input,
-.llm-rpg-settings-grid input {
+.llm-rpg-section textarea,
+.llm-rpg-section select,
+.llm-rpg-settings-grid input,
+.llm-rpg-builder-grid input,
+.llm-rpg-builder-grid textarea,
+.llm-rpg-builder-grid select {
   width: 100%;
   box-sizing: border-box;
 }
@@ -249,7 +266,20 @@ body.llm-rpg-dragging {
   margin-top: 8px;
 }
 
-.llm-rpg-settings-grid {
+.llm-rpg-settings-grid,
+.llm-rpg-builder-grid {
   display: grid;
   gap: 8px;
+}
+
+.llm-rpg-builder-row {
+  display: grid;
+  gap: 8px;
+}
+
+.llm-rpg-builder-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
 }
