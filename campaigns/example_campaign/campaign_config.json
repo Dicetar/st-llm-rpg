@@ -1,0 +1,19 @@
+{
+  "campaign_id": "example_campaign",
+  "display_name": "Example Campaign",
+  "default_actor_id": "player",
+  "lm_studio": {
+    "base_url": "http://127.0.0.1:1234/v1",
+    "narrator_model": "YOUR_NARRATOR_MODEL",
+    "extractor_model": "YOUR_EXTRACTOR_MODEL_OR_SAME_MODEL"
+  },
+  "frontend": {
+    "default_panels": [
+      "overview",
+      "inventory",
+      "scene",
+      "quests",
+      "journal"
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PostTurnUpdates",
+  "type": "object",
+  "required": [
+    "proposed_updates"
+  ],
+  "properties": {
+    "proposed_updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "type",
+          "confidence"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {},
+          "reason": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}
