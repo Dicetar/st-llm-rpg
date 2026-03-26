@@ -212,7 +212,8 @@ function buildActionChatBlock(apiResponse) {
 
     if (Array.isArray(result.mutations) && result.mutations.length) {
       for (const mutation of result.mutations) {
-        lines.push(`- ${mutation.path || mutation.kind}: ${mutation.note || ''} (before=${JSON.stringify(mutation.before)} after=${JSON.stringify(mutation.after)})`);
+        const changeLabel = mutation.path || mutation.kind || 'change';
+        lines.push(`- ${changeLabel}`);
       }
     }
 
@@ -223,16 +224,21 @@ function buildActionChatBlock(apiResponse) {
   return lines.join('\n');
 }
 
-async function appendActionMessageToChat(apiResponse) {
+function buildInfoChatBlock(title, lines) {
+  const safeLines = Array.isArray(lines) ? lines : [String(lines ?? '')];
+  return [`[${title}]`, ...safeLines, `[/${title}]`].join('\n');
+}
+
+async function appendVisibleMessageToChat({ name, mes, extraType = 'rpg_info' }) {
   const context = getContextSafe();
   const message = {
-    name: 'RPG Action',
+    name,
     is_user: false,
     is_system: true,
-    mes: buildActionChatBlock(apiResponse),
+    mes,
     send_date: Date.now(),
     extra: {
-      type: 'rpg_action',
+      type: extraType,
     },
   };
 
@@ -256,13 +262,34 @@ async function appendActionMessageToChat(apiResponse) {
       await context.reloadCurrentChat();
     }
   } catch (error) {
-    warn('Failed to append visible RPG action message to chat.', error);
+    warn('Failed to append visible message to chat.', error);
   }
+}
+
+async function appendActionMessageToChat(apiResponse) {
+  await appendVisibleMessageToChat({
+    name: 'RPG Action',
+    mes: buildActionChatBlock(apiResponse),
+    extraType: 'rpg_action',
+  });
+}
+
+async function appendInfoMessageToChat(title, lines) {
+  await appendVisibleMessageToChat({
+    name: 'RPG Info',
+    mes: buildInfoChatBlock(title, lines),
+    extraType: 'rpg_info',
+  });
 }
 
 function appendExecutionLog(apiResponse) {
   const root = document.querySelector('#llm-rpg-log');
   if (!root) return;
+
+  if (!root.dataset.initialized) {
+    root.innerHTML = '';
+    root.dataset.initialized = 'true';
+  }
 
   const block = document.createElement('div');
   block.className = 'llm-rpg-log-entry';
@@ -274,12 +301,12 @@ function appendExecutionLog(apiResponse) {
   root.prepend(block);
 }
 
-function renderCollapsibleSection(sectionKey, title, contentId, contentClass = 'llm-rpg-box') {
+function renderCollapsibleSection(sectionKey, title, contentId, contentClass = 'llm-rpg-box', initialContent = 'Loading…') {
   const openAttr = isSectionOpen(sectionKey) ? 'open' : '';
   return `
     <details class="llm-rpg-section llm-rpg-collapsible" data-section="${escapeHtml(sectionKey)}" ${openAttr}>
       <summary class="llm-rpg-summary">${escapeHtml(title)}</summary>
-      <div id="${escapeHtml(contentId)}" class="${escapeHtml(contentClass)}">Loading…</div>
+      <div id="${escapeHtml(contentId)}" class="${escapeHtml(contentClass)}">${initialContent}</div>
     </details>
   `;
 }
@@ -390,7 +417,7 @@ function getPanelHtml() {
       ${renderCollapsibleSection('inventory', 'Inventory', 'llm-rpg-inventory')}
       ${renderCollapsibleSection('quests', 'Quests', 'llm-rpg-quests')}
       ${renderCollapsibleSection('events', 'Recent Events', 'llm-rpg-events')}
-      ${renderCollapsibleSection('log', 'Last Executions', 'llm-rpg-log', 'llm-rpg-log')}
+      ${renderCollapsibleSection('log', 'Last Executions', 'llm-rpg-log', 'llm-rpg-log', '<div class="llm-rpg-empty">—</div>')}
     </div>
 
     <button id="llm-rpg-open" class="menu_button llm-rpg-open-button">RPG</button>
@@ -541,19 +568,35 @@ async function registerSlashCommands() {
           }
 
           if (name === 'inventory') {
-            const overview = await requestJson('/state/inventory');
+            const inventory = await requestJson('/state/inventory');
             await refreshPanel();
-            return `[RPG INVENTORY]\n${JSON.stringify(overview, null, 2)}\n[/RPG INVENTORY]`;
+            const itemCount = Object.keys(inventory.inventory || {}).length;
+            await appendInfoMessageToChat('RPG Info', [
+              '/inventory — refreshed',
+              `${itemCount} tracked item ${itemCount === 1 ? 'entry' : 'entries'}.`,
+            ]);
+            return `[RPG INVENTORY]\n${JSON.stringify(inventory, null, 2)}\n[/RPG INVENTORY]`;
           }
 
           if (name === 'quest') {
             const quests = await requestJson('/state/quests');
             await refreshPanel();
+            const rawQuests = quests.active_quests || {};
+            const questCount = Array.isArray(rawQuests) ? rawQuests.length : Object.keys(rawQuests).length;
+            await appendInfoMessageToChat('RPG Info', [
+              '/quest — refreshed',
+              `${questCount} active ${questCount === 1 ? 'quest' : 'quests'}.`,
+            ]);
             return `[RPG QUESTS]\n${JSON.stringify(quests, null, 2)}\n[/RPG QUESTS]`;
           }
 
           if (name === 'journal') {
             const entries = await requestJson('/journal/entries');
+            const count = Array.isArray(entries.entries) ? entries.entries.length : 0;
+            await appendInfoMessageToChat('RPG Info', [
+              '/journal — refreshed',
+              `${count} recent ${count === 1 ? 'entry' : 'entries'} loaded.`,
+            ]);
             return `[RPG JOURNAL]\n${JSON.stringify(entries, null, 2)}\n[/RPG JOURNAL]`;
           }
 
