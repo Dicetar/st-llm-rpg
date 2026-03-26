@@ -1,0 +1,158 @@
+{
+  "date": {
+    "day_counter": 1,
+    "month_progress": 0,
+    "story_month": 0,
+    "label": "Day 1 of the story"
+  },
+  "current_arc": "Inheritance Awakening",
+  "quests": {
+    "House Expectations": {
+      "status": "active",
+      "note": "Maintain composure as heir while navigating House Harcourt's rituals, obligations, and scrutiny.",
+      "tags": ["house_expectations", "quest"],
+      "entities": ["Lavitz Harcourt", "House Harcourt"],
+      "importance": 4,
+      "last_updated_day": 1
+    },
+    "Understand the Awakening": {
+      "status": "active",
+      "note": "Learn what the draconic and fae inheritance changes mean, and how much can be controlled.",
+      "tags": ["understand_the_awakening", "quest"],
+      "entities": ["Lavitz Harcourt", "awakening"],
+      "importance": 4,
+      "last_updated_day": 1
+    }
+  },
+  "relationships": {
+    "Father": {
+      "score": 15,
+      "role": "dragonborn father",
+      "note": "Represents expectation, discipline, and command under pressure.",
+      "tags": ["dragonborn_father", "father"],
+      "entities": ["Father", "Lavitz Harcourt"],
+      "last_updated_day": 1
+    },
+    "Mother": {
+      "score": 20,
+      "role": "tiefling mother",
+      "note": "Represents hidden motives, glamour, social undercurrents, and perceptive guidance.",
+      "tags": ["tiefling_mother", "mother"],
+      "entities": ["Mother", "Lavitz Harcourt"],
+      "last_updated_day": 1
+    },
+    "Lyra": {
+      "score": 20,
+      "role": "close household companion",
+      "note": "Uncanny, intelligent, amused, dangerous. A frequent emotional touchstone and possible confidante.",
+      "tags": ["close_household_companion", "lyra"],
+      "entities": ["Lyra", "Lavitz Harcourt"],
+      "last_updated_day": 1
+    },
+    "Marcella": {
+      "score": 10,
+      "role": "household authority figure",
+      "note": "Socially fluent foil. Understands performance and appetite as power. Relationship is complicated and watchful.",
+      "tags": ["household_authority_figure", "marcella"],
+      "entities": ["Marcella", "Lavitz Harcourt"],
+      "last_updated_day": 1
+    },
+    "Elroy": {
+      "score": 30,
+      "role": "household contact",
+      "note": "Trusted companion and intellectual anchor. Useful for practical errands and overheard information.",
+      "tags": ["household_contact", "elroy"],
+      "entities": ["Elroy", "Lavitz Harcourt"],
+      "last_updated_day": 1
+    }
+  },
+  "journal": [],
+  "known_facts": [
+    {
+      "id": "fact_001",
+      "text": "Lavitz is the sole heir to House Harcourt.",
+      "tags": ["house_harcourt", "inheritance"],
+      "entities": ["House Harcourt"],
+      "importance": 2,
+      "source": "known_fact",
+      "day": 1,
+      "scene_id": null,
+      "quest_refs": [],
+      "npc_refs": []
+    },
+    {
+      "id": "fact_002",
+      "text": "His draconic and fae inheritance is already beginning to change him.",
+      "tags": ["awakening", "heritage"],
+      "entities": ["Lavitz Harcourt"],
+      "importance": 2,
+      "source": "known_fact",
+      "day": 1,
+      "scene_id": null,
+      "quest_refs": [],
+      "npc_refs": []
+    },
+    {
+      "id": "fact_003",
+      "text": "The House places heavy pressure on ritual, conduct, and public composure.",
+      "tags": ["nobility", "expectation"],
+      "entities": ["House Harcourt"],
+      "importance": 2,
+      "source": "known_fact",
+      "day": 1,
+      "scene_id": null,
+      "quest_refs": [],
+      "npc_refs": []
+    }
+  ],
+  "faction_standings": {
+    "House Harcourt": "Favored"
+  },
+  "plot_flags": ["awakening_active", "fae_gift_attuned"],
+  "recent_major_events": [
+    {
+      "id": "event_001",
+      "text": "The fae gift has already been acquired before the opening scene.",
+      "tags": ["fae_gift", "attunement"],
+      "entities": ["fae gift"],
+      "importance": 3,
+      "source": "major_event",
+      "day": 1,
+      "scene_id": null,
+      "quest_refs": [],
+      "npc_refs": []
+    },
+    {
+      "id": "event_002",
+      "text": "Stage 1 transformation traits are active at story start.",
+      "tags": ["awakening", "transformation"],
+      "entities": ["Lavitz Harcourt"],
+      "importance": 3,
+      "source": "major_event",
+      "day": 1,
+      "scene_id": null,
+      "quest_refs": [],
+      "npc_refs": []
+    }
+  ],
+  "plot_flag_notes": {
+    "awakening_active": {
+      "description": "Lavitz's transformation and inheritance awakening are currently active narrative pressures.",
+      "tags": ["awakening", "transformation", "active_flag"],
+      "entities": ["Lavitz Harcourt"],
+      "importance": 4,
+      "source": "plot_flag",
+      "last_updated_day": 1,
+      "active": true
+    },
+    "fae_gift_attuned": {
+      "description": "The fae gift is already bound and relevant to current play.",
+      "tags": ["fae_gift", "attunement", "active_flag"],
+      "entities": ["fae gift"],
+      "importance": 4,
+      "source": "plot_flag",
+      "last_updated_day": 1,
+      "active": true
+    }
+  }
+}
