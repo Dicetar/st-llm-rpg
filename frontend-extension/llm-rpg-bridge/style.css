@@ -414,3 +414,25 @@ body.llm-rpg-dragging {
 .llm-rpg-quest-item > .llm-rpg-box {
   margin-top: 8px;
 }
+
+/* Keep assigned gear only in Inspector, not in main panel inventory section */
+details[data-section="inventory"] > .llm-rpg-box > .llm-rpg-section-block:nth-child(2) {
+  display: none;
+}
+
+details[data-section="inventory"] > .llm-rpg-summary {
+  position: relative;
+  color: transparent;
+}
+
+details[data-section="inventory"] > .llm-rpg-summary::before {
+  color: rgba(255,255,255,0.92);
+}
+
+details[data-section="inventory"] > .llm-rpg-summary::after {
+  content: "Inventory";
+  position: absolute;
+  left: 18px;
+  top: 0;
+  color: rgba(255,255,255,0.92);
+}
