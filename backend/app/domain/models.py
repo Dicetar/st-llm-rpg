@@ -89,6 +89,7 @@ class TurnExecutionResponse(StrictModel):
     overview: StateOverview
     event_ids: list[str]
     narration_context: dict[str, Any]
+    lore_sync: dict[str, Any] = Field(default_factory=dict)
 
 
 class JournalEntryCreate(StrictModel):

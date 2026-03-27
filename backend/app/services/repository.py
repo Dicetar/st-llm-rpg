@@ -20,6 +20,7 @@ class JsonStateRepository:
         self.cast_registry_path = self.data_dir / "cast_registry.json"
         self.item_registry_path = self.data_dir / "item_registry.json"
         self.spell_registry_path = self.data_dir / "spell_registry.json"
+        self.lorebook_state_path = self.data_dir / "lorebook_state.json"
         self.event_log_path = self.storage_dir / "event_log.jsonl"
         self.journal_path = self.storage_dir / "journal_entries.jsonl"
 
@@ -28,6 +29,19 @@ class JsonStateRepository:
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _default_lorebook_state(self) -> dict[str, Any]:
+        return {
+            "schema_version": "0.1.0",
+            "revision": 0,
+            "updated_at": None,
+            "actors": {},
+            "items": {},
+            "quests": {},
+            "relationships": {},
+            "locations": {},
+            "timeline": [],
+        }
 
     def load_campaign_state(self) -> dict[str, Any]:
         with self._lock:
@@ -76,6 +90,18 @@ class JsonStateRepository:
     def save_spell_registry(self, payload: dict[str, Any]) -> None:
         with self._lock:
             self._write_json(self.spell_registry_path, payload)
+
+    def load_lorebook_state(self) -> dict[str, Any]:
+        with self._lock:
+            if not self.lorebook_state_path.exists():
+                payload = self._default_lorebook_state()
+                self._write_json(self.lorebook_state_path, payload)
+                return payload
+            return self._read_json(self.lorebook_state_path)
+
+    def save_lorebook_state(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._write_json(self.lorebook_state_path, payload)
 
     def append_event(self, payload: dict[str, Any]) -> None:
         with self._lock:

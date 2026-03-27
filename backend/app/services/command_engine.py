@@ -14,6 +14,7 @@ from app.domain.models import (
     StateOverview,
     TurnExecutionResponse,
 )
+from app.services.lore_update_service import LoreUpdateService
 from app.services.repository import JsonStateRepository
 
 COMMAND_PATTERN = re.compile(
@@ -28,6 +29,7 @@ HELD_SLOTS = ("main_hand", "off_hand", "focus")
 class CommandEngine:
     def __init__(self, repository: JsonStateRepository) -> None:
         self.repository = repository
+        self.lore_service = LoreUpdateService(repository)
         self.command_handlers: dict[str, Callable[[str, CommandInvocation], CommandExecutionResult]] = {
             "inventory": self._handle_inventory,
             "use_item": self._handle_use_item,
@@ -81,6 +83,11 @@ class CommandEngine:
             event_ids.append(event.id)
 
         overview = self.build_overview(request.actor_id)
+        lore_sync = self.lore_service.sync_from_canonical_state(
+            actor_id=request.actor_id,
+            command_results=[result.model_dump() for result in results],
+            scene_id=request.scene_id,
+        )
         narration_context = {
             "actor_id": request.actor_id,
             "scene": {
@@ -89,6 +96,7 @@ class CommandEngine:
             },
             "command_results": [result.model_dump() for result in results],
             "post_command_overview": overview.model_dump(),
+            "lore_sync": lore_sync,
         }
         return TurnExecutionResponse(
             parsed_commands=invocations,
@@ -96,6 +104,7 @@ class CommandEngine:
             overview=overview,
             event_ids=event_ids,
             narration_context=narration_context,
+            lore_sync=lore_sync,
         )
 
     def build_overview(self, actor_id: str) -> StateOverview:
@@ -625,6 +634,9 @@ class CommandEngine:
             "focus": self._clean_slot_value(held.get("focus", legacy_equipment.get("focus"))),
         }
 
+    def _default_held(self) -> dict[str, str | None]:
+        return {"main_hand": None, "off_hand": None, "focus": None}
+
     def _clean_slot_value(self, value: Any) -> str | None:
         if value is None:
             return None
@@ -653,15 +665,7 @@ class CommandEngine:
             "notes": raw.get("notes"),
         }
 
-    def _normalize_placements(
-        self,
-        placements_raw: Any,
-        legacy_wear_location: Any,
-        legacy_layer: Any,
-        category: str,
-        kind: str,
-        item_name: str,
-    ) -> list[dict[str, Any]]:
+    def _normalize_placements(self, placements_raw: Any, legacy_wear_location: Any, legacy_layer: Any, category: str, kind: str, item_name: str) -> list[dict[str, Any]]:
         placements: list[dict[str, Any]] = []
         if isinstance(placements_raw, list):
             for placement in placements_raw:
@@ -720,14 +724,7 @@ class CommandEngine:
         wear_info = item_def.get("wear", {})
         category = wear_info.get("category") or self._infer_category_from_kind(item_def.get("kind"))
         kind = wear_info.get("kind") or item_def.get("kind") or category
-        base_placements = self._normalize_placements(
-            wear_info.get("placements"),
-            wear_info.get("wear_location"),
-            wear_info.get("layer"),
-            category,
-            kind,
-            item_name,
-        )
+        base_placements = self._normalize_placements(wear_info.get("placements"), wear_info.get("wear_location"), wear_info.get("layer"), category, kind, item_name)
         layer_shift = self._compute_layer_shift(existing_worn_items, base_placements)
         shifted_placements = [{"region": placement["region"], "layer": placement["layer"] + layer_shift} for placement in base_placements]
         return {

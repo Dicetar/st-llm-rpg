@@ -3,6 +3,7 @@ import shutil
 
 from app.domain.models import CommandExecutionRequest
 from app.services.command_engine import CommandEngine
+from app.services.lore_update_service import LoreUpdateService
 from app.services.repository import JsonStateRepository
 
 
@@ -115,3 +116,28 @@ def test_generic_new_dispatches_to_custom_skill(tmp_path):
     updated_state = repository.load_character_state()["actors"]["player"]
     assert response.results[0].ok is True
     assert updated_state["custom_skills"]["swimming"] == 4
+
+
+def test_execute_syncs_lorebook_projection(tmp_path):
+    repository = make_repo(tmp_path)
+    engine = CommandEngine(repository)
+    response = engine.execute(CommandExecutionRequest(actor_id="player", commands=[{"name": "equip", "argument": "ceremonial dagger"}]))
+    lorebook = repository.load_lorebook_state()
+    actor_entry = lorebook["actors"]["player"]
+
+    assert response.lore_sync["actor_id"] == "player"
+    assert actor_entry["held_items"]["main_hand"] == "ceremonial dagger"
+    assert any(entry["command_name"] == "equip" for entry in lorebook["timeline"])
+
+
+def test_manual_lore_sync_picks_up_quest_note_changes(tmp_path):
+    repository = make_repo(tmp_path)
+    campaign = repository.load_campaign_state()
+    campaign["quests"]["House Expectations"]["note"] = "Updated through test sync."
+    repository.save_campaign_state(campaign)
+
+    lore_service = LoreUpdateService(repository)
+    lore_service.sync_from_canonical_state(actor_id="player", command_results=[])
+    lorebook = repository.load_lorebook_state()
+
+    assert lorebook["quests"]["house_expectations"]["note"] == "Updated through test sync."
