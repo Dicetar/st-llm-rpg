@@ -189,6 +189,73 @@ async function requestJson(path, options = {}) {
   return response.json();
 }
 
+async function saveQuestNote(questName, note) {
+  return requestJson('/state/quest-note', {
+    method: 'POST',
+    body: JSON.stringify({ quest_name: questName, note }),
+  });
+}
+
+function injectUiPatchStyles() {
+  if (document.getElementById('llm-rpg-inline-patch-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'llm-rpg-inline-patch-styles';
+  style.textContent = `
+    .llm-rpg-inventory-tools { margin-bottom: 10px; }
+    .llm-rpg-inventory-search { width: 100%; box-sizing: border-box; }
+    .llm-rpg-inventory-list { display: grid; gap: 6px; }
+    .llm-rpg-inventory-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .llm-rpg-inventory-main {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+    .llm-rpg-inventory-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+    .llm-rpg-inventory-help {
+      opacity: 0.55;
+      font-size: 11px;
+      flex: 0 0 auto;
+    }
+    .llm-rpg-quest-note-view {
+      white-space: pre-wrap;
+      line-height: 1.45;
+      font-size: 12px;
+      opacity: 0.94;
+    }
+    .llm-rpg-quest-note-editor {
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 110px;
+      margin-top: 8px;
+      margin-bottom: 8px;
+    }
+    .llm-rpg-quest-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .llm-rpg-hidden { display: none !important; }
+  `;
+  document.head.appendChild(style);
+}
+
 function renderKeyValueMap(map) {
   const entries = Object.entries(map || {});
   if (!entries.length) return '<div class="llm-rpg-empty">—</div>';
@@ -574,97 +641,44 @@ function splitInventoryAndAssignments(inventory, actorDetail) {
     const counts = assignmentSummary[normalizeKey(itemName)] || { held: 0, worn: 0 };
     const assigned = counts.held + counts.worn;
     const available = Math.max(0, Number(total || 0) - assigned);
-    if (available <= 0) {
-      continue;
-    }
+    if (available <= 0) continue;
     inventoryEntries.push({
       itemName,
       available,
       description: noteLookup[normalizeKey(itemName)]?.description || '',
+      searchText: `${itemName} ${noteLookup[normalizeKey(itemName)]?.description || ''}`.toLowerCase(),
     });
   }
 
   const heldEntries = Object.entries(actorDetail?.equipment?.held || {})
     .filter(([, item]) => Boolean(item))
-    .map(([slot, item]) => ({
-      slot,
-      item,
-      description: noteLookup[normalizeKey(item)]?.description || '',
-    }));
+    .map(([slot, item]) => ({ slot, item, description: noteLookup[normalizeKey(item)]?.description || '' }));
 
   const wornEntries = (actorDetail?.equipment?.worn_items || [])
     .filter(entry => entry?.worn !== false && entry?.item)
-    .map(entry => ({
-      ...entry,
-      description: entry.notes || noteLookup[normalizeKey(entry.item)]?.description || '',
-    }));
+    .map(entry => ({ ...entry, description: entry.notes || noteLookup[normalizeKey(entry.item)]?.description || '' }));
 
   return { inventoryEntries, heldEntries, wornEntries };
 }
 
 function renderInventoryAndAssignedGear(inventory, actorDetail) {
-  const { inventoryEntries, heldEntries, wornEntries } = splitInventoryAndAssignments(inventory, actorDetail);
-
-  const inventoryCards = inventoryEntries.map(({ itemName, available, description }) => `
-    <div class="llm-rpg-card llm-rpg-inventory-card" title="${escapeHtml(description || itemName)}">
-      <div class="llm-rpg-card-header">
-        <div class="llm-rpg-card-title-row">
-          <strong class="llm-rpg-card-title">${escapeHtml(itemName)}</strong>
-          ${renderBadge(`x${available}`, 'count')}
-        </div>
-      </div>
-      ${description ? renderDescription(description, '') : ''}
-    </div>
-  `).join('');
-
-  const heldCards = heldEntries.map(({ slot, item, description }) => `
-    <div class="llm-rpg-card" title="${escapeHtml(description || item)}">
-      <div class="llm-rpg-card-header">
-        <div class="llm-rpg-card-title-row">
-          <strong class="llm-rpg-card-title">${escapeHtml(item)}</strong>
-        </div>
-        <div class="llm-rpg-card-badges">
-          ${renderBadge(humanizeKey(slot), 'held')}
-        </div>
-      </div>
-      ${description ? renderDescription(description, '') : ''}
-    </div>
-  `).join('');
-
-  const wornCards = wornEntries.map(entry => `
-    <div class="llm-rpg-card" title="${escapeHtml(entry.description || entry.item)}">
-      <div class="llm-rpg-card-header">
-        <div class="llm-rpg-card-title-row">
-          <strong class="llm-rpg-card-title">${escapeHtml(entry.item)}</strong>
-        </div>
-        <div class="llm-rpg-card-badges">
-          ${renderBadge('Worn', 'worn')}
-          ${entry.category ? renderBadge(entry.category, 'category') : ''}
-          ${entry.kind ? renderBadge(entry.kind, 'kind') : ''}
-        </div>
-      </div>
-      ${entry.description ? renderDescription(entry.description, '') : ''}
-      ${(entry.placements || []).length
-        ? `<div class="llm-rpg-inline-note">${escapeHtml(entry.placements.map(placement => `${humanizeKey(placement.region)} [${placement.layer}]`).join(' • '))}</div>`
-        : ''}
-    </div>
-  `).join('');
+  const { inventoryEntries } = splitInventoryAndAssignments(inventory, actorDetail);
+  if (!inventoryEntries.length) return '<div class="llm-rpg-empty">—</div>';
 
   return `
-    <div class="llm-rpg-section-block">
-      <div class="llm-rpg-subheading">Inventory</div>
-      ${inventoryCards ? `<div class="llm-rpg-inventory-grid">${inventoryCards}</div>` : '<div class="llm-rpg-empty">—</div>'}
+    <div class="llm-rpg-inventory-tools">
+      <input id="llm-rpg-inventory-search" class="llm-rpg-inventory-search" type="text" placeholder="Search inventory by name or note..." />
     </div>
-    <div class="llm-rpg-section-block">
-      <div class="llm-rpg-subheading">Assigned Gear</div>
-      <div class="llm-rpg-assigned-group">
-        <div class="llm-rpg-subheading-minor">Held</div>
-        ${heldCards ? `<div class="llm-rpg-card-list">${heldCards}</div>` : '<div class="llm-rpg-empty">—</div>'}
-      </div>
-      <div class="llm-rpg-assigned-group">
-        <div class="llm-rpg-subheading-minor">Worn</div>
-        ${wornCards ? `<div class="llm-rpg-card-list">${wornCards}</div>` : '<div class="llm-rpg-empty">—</div>'}
-      </div>
+    <div id="llm-rpg-inventory-list" class="llm-rpg-inventory-list">
+      ${inventoryEntries.map(({ itemName, available, description, searchText }) => `
+        <div class="llm-rpg-inventory-row" title="${escapeHtml(description || itemName)}" data-search="${escapeHtml(searchText)}">
+          <div class="llm-rpg-inventory-main">
+            <span class="llm-rpg-inventory-name">${escapeHtml(itemName)}</span>
+            ${description ? '<span class="llm-rpg-inventory-help">ⓘ</span>' : ''}
+          </div>
+          ${renderBadge(`x${available}`, 'count')}
+        </div>
+      `).join('')}
     </div>
   `;
 }
@@ -905,16 +919,101 @@ function renderQuestAccordion(questsPayload) {
         note: value?.note || value?.description || '',
       }));
 
-  if (!questEntries.length) {
-    return '<div class="llm-rpg-empty">—</div>';
-  }
+  if (!questEntries.length) return '<div class="llm-rpg-empty">—</div>';
 
-  return questEntries.map((quest, index) => renderRawCollapsibleSection(
-    `quest_entry_${index}`,
-    quest.title,
-    quest.note ? `<div class="llm-rpg-quest-note">${escapeHtml(quest.note)}</div>` : '<div class="llm-rpg-empty">No quest note.</div>',
-    'llm-rpg-quest-entry'
-  )).join('');
+  return questEntries.map((quest, index) => {
+    const sectionKey = `quest_entry_${index}`;
+    const openAttr = isSectionOpen(sectionKey) ? 'open' : '';
+    return `
+      <details class="llm-rpg-section llm-rpg-collapsible llm-rpg-quest-item" data-section="${escapeHtml(sectionKey)}" data-quest-name="${escapeHtml(quest.key)}" ${openAttr}>
+        <summary class="llm-rpg-summary">${escapeHtml(quest.title)}</summary>
+        <div class="llm-rpg-box">
+          <div class="llm-rpg-quest-note-view">${escapeHtml(quest.note || 'No quest note.')}</div>
+          <textarea class="llm-rpg-quest-note-editor llm-rpg-hidden">${escapeHtml(quest.note || '')}</textarea>
+          <div class="llm-rpg-quest-actions">
+            <button type="button" class="menu_button llm-rpg-quest-edit-btn">Edit</button>
+            <button type="button" class="menu_button llm-rpg-quest-save-btn llm-rpg-hidden">Save</button>
+            <button type="button" class="menu_button llm-rpg-quest-cancel-btn llm-rpg-hidden">Cancel</button>
+          </div>
+        </div>
+      </details>
+    `;
+  }).join('');
+}
+
+function bindInventorySearchHandlers() {
+  const inventoryRoot = document.querySelector('#llm-rpg-inventory');
+  if (!inventoryRoot || inventoryRoot.dataset.inventorySearchBound === 'true') return;
+
+  inventoryRoot.addEventListener('input', (event) => {
+    const input = event.target.closest('#llm-rpg-inventory-search');
+    if (!input) return;
+    const query = input.value.trim().toLowerCase();
+    for (const row of inventoryRoot.querySelectorAll('.llm-rpg-inventory-row')) {
+      const haystack = row.dataset.search || '';
+      row.classList.toggle('llm-rpg-hidden', Boolean(query) && !haystack.includes(query));
+    }
+  });
+
+  inventoryRoot.dataset.inventorySearchBound = 'true';
+}
+
+function bindQuestEditorHandlers() {
+  const questsRoot = document.querySelector('#llm-rpg-quests');
+  if (!questsRoot || questsRoot.dataset.questEditorBound === 'true') return;
+
+  questsRoot.addEventListener('click', async (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+
+    const item = button.closest('.llm-rpg-quest-item');
+    if (!item) return;
+
+    const questName = item.dataset.questName;
+    const noteView = item.querySelector('.llm-rpg-quest-note-view');
+    const noteEditor = item.querySelector('.llm-rpg-quest-note-editor');
+    const editButton = item.querySelector('.llm-rpg-quest-edit-btn');
+    const saveButton = item.querySelector('.llm-rpg-quest-save-btn');
+    const cancelButton = item.querySelector('.llm-rpg-quest-cancel-btn');
+
+    if (!questName || !noteView || !noteEditor || !editButton || !saveButton || !cancelButton) return;
+
+    if (button.classList.contains('llm-rpg-quest-edit-btn')) {
+      noteEditor.dataset.originalValue = noteEditor.value;
+      noteView.classList.add('llm-rpg-hidden');
+      noteEditor.classList.remove('llm-rpg-hidden');
+      editButton.classList.add('llm-rpg-hidden');
+      saveButton.classList.remove('llm-rpg-hidden');
+      cancelButton.classList.remove('llm-rpg-hidden');
+      noteEditor.focus();
+      return;
+    }
+
+    if (button.classList.contains('llm-rpg-quest-cancel-btn')) {
+      noteEditor.value = noteEditor.dataset.originalValue || '';
+      noteEditor.classList.add('llm-rpg-hidden');
+      saveButton.classList.add('llm-rpg-hidden');
+      cancelButton.classList.add('llm-rpg-hidden');
+      noteView.classList.remove('llm-rpg-hidden');
+      editButton.classList.remove('llm-rpg-hidden');
+      return;
+    }
+
+    if (button.classList.contains('llm-rpg-quest-save-btn')) {
+      try {
+        saveButton.disabled = true;
+        await saveQuestNote(questName, noteEditor.value);
+        notify(`Updated quest note for ${questName}.`, 'success');
+        await refreshPanel();
+      } catch (error) {
+        notify(error.message, 'error');
+      } finally {
+        saveButton.disabled = false;
+      }
+    }
+  });
+
+  questsRoot.dataset.questEditorBound = 'true';
 }
 
 async function refreshPanel() {
@@ -959,6 +1058,8 @@ async function refreshPanel() {
       : '<div class="llm-rpg-empty">—</div>';
   }
 
+  bindInventorySearchHandlers();
+  bindQuestEditorHandlers();
   await refreshInspectorPanel({ actor: actorDetail });
 }
 
@@ -1251,7 +1352,7 @@ function getMainPanelHtml() {
       </div>
 
       ${renderCollapsibleSection('overview', 'Overview', 'llm-rpg-overview')}
-      ${renderCollapsibleSection('inventory', 'Inventory + Assigned Gear', 'llm-rpg-inventory')}
+      ${renderCollapsibleSection('inventory', 'Inventory', 'llm-rpg-inventory')}
       ${renderRawCollapsibleSection('builder', 'Builder / Composer', getBuilderComposerHtml())}
       ${renderCollapsibleSection('quests', 'Quests', 'llm-rpg-quests')}
       ${renderCollapsibleSection('events', 'Recent Events', 'llm-rpg-events')}
@@ -1403,20 +1504,14 @@ function mountPanel() {
   for (const details of document.querySelectorAll('.llm-rpg-collapsible')) {
     details.addEventListener('toggle', () => {
       const sectionKey = details.dataset.section;
-      if (sectionKey) {
-        setSectionOpen(sectionKey, details.open);
-      }
+      if (sectionKey) setSectionOpen(sectionKey, details.open);
     });
   }
 
   window.addEventListener('resize', clampOpenPanelsToViewport);
 
-  if (getSettings().showFloatingPanel) {
-    openPanel();
-  }
-  if (getSettings().inspectorOpen) {
-    openInspectorPanel();
-  }
+  if (getSettings().showFloatingPanel) openPanel();
+  if (getSettings().inspectorOpen) openInspectorPanel();
 }
 
 async function resolveSlashApi() {
@@ -1578,6 +1673,7 @@ async function bootstrap() {
   try {
     getSettings();
     mountPanel();
+    injectUiPatchStyles();
     await registerSlashCommands();
     if (getSettings().autoRefreshOnLoad) {
       await refreshPanel().catch(error => warn('Initial refresh failed.', error));
