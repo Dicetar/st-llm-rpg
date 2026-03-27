@@ -21,6 +21,14 @@ const DEFAULT_SETTINGS = Object.freeze({
     inspector_actor: true,
     inspector_scene: false,
     inspector_campaign: false,
+    actor_sub_overview: true,
+    actor_sub_held: true,
+    actor_sub_worn_layers: true,
+    actor_sub_worn_entries: false,
+    actor_sub_custom_skills: false,
+    actor_sub_spells: true,
+    actor_sub_feats: false,
+    actor_sub_item_notes: false,
   },
 });
 
@@ -365,10 +373,10 @@ function renderCollapsibleSection(sectionKey, title, contentId, contentClass = '
   `;
 }
 
-function renderRawCollapsibleSection(sectionKey, title, innerHtml) {
+function renderRawCollapsibleSection(sectionKey, title, innerHtml, extraClass = '') {
   const openAttr = isSectionOpen(sectionKey) ? 'open' : '';
   return `
-    <details class="llm-rpg-section llm-rpg-collapsible" data-section="${escapeHtml(sectionKey)}" ${openAttr}>
+    <details class="llm-rpg-section llm-rpg-collapsible ${escapeHtml(extraClass)}" data-section="${escapeHtml(sectionKey)}" ${openAttr}>
       <summary class="llm-rpg-summary">${escapeHtml(title)}</summary>
       <div class="llm-rpg-box">${innerHtml}</div>
     </details>
@@ -513,6 +521,40 @@ function buildNormalizedLookup(map) {
   return lookup;
 }
 
+function groupSpellsByLevel(actor) {
+  const groups = {};
+  const slotKeys = Object.keys(actor?.spell_slots || {});
+  for (const spell of Object.values(actor.known_spells || {})) {
+    const tags = Array.isArray(spell.tags) ? spell.tags : [];
+    let level = null;
+    if (tags.includes('cantrip')) {
+      level = 0;
+    } else {
+      for (const tag of tags) {
+        const match = String(tag).match(/^level[_\s-]?(\d+)$/i);
+        if (match) {
+          level = Number(match[1]);
+          break;
+        }
+      }
+    }
+    if (level === null) {
+      const loweredName = normalizeKey(spell.name || '');
+      if (loweredName === 'suggestion' || loweredName === 'dragon breath') level = 2;
+      else if (loweredName === 'charm person' || loweredName === 'command') level = 1;
+      else level = tags.includes('cantrip') ? 0 : null;
+    }
+    if (level === null) {
+      level = slotKeys.length ? Number(Math.min(...slotKeys.map(Number).filter(Number.isFinite))) : 0;
+    }
+    groups[level] = groups[level] || [];
+    groups[level].push(spell);
+  }
+  return Object.entries(groups)
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([level, spells]) => ({ level: Number(level), spells }));
+}
+
 function renderInventorySummary(inventory, actorDetail) {
   const entries = Object.entries(inventory || {}).sort((a, b) => a[0].localeCompare(b[0]));
   if (!entries.length) return '<div class="llm-rpg-empty">—</div>';
@@ -636,14 +678,27 @@ function renderCustomSkillCards(actor) {
   return renderEntityCards(cards, 'No custom skills.');
 }
 
-function renderSpellCards(actor) {
-  const cards = Object.values(actor.known_spells || {}).map(spell => ({
-    title: spell.name || 'Unknown spell',
-    description: spell.description || spell.notes || 'No spell description recorded.',
-    badges: Array.isArray(spell.tags) ? spell.tags.slice(0, 3).map(tag => renderBadge(tag, 'kind')) : [],
-    meta: spell.notes ? `<div class="llm-rpg-inline-note">${escapeHtml(spell.notes)}</div>` : '',
-  }));
-  return renderEntityCards(cards, 'No known spells.');
+function renderSpellLevelGroups(actor) {
+  const grouped = groupSpellsByLevel(actor);
+  if (!grouped.length) return '<div class="llm-rpg-empty">No known spells.</div>';
+  return `
+    <div class="llm-rpg-spell-groups">
+      ${grouped.map(group => `
+        <div class="llm-rpg-card llm-rpg-spell-group-card">
+          <div class="llm-rpg-card-header">
+            <strong class="llm-rpg-card-title">${group.level === 0 ? 'Cantrips' : `Level ${group.level}`}</strong>
+            ${renderBadge(`${group.spells.length} spell${group.spells.length === 1 ? '' : 's'}`, 'count')}
+          </div>
+          ${renderEntityCards(group.spells.map(spell => ({
+            title: spell.name || 'Unknown spell',
+            description: spell.description || spell.notes || 'No spell description recorded.',
+            badges: Array.isArray(spell.tags) ? spell.tags.slice(0, 3).map(tag => renderBadge(tag, 'kind')) : [],
+            meta: spell.notes ? `<div class="llm-rpg-inline-note">${escapeHtml(spell.notes)}</div>` : '',
+          })), 'No spells.')}
+        </div>
+      `).join('')}
+    </div>
+  `;
 }
 
 function renderFeatCards(actor) {
@@ -666,35 +721,27 @@ function renderItemNoteCards(actor) {
   return renderEntityCards(cards, 'No item notes.');
 }
 
+function renderActorSubsection(sectionKey, title, innerHtml) {
+  return renderRawCollapsibleSection(sectionKey, title, innerHtml, 'llm-rpg-actor-subsection');
+}
+
 function renderActorDetail(actor) {
-  const customSkillCount = Object.keys(actor.custom_skills || {}).length;
-  const spellCount = Object.keys(actor.known_spells || {}).length;
-  const featCount = Object.keys(actor.feats || {}).length;
   const wornCount = Array.isArray(actor.equipment?.worn_items) ? actor.equipment.worn_items.length : 0;
 
   return `
-    <div class="llm-rpg-grid llm-rpg-detail-grid">
-      <div><span>Actor</span><strong>${escapeHtml(actor.name || actor.actor_id || 'Unknown')}</strong></div>
-      <div><span>Custom Skills</span><strong>${escapeHtml(customSkillCount)}</strong></div>
-      <div><span>Known Spells</span><strong>${escapeHtml(spellCount)}</strong></div>
-      <div><span>Feats</span><strong>${escapeHtml(featCount)}</strong></div>
-      <div><span>Worn Entries</span><strong>${escapeHtml(wornCount)}</strong></div>
-      <div><span>Conditions</span><strong>${escapeHtml((actor.conditions || []).length)}</strong></div>
-    </div>
-    <h4>Held Slots</h4>
-    ${renderHeldSlots(actor.equipment?.held || {})}
-    <h4>Worn by Region & Layer</h4>
-    ${renderWornLayerGroups(actor.equipment?.worn_item_layers || {})}
-    <h4>Worn Item Entries</h4>
-    ${renderWornItemEntries(actor.equipment?.worn_items || [])}
-    <h4>Custom Skills</h4>
-    ${renderCustomSkillCards(actor)}
-    <h4>Known Spells</h4>
-    ${renderSpellCards(actor)}
-    <h4>Feats</h4>
-    ${renderFeatCards(actor)}
-    <h4>Item Notes</h4>
-    ${renderItemNoteCards(actor)}
+    ${renderActorSubsection('actor_sub_overview', 'Overview', `
+      <div class="llm-rpg-grid llm-rpg-detail-grid llm-rpg-actor-top-grid">
+        <div><span>Actor</span><strong>${escapeHtml(actor.name || actor.actor_id || 'Unknown')}</strong></div>
+        <div><span>Worn Entries</span><strong>${escapeHtml(wornCount)}</strong></div>
+      </div>
+    `)}
+    ${renderActorSubsection('actor_sub_held', 'Held Slots', renderHeldSlots(actor.equipment?.held || {}))}
+    ${renderActorSubsection('actor_sub_worn_layers', 'Worn by Region & Layer', renderWornLayerGroups(actor.equipment?.worn_item_layers || {}))}
+    ${renderActorSubsection('actor_sub_worn_entries', 'Worn Item Entries', renderWornItemEntries(actor.equipment?.worn_items || []))}
+    ${renderActorSubsection('actor_sub_custom_skills', 'Custom Skills', renderCustomSkillCards(actor))}
+    ${renderActorSubsection('actor_sub_spells', 'Known Spells', renderSpellLevelGroups(actor))}
+    ${renderActorSubsection('actor_sub_feats', 'Feats', renderFeatCards(actor))}
+    ${renderActorSubsection('actor_sub_item_notes', 'Item Notes', renderItemNoteCards(actor))}
   `;
 }
 
@@ -790,6 +837,16 @@ async function refreshInspectorPanel(prefetched = {}) {
   if (actorRoot) actorRoot.innerHTML = renderActorDetail(actor);
   if (sceneRoot) sceneRoot.innerHTML = renderSceneDetail(scene);
   if (campaignRoot) campaignRoot.innerHTML = renderCampaignDetail(campaign);
+
+  for (const details of document.querySelectorAll('#llm-rpg-inspector-actor .llm-rpg-collapsible')) {
+    if (!details.dataset.boundToggle) {
+      details.addEventListener('toggle', () => {
+        const sectionKey = details.dataset.section;
+        if (sectionKey) setSectionOpen(sectionKey, details.open);
+      });
+      details.dataset.boundToggle = 'true';
+    }
+  }
 }
 
 async function refreshPanel() {
@@ -812,6 +869,7 @@ async function refreshPanel() {
         <div><span>HP</span><strong>${escapeHtml(`${overview.hp_current ?? '?'} / ${overview.hp_max ?? '?'}`)}</strong></div>
         <div><span>Gold</span><strong>${escapeHtml(overview.gold ?? 0)}</strong></div>
         <div><span>Scene</span><strong>${escapeHtml(overview.current_location || overview.current_scene_id || 'Unknown')}</strong></div>
+        <div><span>Conditions</span><strong>${escapeHtml((actorDetail.conditions || []).length ? actorDetail.conditions.join(', ') : 'None')}</strong></div>
       </div>
       <h4>Spell Slots</h4>
       ${renderKeyValueMap(overview.spell_slots)}

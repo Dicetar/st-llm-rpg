@@ -327,7 +327,8 @@ body.llm-rpg-dragging {
 
 .llm-rpg-inventory-grid,
 .llm-rpg-card-list,
-.llm-rpg-region-grid {
+.llm-rpg-region-grid,
+.llm-rpg-spell-groups {
   display: grid;
   gap: 10px;
 }
@@ -402,4 +403,16 @@ body.llm-rpg-dragging {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.llm-rpg-actor-subsection {
+  margin-bottom: 10px;
+}
+
+.llm-rpg-actor-subsection .llm-rpg-box {
+  background: rgba(255,255,255,0.025);
+}
+
+.llm-rpg-actor-top-grid {
+  grid-template-columns: 1fr 1fr;
 }
