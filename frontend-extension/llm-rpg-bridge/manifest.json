@@ -4,7 +4,7 @@
   "requires": [],
   "optional": [],
   "dependencies": [],
-  "js": "bridge-loader.js",
+  "js": "index.js",
   "css": "style.css",
   "author": "OpenAI",
   "version": "0.1.0",
