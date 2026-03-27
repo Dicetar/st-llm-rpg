@@ -1,3 +1,4 @@
+
 .llm-rpg-panel {
   position: fixed;
   top: 72px;
@@ -257,7 +258,9 @@ body.llm-rpg-dragging {
   transition: transform 0.15s ease;
 }
 
-.llm-rpg-collapsible[open] .llm-rpg-summary::before {
+.llm-rpg-collapsible[open] .llm-rpg-summary::before,
+.llm-rpg-spell-level-details[open] > .llm-rpg-summary::before,
+.llm-rpg-quest-item[open] > .llm-rpg-summary::before {
   transform: rotate(90deg);
 }
 
@@ -268,11 +271,6 @@ body.llm-rpg-dragging {
 
 .llm-rpg-settings-grid,
 .llm-rpg-builder-grid {
-  display: grid;
-  gap: 8px;
-}
-
-.llm-rpg-builder-row {
   display: grid;
   gap: 8px;
 }
@@ -327,8 +325,8 @@ body.llm-rpg-dragging {
 
 .llm-rpg-inventory-grid,
 .llm-rpg-card-list,
-.llm-rpg-region-grid,
-.llm-rpg-spell-groups {
+.llm-rpg-spell-groups,
+.llm-rpg-quest-list {
   display: grid;
   gap: 10px;
 }
@@ -379,40 +377,40 @@ body.llm-rpg-dragging {
   opacity: 0.8;
 }
 
-.llm-rpg-region-card .llm-rpg-layer-list {
-  display: grid;
-  gap: 8px;
-}
-
-.llm-rpg-layer-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: start;
-  gap: 8px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(255,255,255,0.05);
-}
-
-.llm-rpg-layer-row:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-
-.llm-rpg-layer-main {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
 .llm-rpg-actor-subsection {
   margin-bottom: 10px;
 }
 
-.llm-rpg-actor-subsection .llm-rpg-box {
+.llm-rpg-actor-subsection .llm-rpg-box,
+.llm-rpg-spell-level-details > .llm-rpg-box,
+.llm-rpg-quest-item > .llm-rpg-box {
   background: rgba(255,255,255,0.025);
 }
 
 .llm-rpg-actor-top-grid {
   grid-template-columns: 1fr 1fr;
+}
+
+.llm-rpg-split-section + .llm-rpg-split-section {
+  margin-top: 16px;
+}
+
+.llm-rpg-split-section h4,
+.llm-rpg-assigned-grid h5 {
+  margin: 0 0 8px;
+}
+
+.llm-rpg-assigned-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.llm-rpg-spell-level-details,
+.llm-rpg-quest-item {
+  margin: 0;
+}
+
+.llm-rpg-spell-level-details > .llm-rpg-box,
+.llm-rpg-quest-item > .llm-rpg-box {
+  margin-top: 8px;
 }

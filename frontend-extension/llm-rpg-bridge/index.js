@@ -1,3 +1,4 @@
+
 const MODULE_NAME = 'llm_rpg_bridge';
 
 const DEFAULT_SETTINGS = Object.freeze({
@@ -14,7 +15,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     overview: true,
     inventory: true,
     builder: false,
-    quests: false,
+    quests: true,
     events: false,
     log: true,
     settings: false,
@@ -23,12 +24,21 @@ const DEFAULT_SETTINGS = Object.freeze({
     inspector_campaign: false,
     actor_sub_overview: true,
     actor_sub_held: true,
-    actor_sub_worn_layers: true,
-    actor_sub_worn_entries: false,
+    actor_sub_worn_entries: true,
     actor_sub_custom_skills: false,
     actor_sub_spells: true,
     actor_sub_feats: false,
     actor_sub_item_notes: false,
+    spell_group_0: false,
+    spell_group_1: false,
+    spell_group_2: false,
+    spell_group_3: false,
+    spell_group_4: false,
+    spell_group_5: false,
+    spell_group_6: false,
+    spell_group_7: false,
+    spell_group_8: false,
+    spell_group_9: false,
   },
 });
 
@@ -555,37 +565,106 @@ function groupSpellsByLevel(actor) {
     .map(([level, spells]) => ({ level: Number(level), spells }));
 }
 
-function renderInventorySummary(inventory, actorDetail) {
-  const entries = Object.entries(inventory || {}).sort((a, b) => a[0].localeCompare(b[0]));
-  if (!entries.length) return '<div class="llm-rpg-empty">—</div>';
-
+function splitInventoryAndAssignments(inventory, actorDetail) {
+  const inventoryEntries = [];
   const assignmentSummary = buildAssignmentSummary(actorDetail);
   const noteLookup = buildNormalizedLookup(actorDetail?.item_notes || {});
 
+  for (const [itemName, total] of Object.entries(inventory || {}).sort((a, b) => a[0].localeCompare(b[0]))) {
+    const counts = assignmentSummary[normalizeKey(itemName)] || { held: 0, worn: 0 };
+    const assigned = counts.held + counts.worn;
+    const available = Math.max(0, Number(total || 0) - assigned);
+    if (available <= 0) {
+      continue;
+    }
+    inventoryEntries.push({
+      itemName,
+      available,
+      description: noteLookup[normalizeKey(itemName)]?.description || '',
+    });
+  }
+
+  const heldEntries = Object.entries(actorDetail?.equipment?.held || {})
+    .filter(([, item]) => Boolean(item))
+    .map(([slot, item]) => ({
+      slot,
+      item,
+      description: noteLookup[normalizeKey(item)]?.description || '',
+    }));
+
+  const wornEntries = (actorDetail?.equipment?.worn_items || [])
+    .filter(entry => entry?.worn !== false && entry?.item)
+    .map(entry => ({
+      ...entry,
+      description: entry.notes || noteLookup[normalizeKey(entry.item)]?.description || '',
+    }));
+
+  return { inventoryEntries, heldEntries, wornEntries };
+}
+
+function renderInventoryAndAssignedGear(inventory, actorDetail) {
+  const { inventoryEntries, heldEntries, wornEntries } = splitInventoryAndAssignments(inventory, actorDetail);
+
+  const inventoryCards = inventoryEntries.map(({ itemName, available, description }) => `
+    <div class="llm-rpg-card llm-rpg-inventory-card" title="${escapeHtml(description || itemName)}">
+      <div class="llm-rpg-card-header">
+        <div class="llm-rpg-card-title-row">
+          <strong class="llm-rpg-card-title">${escapeHtml(itemName)}</strong>
+          ${renderBadge(`x${available}`, 'count')}
+        </div>
+      </div>
+      ${description ? renderDescription(description, '') : ''}
+    </div>
+  `).join('');
+
+  const heldCards = heldEntries.map(({ slot, item, description }) => `
+    <div class="llm-rpg-card" title="${escapeHtml(description || item)}">
+      <div class="llm-rpg-card-header">
+        <div class="llm-rpg-card-title-row">
+          <strong class="llm-rpg-card-title">${escapeHtml(item)}</strong>
+        </div>
+        <div class="llm-rpg-card-badges">
+          ${renderBadge(humanizeKey(slot), 'held')}
+        </div>
+      </div>
+      ${description ? renderDescription(description, '') : ''}
+    </div>
+  `).join('');
+
+  const wornCards = wornEntries.map(entry => `
+    <div class="llm-rpg-card" title="${escapeHtml(entry.description || entry.item)}">
+      <div class="llm-rpg-card-header">
+        <div class="llm-rpg-card-title-row">
+          <strong class="llm-rpg-card-title">${escapeHtml(entry.item)}</strong>
+        </div>
+        <div class="llm-rpg-card-badges">
+          ${renderBadge('Worn', 'worn')}
+          ${entry.category ? renderBadge(entry.category, 'category') : ''}
+          ${entry.kind ? renderBadge(entry.kind, 'kind') : ''}
+        </div>
+      </div>
+      ${entry.description ? renderDescription(entry.description, '') : ''}
+      ${(entry.placements || []).length
+        ? `<div class="llm-rpg-inline-note">${escapeHtml(entry.placements.map(placement => `${humanizeKey(placement.region)} [${placement.layer}]`).join(' • '))}</div>`
+        : ''}
+    </div>
+  `).join('');
+
   return `
-    <div class="llm-rpg-inventory-grid">
-      ${entries.map(([itemName, total]) => {
-        const counts = assignmentSummary[normalizeKey(itemName)] || { held: 0, worn: 0 };
-        const assigned = counts.held + counts.worn;
-        const free = Math.max(0, Number(total || 0) - assigned);
-        const description = noteLookup[normalizeKey(itemName)]?.description || '';
-        return `
-          <div class="llm-rpg-card llm-rpg-inventory-card" title="${escapeHtml(description || itemName)}">
-            <div class="llm-rpg-card-header">
-              <div class="llm-rpg-card-title-row">
-                <strong class="llm-rpg-card-title">${escapeHtml(itemName)}</strong>
-                ${renderBadge(`total ${total}`, 'count')}
-              </div>
-              <div class="llm-rpg-card-badges">
-                ${counts.worn ? renderBadge(`worn ${counts.worn}`, 'worn') : ''}
-                ${counts.held ? renderBadge(`held ${counts.held}`, 'held') : ''}
-                ${renderBadge(`free ${free}`, free > 0 ? 'free' : 'muted')}
-              </div>
-            </div>
-            ${description ? renderDescription(description, '') : ''}
-          </div>
-        `;
-      }).join('')}
+    <div class="llm-rpg-section-block">
+      <div class="llm-rpg-subheading">Inventory</div>
+      ${inventoryCards ? `<div class="llm-rpg-inventory-grid">${inventoryCards}</div>` : '<div class="llm-rpg-empty">—</div>'}
+    </div>
+    <div class="llm-rpg-section-block">
+      <div class="llm-rpg-subheading">Assigned Gear</div>
+      <div class="llm-rpg-assigned-group">
+        <div class="llm-rpg-subheading-minor">Held</div>
+        ${heldCards ? `<div class="llm-rpg-card-list">${heldCards}</div>` : '<div class="llm-rpg-empty">—</div>'}
+      </div>
+      <div class="llm-rpg-assigned-group">
+        <div class="llm-rpg-subheading-minor">Worn</div>
+        ${wornCards ? `<div class="llm-rpg-card-list">${wornCards}</div>` : '<div class="llm-rpg-empty">—</div>'}
+      </div>
     </div>
   `;
 }
@@ -616,37 +695,6 @@ function renderHeldSlots(held) {
     meta: item ? `<div class="llm-rpg-inline-note">${escapeHtml(item)}</div>` : '',
   }));
   return renderEntityCards(entries, 'No held slots.');
-}
-
-function renderWornLayerGroups(groupedLayers) {
-  const regions = Object.entries(groupedLayers || {}).sort((a, b) => a[0].localeCompare(b[0]));
-  if (!regions.length) return '<div class="llm-rpg-empty">No worn items.</div>';
-  return `
-    <div class="llm-rpg-region-grid">
-      ${regions.map(([region, entries]) => `
-        <div class="llm-rpg-card llm-rpg-region-card">
-          <div class="llm-rpg-card-header">
-            <strong class="llm-rpg-card-title">${escapeHtml(humanizeKey(region))}</strong>
-            ${renderBadge(`${entries.length} layer${entries.length === 1 ? '' : 's'}`, 'count')}
-          </div>
-          <div class="llm-rpg-layer-list">
-            ${entries.map(entry => `
-              <div class="llm-rpg-layer-row" title="${escapeHtml(entry.notes || entry.item)}">
-                <div class="llm-rpg-layer-main">
-                  ${renderBadge(`[${entry.layer}]`, 'count')}
-                  <strong>${escapeHtml(entry.item)}</strong>
-                </div>
-                <div class="llm-rpg-card-badges">
-                  ${renderBadge(entry.category || 'worn', 'category')}
-                  ${renderBadge(entry.kind || 'item', 'kind')}
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
 }
 
 function renderWornItemEntries(wornItems) {
@@ -683,20 +731,17 @@ function renderSpellLevelGroups(actor) {
   if (!grouped.length) return '<div class="llm-rpg-empty">No known spells.</div>';
   return `
     <div class="llm-rpg-spell-groups">
-      ${grouped.map(group => `
-        <div class="llm-rpg-card llm-rpg-spell-group-card">
-          <div class="llm-rpg-card-header">
-            <strong class="llm-rpg-card-title">${group.level === 0 ? 'Cantrips' : `Level ${group.level}`}</strong>
-            ${renderBadge(`${group.spells.length} spell${group.spells.length === 1 ? '' : 's'}`, 'count')}
-          </div>
-          ${renderEntityCards(group.spells.map(spell => ({
-            title: spell.name || 'Unknown spell',
-            description: spell.description || spell.notes || 'No spell description recorded.',
-            badges: Array.isArray(spell.tags) ? spell.tags.slice(0, 3).map(tag => renderBadge(tag, 'kind')) : [],
-            meta: spell.notes ? `<div class="llm-rpg-inline-note">${escapeHtml(spell.notes)}</div>` : '',
-          })), 'No spells.')}
-        </div>
-      `).join('')}
+      ${grouped.map(group => renderRawCollapsibleSection(
+        `spell_group_${group.level}`,
+        group.level === 0 ? 'Cantrips' : `Level ${group.level}`,
+        renderEntityCards(group.spells.map(spell => ({
+          title: spell.name || 'Unknown spell',
+          description: spell.description || spell.notes || 'No spell description recorded.',
+          badges: Array.isArray(spell.tags) ? spell.tags.slice(0, 3).map(tag => renderBadge(tag, 'kind')) : [],
+          meta: spell.notes ? `<div class="llm-rpg-inline-note">${escapeHtml(spell.notes)}</div>` : '',
+        })), 'No spells.'),
+        'llm-rpg-spell-subsection'
+      )).join('')}
     </div>
   `;
 }
@@ -726,17 +771,14 @@ function renderActorSubsection(sectionKey, title, innerHtml) {
 }
 
 function renderActorDetail(actor) {
-  const wornCount = Array.isArray(actor.equipment?.worn_items) ? actor.equipment.worn_items.length : 0;
-
   return `
     ${renderActorSubsection('actor_sub_overview', 'Overview', `
       <div class="llm-rpg-grid llm-rpg-detail-grid llm-rpg-actor-top-grid">
         <div><span>Actor</span><strong>${escapeHtml(actor.name || actor.actor_id || 'Unknown')}</strong></div>
-        <div><span>Worn Entries</span><strong>${escapeHtml(wornCount)}</strong></div>
+        <div><span>Conditions</span><strong>${escapeHtml((actor.conditions || []).length ? actor.conditions.join(', ') : 'None')}</strong></div>
       </div>
     `)}
     ${renderActorSubsection('actor_sub_held', 'Held Slots', renderHeldSlots(actor.equipment?.held || {}))}
-    ${renderActorSubsection('actor_sub_worn_layers', 'Worn by Region & Layer', renderWornLayerGroups(actor.equipment?.worn_item_layers || {}))}
     ${renderActorSubsection('actor_sub_worn_entries', 'Worn Item Entries', renderWornItemEntries(actor.equipment?.worn_items || []))}
     ${renderActorSubsection('actor_sub_custom_skills', 'Custom Skills', renderCustomSkillCards(actor))}
     ${renderActorSubsection('actor_sub_spells', 'Known Spells', renderSpellLevelGroups(actor))}
@@ -777,13 +819,13 @@ function renderSceneDetail(scene) {
 function renderCampaignDetail(campaign) {
   const quests = Object.entries(campaign.quests || {}).filter(([, value]) => value?.status === 'active').map(([key, value]) => ({
     title: value?.title || key,
-    description: value?.description || 'No quest description recorded.',
-    badges: [renderBadge(value?.status || 'active', 'free')],
+    description: value?.description || value?.note || 'No quest description recorded.',
+    badges: [renderBadge(value?.status || 'active', 'default')],
     meta: value?.objective ? `<div class="llm-rpg-inline-note">objective: ${escapeHtml(value.objective)}</div>` : '',
   }));
   const relationships = Object.entries(campaign.relationships || {}).map(([name, relationship]) => ({
     title: name,
-    description: relationship?.description || relationship?.summary || 'No relationship description recorded.',
+    description: relationship?.description || relationship?.summary || relationship?.note || 'No relationship description recorded.',
     badges: relationship?.status ? [renderBadge(relationship.status, 'category')] : [],
     meta: relationship?.score !== undefined ? `<div class="llm-rpg-inline-note">score: ${escapeHtml(relationship.score)}</div>` : '',
   }));
@@ -849,6 +891,32 @@ async function refreshInspectorPanel(prefetched = {}) {
   }
 }
 
+function renderQuestAccordion(questsPayload) {
+  const rawQuests = questsPayload?.active_quests || {};
+  const questEntries = Array.isArray(rawQuests)
+    ? rawQuests.map((quest, index) => ({
+        key: quest?.id || quest?.title || `quest_${index}`,
+        title: typeof quest === 'string' ? quest : (quest?.title || quest?.id || `Quest ${index + 1}`),
+        note: typeof quest === 'string' ? '' : (quest?.note || quest?.description || ''),
+      }))
+    : Object.entries(rawQuests).map(([key, value]) => ({
+        key,
+        title: value?.title || key,
+        note: value?.note || value?.description || '',
+      }));
+
+  if (!questEntries.length) {
+    return '<div class="llm-rpg-empty">—</div>';
+  }
+
+  return questEntries.map((quest, index) => renderRawCollapsibleSection(
+    `quest_entry_${index}`,
+    quest.title,
+    quest.note ? `<div class="llm-rpg-quest-note">${escapeHtml(quest.note)}</div>` : '<div class="llm-rpg-empty">No quest note.</div>',
+    'llm-rpg-quest-entry'
+  )).join('');
+}
+
 async function refreshPanel() {
   const [overview, quests, events, actorDetail] = await Promise.all([
     requestJson(`/state/overview${buildActorQuery()}`),
@@ -877,19 +945,11 @@ async function refreshPanel() {
   }
 
   if (inventoryRoot) {
-    inventoryRoot.innerHTML = renderInventorySummary(overview.inventory, actorDetail);
+    inventoryRoot.innerHTML = renderInventoryAndAssignedGear(overview.inventory, actorDetail);
   }
 
   if (questsRoot) {
-    const rawQuests = quests.active_quests || [];
-    const questItems = Array.isArray(rawQuests)
-      ? rawQuests.map(q => typeof q === 'string' ? q : (q.title || q.id || 'Unknown quest'))
-      : Object.entries(rawQuests).map(([key, value]) => {
-          if (typeof value === 'string') return value;
-          return value?.title || key || 'Unknown quest';
-        });
-
-    questsRoot.innerHTML = renderSimpleArray(questItems);
+    questsRoot.innerHTML = renderQuestAccordion(quests);
   }
 
   if (eventsRoot) {
@@ -1020,6 +1080,113 @@ async function dispatchRegisteredCommand(commandName, text) {
   return await commandCallback(commandName, text.trim());
 }
 
+function getBuilderFieldValues() {
+  return {
+    type: document.querySelector('#llm-rpg-builder-type')?.value || 'custom_skill',
+    name: document.querySelector('#llm-rpg-builder-name')?.value?.trim() || '',
+    secondary: document.querySelector('#llm-rpg-builder-secondary')?.value?.trim() || '',
+    tertiary: document.querySelector('#llm-rpg-builder-tertiary')?.value?.trim() || '',
+    description: document.querySelector('#llm-rpg-builder-description')?.value?.trim() || '',
+  };
+}
+
+function setBuilderFieldValues({ name = '', secondary = '', tertiary = '', description = '' } = {}) {
+  const nameInput = document.querySelector('#llm-rpg-builder-name');
+  const secondaryInput = document.querySelector('#llm-rpg-builder-secondary');
+  const tertiaryInput = document.querySelector('#llm-rpg-builder-tertiary');
+  const descriptionInput = document.querySelector('#llm-rpg-builder-description');
+  if (nameInput) nameInput.value = name;
+  if (secondaryInput) secondaryInput.value = secondary;
+  if (tertiaryInput) tertiaryInput.value = tertiary;
+  if (descriptionInput) descriptionInput.value = description;
+}
+
+function updateBuilderComposerForm() {
+  const type = document.querySelector('#llm-rpg-builder-type')?.value || 'custom_skill';
+  const secondaryLabel = document.querySelector('#llm-rpg-builder-secondary-label');
+  const tertiaryLabel = document.querySelector('#llm-rpg-builder-tertiary-label');
+  const secondaryInput = document.querySelector('#llm-rpg-builder-secondary');
+  const tertiaryInput = document.querySelector('#llm-rpg-builder-tertiary');
+  const tertiaryRow = document.querySelector('#llm-rpg-builder-tertiary-row');
+  const descriptionLabel = document.querySelector('#llm-rpg-builder-description-label');
+  const descriptionInput = document.querySelector('#llm-rpg-builder-description');
+  const submitButton = document.querySelector('#llm-rpg-builder-submit');
+  const nameInput = document.querySelector('#llm-rpg-builder-name');
+
+  if (!secondaryLabel || !tertiaryLabel || !secondaryInput || !tertiaryInput || !tertiaryRow || !descriptionLabel || !descriptionInput || !submitButton || !nameInput) {
+    return;
+  }
+
+  if (type === 'custom_skill') {
+    nameInput.placeholder = 'swimming';
+    secondaryLabel.textContent = 'Value';
+    secondaryInput.placeholder = '3';
+    tertiaryLabel.textContent = 'Unused';
+    tertiaryInput.placeholder = '';
+    tertiaryRow.style.display = 'none';
+    descriptionLabel.textContent = 'Description';
+    descriptionInput.placeholder = 'Competent in water movement and breath control.';
+    submitButton.textContent = 'Create / Update custom skill';
+  } else if (type === 'spell') {
+    nameInput.placeholder = 'feather fall';
+    secondaryLabel.textContent = 'Level';
+    secondaryInput.placeholder = '1';
+    tertiaryLabel.textContent = 'School';
+    tertiaryInput.placeholder = 'transmutation';
+    tertiaryRow.style.display = '';
+    descriptionLabel.textContent = 'Description';
+    descriptionInput.placeholder = 'Slow the fall of nearby creatures.';
+    submitButton.textContent = 'Create / Update spell';
+  } else {
+    nameInput.placeholder = 'rope';
+    secondaryLabel.textContent = 'Amount';
+    secondaryInput.placeholder = '2';
+    tertiaryLabel.textContent = 'Kind';
+    tertiaryInput.placeholder = 'tool';
+    tertiaryRow.style.display = '';
+    descriptionLabel.textContent = 'Description';
+    descriptionInput.placeholder = '50 feet of braided hemp rope.';
+    submitButton.textContent = 'Create / Update item';
+  }
+}
+
+function clearBuilderComposer() {
+  setBuilderFieldValues();
+  updateBuilderComposerForm();
+}
+
+function buildBuilderCommandFromForm() {
+  const { type, name, secondary, tertiary, description } = getBuilderFieldValues();
+  if (!name) {
+    throw new Error('Builder name is required.');
+  }
+
+  if (type === 'custom_skill') {
+    return {
+      commandName: 'new_custom_skill',
+      rawArgument: [name, secondary || '1', description || `Player-defined custom skill: ${name}.`].join(' :: '),
+    };
+  }
+
+  if (type === 'spell') {
+    return {
+      commandName: 'new_spell',
+      rawArgument: [name, secondary || '0', description || `Player-defined spell: ${name}.`, tertiary || 'custom'].join(' :: '),
+    };
+  }
+
+  return {
+    commandName: 'new_item',
+    rawArgument: [name, secondary || '1', tertiary || 'misc', description || `Player-defined item: ${name}.`].join(' :: '),
+  };
+}
+
+async function submitBuilderComposer() {
+  const { commandName, rawArgument } = buildBuilderCommandFromForm();
+  await commandCallback(commandName, rawArgument);
+  clearBuilderComposer();
+}
+
 function getBuilderComposerHtml() {
   return `
     <div class="llm-rpg-builder-grid">
@@ -1084,7 +1251,7 @@ function getMainPanelHtml() {
       </div>
 
       ${renderCollapsibleSection('overview', 'Overview', 'llm-rpg-overview')}
-      ${renderCollapsibleSection('inventory', 'Inventory', 'llm-rpg-inventory')}
+      ${renderCollapsibleSection('inventory', 'Inventory + Assigned Gear', 'llm-rpg-inventory')}
       ${renderRawCollapsibleSection('builder', 'Builder / Composer', getBuilderComposerHtml())}
       ${renderCollapsibleSection('quests', 'Quests', 'llm-rpg-quests')}
       ${renderCollapsibleSection('events', 'Recent Events', 'llm-rpg-events')}
