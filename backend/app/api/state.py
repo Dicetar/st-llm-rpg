@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
 from app.services.command_engine import CommandEngine
 from app.services.repository import JsonStateRepository
@@ -63,6 +63,40 @@ def get_active_quests():
     quests = campaign_state.get("quests", {})
     active = {name: payload for name, payload in quests.items() if payload.get("status") == "active"}
     return {"active_quests": active}
+
+
+@router.post("/state/quest-note")
+def update_quest_note(payload: dict = Body(...)):
+    quest_name = str(payload.get("quest_name", "")).strip()
+    note = str(payload.get("note", ""))
+    if not quest_name:
+        raise HTTPException(status_code=400, detail="quest_name is required.")
+
+    campaign_state = repository.load_campaign_state()
+    quests = campaign_state.setdefault("quests", {})
+    if quest_name not in quests:
+        raise HTTPException(status_code=404, detail=f"Unknown quest '{quest_name}'.")
+
+    quest_record = quests[quest_name]
+    quest_record["note"] = note
+
+    day_counter = campaign_state.get("date", {}).get("day_counter")
+    if day_counter is not None:
+        quest_record["last_updated_day"] = day_counter
+
+    repository.save_campaign_state(campaign_state)
+    repository.append_event({
+        "type": "quest_note_updated",
+        "command_name": "quest_note_update",
+        "summary": f"Updated quest note for {quest_name}.",
+        "quest_name": quest_name,
+    })
+
+    return {
+        "ok": True,
+        "quest_name": quest_name,
+        "note": note,
+    }
 
 
 @router.get("/events/recent")
