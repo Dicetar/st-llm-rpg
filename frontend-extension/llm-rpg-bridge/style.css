@@ -283,3 +283,123 @@ body.llm-rpg-dragging {
   flex-wrap: wrap;
   margin-top: 4px;
 }
+
+.llm-rpg-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.2;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.llm-rpg-pill-count {
+  background: rgba(255,255,255,0.08);
+}
+
+.llm-rpg-pill-worn {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.llm-rpg-pill-held {
+  background: rgba(168, 85, 247, 0.18);
+}
+
+.llm-rpg-pill-free {
+  background: rgba(63, 185, 80, 0.18);
+}
+
+.llm-rpg-pill-muted {
+  background: rgba(255,255,255,0.04);
+  opacity: 0.75;
+}
+
+.llm-rpg-pill-category {
+  background: rgba(236, 72, 153, 0.14);
+}
+
+.llm-rpg-pill-kind {
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.llm-rpg-inventory-grid,
+.llm-rpg-card-list,
+.llm-rpg-region-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.llm-rpg-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.llm-rpg-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.llm-rpg-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.llm-rpg-card-title {
+  font-size: 14px;
+}
+
+.llm-rpg-card-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.llm-rpg-card-description {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.94;
+}
+
+.llm-rpg-card-meta,
+.llm-rpg-inline-note {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.llm-rpg-region-card .llm-rpg-layer-list {
+  display: grid;
+  gap: 8px;
+}
+
+.llm-rpg-layer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.llm-rpg-layer-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.llm-rpg-layer-main {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
