@@ -2,18 +2,25 @@ from __future__ import annotations
 
 import json
 import threading
+from shutil import copy2
 from pathlib import Path
 from typing import Any
 
-from app.config import BASE_DIR
+from app.config import BASE_DIR, SEED_DIR
 
 
 class JsonStateRepository:
     def __init__(self, base_dir: Path | None = None) -> None:
         self._lock = threading.RLock()
         project_root = base_dir or BASE_DIR
-        self.data_dir = project_root / "data"
-        self.storage_dir = project_root / "storage"
+        seed_dir = project_root / "data" / "seed"
+        if not seed_dir.exists():
+            seed_dir = project_root / "data"
+
+        self.seed_dir = seed_dir if base_dir else SEED_DIR
+        self.runtime_dir = project_root / "runtime"
+        self.data_dir = self.runtime_dir / "data"
+        self.storage_dir = self.runtime_dir / "storage"
         self.campaign_state_path = self.data_dir / "campaign_state.json"
         self.scene_state_path = self.data_dir / "scene_state.json"
         self.character_state_path = self.data_dir / "character_state.safe.json"
@@ -23,6 +30,30 @@ class JsonStateRepository:
         self.lorebook_state_path = self.data_dir / "lorebook_state.json"
         self.event_log_path = self.storage_dir / "event_log.jsonl"
         self.journal_path = self.storage_dir / "journal_entries.jsonl"
+        self._bootstrap_runtime_files()
+
+    def _bootstrap_runtime_files(self) -> None:
+        with self._lock:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            self.storage_dir.mkdir(parents=True, exist_ok=True)
+
+            self._ensure_runtime_file(self.campaign_state_path, self.seed_dir / "campaign_state.json")
+            self._ensure_runtime_file(self.scene_state_path, self.seed_dir / "scene_state.json")
+            self._ensure_runtime_file(self.character_state_path, self.seed_dir / "character_state.safe.json")
+            self._ensure_runtime_file(self.cast_registry_path, self.seed_dir / "cast_registry.json")
+            self._ensure_runtime_file(self.item_registry_path, self.seed_dir / "item_registry.json")
+            self._ensure_runtime_file(self.spell_registry_path, self.seed_dir / "spell_registry.json")
+            self._ensure_runtime_file(self.lorebook_state_path, self.data_dir / "__generated_lorebook_state.json", json.dumps(self._default_lorebook_state(), indent=2))
+            self._ensure_runtime_file(self.event_log_path, self.storage_dir / "__generated_event_log.jsonl", "")
+            self._ensure_runtime_file(self.journal_path, self.storage_dir / "__generated_journal_entries.jsonl", "")
+
+    def _ensure_runtime_file(self, runtime_path: Path, seed_path: Path, default_text: str | None = None) -> None:
+        if runtime_path.exists():
+            return
+        if seed_path.exists():
+            copy2(seed_path, runtime_path)
+            return
+        runtime_path.write_text("" if default_text is None else default_text, encoding="utf-8")
 
     def _read_json(self, path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))

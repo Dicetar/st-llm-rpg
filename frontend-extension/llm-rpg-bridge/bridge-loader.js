@@ -13,7 +13,5 @@
     });
   }
 
-  loadScript('index.js')
-    .then(() => loadScript('patch.js'))
-    .catch((error) => console.error('[LLM RPG Bridge Loader]', error));
+  loadScript('index.js').catch((error) => console.error('[LLM RPG Bridge Loader]', error));
 })();

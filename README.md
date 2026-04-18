@@ -1,39 +1,32 @@
 # st-llm-rpg
 
-A practical project scaffold for building a **SillyTavern-based narrative/TTRPG frontend** with **LM Studio** as the narrator backend and a **separate authoritative state service**.
+`st-llm-rpg` is a working local-first narrative/TTRPG prototype built around three boundaries:
 
-This repository is intentionally split into three major parts:
+- `backend/`: FastAPI service that owns authoritative state, command execution, journaling, and event history
+- `frontend-extension/`: SillyTavern bridge that renders panels, calls the backend, and injects narration context
+- `LM Studio`: intended narrator backend, called only after validated state changes
 
-- **backend/** — FastAPI state service, command execution, event log, journal, seed data
-- **frontend-extension/** — SillyTavern UI bridge and extension notes
-- **docs/** — architecture, build plan, migration notes, and implementation guidance
+The core rule is unchanged:
 
-## Current status
+**Commands mutate state first. Narration happens after validated state changes.**
 
-This repository already includes:
+## Current prototype status
 
-- architecture and implementation docs
-- a runnable backend skeleton
-- a SillyTavern bridge extension skeleton
-- shared JSON schemas for command requests and post-turn updates
-- starter prompts for narration and structured extraction
-- example campaign config and migration guidance
+The repo already includes:
+
+- a runnable FastAPI backend with read endpoints, command parsing, command execution, lorebook sync, event logging, and journal APIs
+- a usable SillyTavern extension with backend-driven command dispatch, overview/inventory/quest/event panels, an inspector, and pending narration injection
+- tracked sample seed data under `backend/data/seed/`
+- ignored runtime state under `backend/runtime/`, bootstrapped automatically from the seed files
+- backend regression tests covering the current command loop
 
 ## Read first
 
-1. `docs/00_decision.md`
-2. `docs/01_target_architecture.md`
-3. `docs/09_implementation_steps.md`
-4. `backend/README.md`
-5. `frontend-extension/README.md`
-
-## Recommended development order
-
-1. run the backend and verify `/commands/execute`
-2. connect the ST extension to the backend
-3. add LM Studio turn-resolution endpoint
-4. replace JSON file storage with SQLite behind the same repository boundary
-5. expand commands, journal flow, scene lifecycle, and safe extraction
+1. `docs/13_current_repo_status.md`
+2. `docs/17_current_dev_workflow.md`
+3. `backend/README.md`
+4. `frontend-extension/README.md`
+5. `docs/01_target_architecture.md`
 
 ## Local quick start
 
@@ -42,14 +35,16 @@ This repository already includes:
 ```bash
 cd backend
 python -m venv .venv
-. .venv/bin/activate   # Windows: .venv\Scripts\activate
+.venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8010
 ```
 
-Open:
+Then open:
 
 - `http://127.0.0.1:8010/docs`
+
+Runtime files are created automatically in `backend/runtime/` the first time the backend or tests touch the repository layer.
 
 ### Frontend extension
 
@@ -58,8 +53,9 @@ See:
 - `frontend-extension/docs/01_where_to_put_files.md`
 - `frontend-extension/docs/02_install_and_enable.md`
 
-## Project rule
+## Near-term milestones
 
-**Commands mutate state first. Narration happens after validated state changes.**
-
-That is the backbone of the whole project.
+1. add LM Studio turn-resolution orchestration on the backend
+2. expand safe post-turn extraction and auto-apply validation
+3. mature frontend panels and workflow ergonomics
+4. replace the JSON runtime repository with SQLite behind the same backend boundary

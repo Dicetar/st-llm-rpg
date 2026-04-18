@@ -6,9 +6,8 @@
   "dependencies": [],
   "js": "index.js",
   "css": "style.css",
-  "author": "OpenAI",
+  "author": "Dicetar",
   "version": "0.1.0",
-  "homePage": "https://example.invalid/llm-rpg-bridge",
   "auto_update": false,
   "generate_interceptor": "llmRpgBridgeInterceptor"
 }

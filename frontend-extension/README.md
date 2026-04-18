@@ -1,30 +1,32 @@
 # SillyTavern Extension Notes
 
-## Put this folder here
-
-During development, keep it in your repository at:
-
-```text
-D:\Projects\narrative-engine\frontend-extension\
-```
+This folder contains the SillyTavern-side bridge for the project.
 
 ## Responsibility of the extension
-- UI panels
-- slash-command registration
-- backend API calls
-- presentation of state and errors
-- refresh actions after committed turns
+
+- render RPG panels and inspector views
+- register slash commands
+- call the backend API
+- present authoritative command results and errors
+- inject pending narration context before generation
 
 ## Keep out of the extension
+
 - canonical state mutations without backend confirmation
-- full inventory truth
+- inventory truth
 - spell slot truth
 - scene archive truth
+- repository or persistence rules
 
-## First UI build
-1. side panel container
-2. Overview tab
-3. Inventory tab
-4. Scene tab
-5. Quests tab
-6. basic command result display
+## Structure
+
+- `llm-rpg-bridge/manifest.json` keeps the stable extension entrypoint
+- `llm-rpg-bridge/index.js` is a thin loader
+- `llm-rpg-bridge/scripts/` contains the split bridge implementation
+
+## Install and enable
+
+See:
+
+- `docs/01_where_to_put_files.md`
+- `docs/02_install_and_enable.md`

@@ -1,20 +1,19 @@
-# 13 — Current Repository Status
+# 13 - Current Repository Status
 
-This repository contains a **working first slice**, not a complete production system.
+This repository contains a **working prototype slice**, not a complete production system.
 
 Already present:
-- FastAPI backend skeleton
-- JSON-backed authoritative state repository
-- command parser and command handlers for `/inventory`, `/use_item`, `/cast`, `/equip`, `/quest`, `/journal`
-- event log and journal endpoints
-- SillyTavern bridge extension skeleton with panel, backend connector, command wiring, and pending narration injection
-- architecture and migration docs
+- FastAPI backend with authoritative state reads, command execution, lorebook sync, event logging, and journal APIs
+- JSON-backed repository that now boots mutable runtime files from tracked seed data
+- command parser and command handlers for `/inventory`, `/use_item`, `/cast`, `/equip`, `/quest`, `/journal`, `/new`, `/new_item`, `/new_spell`, and `/new_custom_skill`
+- SillyTavern bridge with overview, inventory, quests, events, builder tools, inspector views, backend connector, and pending narration injection
+- regression tests for the current backend command loop
+- architecture and migration docs that now distinguish current state from next milestones
 
 Still expected in the next phase:
 - LM Studio turn-resolution endpoint
 - extractor pass and safe auto-apply flow
 - SQLite repository implementation
-- richer frontend panels
-- relationship and quest mutation commands
+- relationship and broader quest mutation commands
 - scene close/archive workflow
 - stronger testing around multi-command turns and rollback behavior

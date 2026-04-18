@@ -10,8 +10,7 @@ from app.services.repository import JsonStateRepository
 def make_repo(tmp_path: Path) -> JsonStateRepository:
     source_root = Path(__file__).resolve().parents[1]
     work_root = tmp_path / "work"
-    shutil.copytree(source_root / "data", work_root / "data")
-    shutil.copytree(source_root / "storage", work_root / "storage")
+    shutil.copytree(source_root / "data" / "seed", work_root / "data" / "seed")
     return JsonStateRepository(base_dir=work_root)
 
 
@@ -21,6 +20,21 @@ def test_parse_mixed_commands(tmp_path):
     assert [command.name for command in commands] == ["use_item", "cast"]
     assert commands[0].argument == "health potion"
     assert commands[1].argument == "suggestion"
+
+
+def test_repository_bootstraps_runtime_from_seed(tmp_path):
+    repository = make_repo(tmp_path)
+
+    assert repository.data_dir.exists()
+    assert repository.storage_dir.exists()
+    assert repository.character_state_path.exists()
+    assert repository.event_log_path.exists()
+
+    seed_character = (repository.seed_dir / "character_state.safe.json").read_text(encoding="utf-8")
+    runtime_character = repository.character_state_path.read_text(encoding="utf-8")
+    assert runtime_character == seed_character
+    assert repository.list_events() == []
+    assert repository.load_lorebook_state()["revision"] == 0
 
 
 def test_inventory_command_returns_items(tmp_path):
@@ -34,10 +48,13 @@ def test_cast_suggestion_spends_level_2_slot(tmp_path):
     repository = make_repo(tmp_path)
     engine = CommandEngine(repository)
     before = repository.load_character_state()["actors"]["player"]["spell_slots"]["2"]
+    seed_before = (repository.seed_dir / "character_state.safe.json").read_text(encoding="utf-8")
     response = engine.execute(CommandExecutionRequest(actor_id="player", commands=[{"name": "cast", "argument": "suggestion"}]))
     after = repository.load_character_state()["actors"]["player"]["spell_slots"]["2"]
+    seed_after = (repository.seed_dir / "character_state.safe.json").read_text(encoding="utf-8")
     assert response.results[0].ok is True
     assert after == before - 1
+    assert seed_after == seed_before
 
 
 def test_equip_dagger_sets_main_hand(tmp_path):
