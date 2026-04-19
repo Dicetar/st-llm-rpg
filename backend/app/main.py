@@ -4,12 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.commands import router as commands_router
 from app.api.health import router as health_router
 from app.api.journal import router as journal_router
+from app.api.narration import router as narration_router
+from app.api.scene import router as scene_router
 from app.api.state import router as state_router
 
 app = FastAPI(
-    title="ST LLM RPG Backend Skeleton",
-    version="0.1.0",
-    description="Command-first backend skeleton for a SillyTavern + LM Studio narrative RPG workflow.",
+    title="ST LLM RPG Backend",
+    version="0.2.0",
+    description="Command-first backend for a SillyTavern + LM Studio narrative RPG workflow.",
 )
 
 # Allow SillyTavern running locally to call this backend from the browser.
@@ -31,4 +33,6 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(state_router)
 app.include_router(journal_router)
+app.include_router(scene_router)
+app.include_router(narration_router)
 app.include_router(commands_router)

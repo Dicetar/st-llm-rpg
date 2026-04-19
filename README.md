@@ -2,9 +2,9 @@
 
 `st-llm-rpg` is a working local-first narrative/TTRPG prototype built around three boundaries:
 
-- `backend/`: FastAPI service that owns authoritative state, command execution, journaling, and event history
-- `frontend-extension/`: SillyTavern bridge that renders panels, calls the backend, and injects narration context
-- `LM Studio`: intended narrator backend, called only after validated state changes
+- `backend/`: FastAPI service that owns authoritative state, command execution, journaling, event history, turn resolution, and scene lifecycle
+- `frontend-extension/`: SillyTavern bridge that renders panels, calls the backend, and routes normal narrative turns through the backend when enabled
+- `LM Studio`: narrator and extractor backend, called only after validated state changes
 
 The core rule is unchanged:
 
@@ -14,11 +14,12 @@ The core rule is unchanged:
 
 The repo already includes:
 
-- a runnable FastAPI backend with read endpoints, command parsing, command execution, lorebook sync, event logging, and journal APIs
-- a usable SillyTavern extension with backend-driven command dispatch, overview/inventory/quest/event panels, an inspector, and pending narration injection
+- a runnable FastAPI backend with read endpoints, command parsing, command execution, resolve-turn orchestration, safe extraction, scene open/close APIs, draft-only scene summaries, lorebook sync, event logging, and journal APIs
+- a SQLite-backed runtime repository bootstrapped from tracked seed data, plus a JSON reference repository kept for parity testing
+- a usable SillyTavern extension with backend-driven command dispatch, overview/scene/scene-lifecycle/inventory/quest/relationship/journal/event panels, an inspector, pending narration injection, and optional backend-first normal turn resolution
 - tracked sample seed data under `backend/data/seed/`
 - ignored runtime state under `backend/runtime/`, bootstrapped automatically from the seed files
-- backend regression tests covering the current command loop
+- backend regression tests covering command parity, dry-run behavior, rollback-on-failure behavior, turn resolution, extraction, and scene lifecycle
 
 ## Read first
 
@@ -45,6 +46,7 @@ Then open:
 - `http://127.0.0.1:8010/docs`
 
 Runtime files are created automatically in `backend/runtime/` the first time the backend or tests touch the repository layer.
+`/narration/resolve-turn` also requires LM Studio's OpenAI-compatible server plus a usable `LM_STUDIO_MODEL`.
 
 ### Frontend extension
 
@@ -52,10 +54,11 @@ See:
 
 - `frontend-extension/docs/01_where_to_put_files.md`
 - `frontend-extension/docs/02_install_and_enable.md`
+- `docs/18_frontend_smoke_checklist.md`
 
-## Near-term milestones
+## Continuation priorities
 
-1. add LM Studio turn-resolution orchestration on the backend
-2. expand safe post-turn extraction and auto-apply validation
-3. mature frontend panels and workflow ergonomics
-4. replace the JSON runtime repository with SQLite behind the same backend boundary
+1. run live SillyTavern smoke validation against the split bridge, rollback mode, scene panel, and resolve-turn path
+2. harden prompt/extraction failure paths from real model traces
+3. keep the backend contract stable while refining prompts, UX, and any future transport changes
+4. add only additive command/UI slices that preserve backend authority

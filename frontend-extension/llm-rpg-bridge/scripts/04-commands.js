@@ -45,6 +45,18 @@ async function commandCallback(commandName, rawArgument) {
   return stringifyExecutionSummary(apiResponse);
 }
 
+async function resolveTurnCommandCallback(rawText) {
+  const trimmed = String(rawText ?? '').trim();
+  if (!trimmed) {
+    throw new Error('/rpg_resolve requires narrative text.');
+  }
+  const apiResponse = await resolveTurnAgainstBackend(trimmed, {
+    includeExtraction: Boolean(getSettings().includeExtractionOnResolveTurn),
+  });
+  notify('Narrative turn resolved against backend.', 'success');
+  return apiResponse.prose || '';
+}
+
 async function registerSlashCommands() {
   const api = await resolveSlashApi();
 
@@ -64,7 +76,21 @@ async function registerSlashCommands() {
     ['cast', 'Apply spell-slot spending and return a narration block.'],
     ['equip', 'Apply equipment change and return a narration block.'],
     ['quest', 'Return current quest information from backend.'],
+    ['relationships', 'Return current relationship records from backend.'],
     ['journal', 'Return journal guidance from backend.'],
+    ['lorebook', 'Return backend-built keyword insertion lorebook entries.'],
+    ['session_summary', 'Record a session summary and rebuild lorebook insertion entries.'],
+    ['condition', 'Add or remove an actor condition through the authoritative backend command contract.'],
+    ['quest_update', 'Create or update a quest note, and optionally status and stage.'],
+    ['relationship_note', 'Create or update a relationship note, and optionally adjust score.'],
+    ['scene_move', 'Update the active scene location and optional scene id, time of day, or tension level.'],
+    ['scene_object', 'Create or update a notable scene object and its metadata.'],
+    ['scene_clue', 'Add or remove a visible clue from the active scene.'],
+    ['scene_hazard', 'Add or remove an active hazard from the active scene.'],
+    ['scene_discovery', 'Add or remove a recent discovery from the active scene.'],
+    ['scene_draft_close', 'Draft a close-scene summary through the backend without mutating state.'],
+    ['scene_open', 'Open a new active scene through the scene lifecycle endpoint.'],
+    ['scene_close', 'Close and archive the active scene through the scene lifecycle endpoint.'],
     ['actor', 'Return richer actor detail from backend.'],
     ['campaign', 'Return campaign detail from backend.'],
     ['scene', 'Return current scene detail from backend.'],
@@ -73,6 +99,7 @@ async function registerSlashCommands() {
     ['new_spell', 'Create or update a known spell and spell registry entry.'],
     ['new_custom_skill', 'Create or update a custom skill and note entry.'],
     ['rpg', 'Namespaced RPG command proxy. Example: /rpg actor or /rpg new item :: rope :: 2 :: tool :: 50 feet of rope.'],
+    ['rpg_resolve', 'Resolve a full narrative turn through the backend narration endpoint.'],
     ['rpg_refresh', 'Refresh the bridge panel from the backend.'],
   ];
 
@@ -87,6 +114,27 @@ async function registerSlashCommands() {
           },
           returns: 'confirmation text',
           unnamedArgumentList: [],
+          helpString: description,
+        }));
+        continue;
+      }
+
+      if (name === 'rpg_resolve') {
+        add(make({
+          name,
+          callback: async (_namedArgs, unnamedArgs) => {
+            const text = Array.isArray(unnamedArgs) ? unnamedArgs.join(' ') : String(unnamedArgs ?? '');
+            return await resolveTurnCommandCallback(text);
+          },
+          returns: 'backend-resolved narration',
+          unnamedArgumentList: [
+            Arg.fromProps({
+              description: 'narrative player input to resolve through the backend',
+              typeList: ARGUMENT_TYPE.STRING,
+              acceptsMultiple: true,
+              isRequired: true,
+            }),
+          ],
           helpString: description,
         }));
         continue;
@@ -137,19 +185,52 @@ function injectPendingNarration(chat) {
   chat.splice(insertionIndex, 0, systemNote);
 }
 
-globalThis.llmRpgBridgeInterceptor = async function(chat, _contextSize, _abort, type) {
-  const allowed = new Set(['normal', 'swipe', 'regenerate', 'quiet', 'continue']);
-  if (!allowed.has(type)) return;
+function getLatestNarrativeUserTurn(chat) {
+  for (let index = chat.length - 1; index >= 0; index -= 1) {
+    const message = chat[index];
+    if (!message || message.is_system || message.is_user !== true) continue;
+    const text = String(message.mes ?? '').trim();
+    if (!text || text.startsWith('/')) return null;
+    return {
+      text,
+      key: `${message.send_date || index}:${text}`,
+    };
+  }
+  return null;
+}
 
+globalThis.llmRpgBridgeInterceptor = async function(chat, _contextSize, abort, type) {
   const pending = getPendingNarrationContext();
-  if (!pending) return;
+  if (pending) {
+    try {
+      injectPendingNarration(chat);
+      await clearPendingNarrationContext();
+      log('Injected pending narration context into chat before generation.');
+    } catch (error) {
+      warn('Failed to inject pending narration context.', error);
+    }
+    return;
+  }
+
+  if (type !== 'normal' || !getSettings().resolveNarrativeTurns) return;
+
+  const latestTurn = getLatestNarrativeUserTurn(chat);
+  if (!latestTurn) return;
+  if (getResolvedTurnKey() === latestTurn.key) return;
 
   try {
-    injectPendingNarration(chat);
-    await clearPendingNarrationContext();
-    log('Injected pending narration context into chat before generation.');
+    await resolveTurnAgainstBackend(latestTurn.text, {
+      includeExtraction: Boolean(getSettings().includeExtractionOnResolveTurn),
+      chatMessages: chat,
+    });
+    await setResolvedTurnKey(latestTurn.key);
+    if (typeof abort === 'function') {
+      abort(true);
+    }
+    log('Resolved narrative turn through backend and aborted local generation.');
   } catch (error) {
-    warn('Failed to inject pending narration context.', error);
+    warn('Failed to resolve narrative turn through backend.', error);
+    notify(error.message || 'Backend resolve-turn failed; local generation will continue.', 'error');
   }
 };
 

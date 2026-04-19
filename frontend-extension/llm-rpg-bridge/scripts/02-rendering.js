@@ -1,11 +1,11 @@
 ﻿function renderKeyValueMap(map) {
   const entries = Object.entries(map || {});
-  if (!entries.length) return '<div class="llm-rpg-empty">â€”</div>';
+  if (!entries.length) return '<div class="llm-rpg-empty">None</div>';
   return `<ul class="llm-rpg-list">${entries.map(([k, v]) => `<li><span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></li>`).join('')}</ul>`;
 }
 
 function renderSimpleArray(items) {
-  if (!items || !items.length) return '<div class="llm-rpg-empty">â€”</div>';
+  if (!items || !items.length) return '<div class="llm-rpg-empty">None</div>';
   return `<ul class="llm-rpg-list">${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
 }
 
@@ -35,11 +35,75 @@ function renderExecutionResult(result) {
   `;
 }
 
+function renderTurnSummary(apiResponse) {
+  const count = Number(apiResponse.command_count ?? (apiResponse.results || []).length);
+  const success = Number(apiResponse.success_count ?? (apiResponse.results || []).filter(result => result.ok).length);
+  const failure = Number(apiResponse.failure_count ?? Math.max(0, count - success));
+  const isNarrativeOnly = count === 0 && apiResponse.prose !== undefined;
+  const status = isNarrativeOnly
+    ? 'resolved'
+    : apiResponse.rolled_back
+    ? 'rolled back'
+    : apiResponse.committed
+      ? 'committed'
+      : apiResponse.mode === 'dry_run'
+        ? 'dry run'
+        : 'not committed';
+  const summaryText = isNarrativeOnly
+    ? `narrative turn${failure ? `, ${failure} failed` : ''}`
+    : `${success}/${count} succeeded${failure ? `, ${failure} failed` : ''}`;
+  return `
+    <div class="llm-rpg-turn-summary ${apiResponse.rolled_back ? 'rolled-back' : ''}">
+      <strong>${escapeHtml(status)}</strong>
+      <span>${escapeHtml(summaryText)}</span>
+    </div>
+  `;
+}
+
+function renderResolveTurnMeta(apiResponse) {
+  const proposed = Array.isArray(apiResponse.proposed_updates) ? apiResponse.proposed_updates.length : 0;
+  const applied = Array.isArray(apiResponse.applied_updates) ? apiResponse.applied_updates.length : 0;
+  const staged = Array.isArray(apiResponse.staged_updates) ? apiResponse.staged_updates.length : 0;
+  const warnings = Array.isArray(apiResponse.warnings) ? apiResponse.warnings.length : 0;
+  const activatedLore = Array.isArray(apiResponse.activated_lore_entries) ? apiResponse.activated_lore_entries.length : 0;
+  const hasMeta = apiResponse.prose !== undefined || proposed || applied || staged || warnings || activatedLore;
+
+  if (!hasMeta) return '';
+
+  const badges = [
+    renderBadge(`lore ${activatedLore}`, activatedLore ? 'kind' : 'muted'),
+    renderBadge(`proposed ${proposed}`, proposed ? 'count' : 'muted'),
+    renderBadge(`applied ${applied}`, applied ? 'held' : 'muted'),
+    renderBadge(`staged ${staged}`, staged ? 'fail' : 'muted'),
+    renderBadge(`warnings ${warnings}`, warnings ? 'fail' : 'muted'),
+  ];
+
+  const models = [];
+  if (apiResponse.narrator_model) models.push(`narrator: ${apiResponse.narrator_model}`);
+  if (apiResponse.extractor_model) models.push(`extractor: ${apiResponse.extractor_model}`);
+
+  return `
+    <div class="llm-rpg-log-note llm-rpg-log-turn-meta">
+      <div class="llm-rpg-card-badges">${badges.join('')}</div>
+      ${models.length ? `<div class="llm-rpg-inline-note">${escapeHtml(models.join(' | '))}</div>` : ''}
+    </div>
+  `;
+}
+
 function buildNarrationBlock(apiResponse) {
   const lines = [];
   lines.push('[RPG COMMAND OUTCOME]');
-  lines.push('The following command results are authoritative and already applied to the external game state.');
+  if (apiResponse.rolled_back) {
+    lines.push('The following command turn was rolled back. Do not narrate listed discarded changes as applied facts.');
+  } else if (apiResponse.mode === 'dry_run') {
+    lines.push('The following command turn was a dry run. Do not narrate listed changes as applied facts.');
+  } else {
+    lines.push('The following command results are authoritative and already applied to the external game state.');
+  }
   lines.push('Narrate consequences naturally, but do not contradict these results.');
+  if (apiResponse.has_failures) {
+    lines.push(`Turn summary: ${apiResponse.success_count ?? 0} succeeded, ${apiResponse.failure_count ?? 0} failed.`);
+  }
   lines.push('');
 
   for (const result of apiResponse.results || []) {
@@ -60,16 +124,28 @@ function buildNarrationBlock(apiResponse) {
     lines.push(JSON.stringify(apiResponse.overview, null, 2));
   }
 
+  if (apiResponse.rolled_back && Array.isArray(apiResponse.discarded_state_changes) && apiResponse.discarded_state_changes.length) {
+    lines.push('Discarded state changes:');
+    lines.push(JSON.stringify(apiResponse.discarded_state_changes, null, 2));
+  }
+
   lines.push('[/RPG COMMAND OUTCOME]');
   return lines.join('\n');
 }
 
 function buildActionChatBlock(apiResponse) {
   const lines = ['[RPG Action]'];
+  if (apiResponse.rolled_back) {
+    lines.push('Turn rolled back. No command mutations were committed.');
+    lines.push('');
+  } else if (apiResponse.mode === 'dry_run') {
+    lines.push('Dry run. No command mutations were committed.');
+    lines.push('');
+  }
 
   for (const result of apiResponse.results || []) {
     const commandText = `/${result.name}${result.argument ? ` ${result.argument}` : ''}`;
-    lines.push(`${commandText} â€” ${result.ok ? 'success' : 'failed'}`);
+    lines.push(`${commandText} - ${result.ok ? 'success' : 'failed'}`);
     lines.push(result.message || '');
 
     if (Array.isArray(result.mutations) && result.mutations.length) {
@@ -144,6 +220,14 @@ async function appendInfoMessageToChat(title, lines) {
   });
 }
 
+async function appendNarrationMessageToChat(prose) {
+  await appendVisibleMessageToChat({
+    name: 'RPG Narrator',
+    mes: prose,
+    extraType: 'rpg_narration',
+  });
+}
+
 function ensureExecutionLogRoot() {
   const root = document.querySelector('#llm-rpg-log');
   if (!root) return null;
@@ -167,6 +251,8 @@ function appendExecutionLog(apiResponse) {
   const timestamp = new Date().toLocaleTimeString();
   prependExecutionHtml(`
     <div class="llm-rpg-log-time">${escapeHtml(timestamp)}</div>
+    ${renderTurnSummary(apiResponse)}
+    ${renderResolveTurnMeta(apiResponse)}
     ${(apiResponse.results || []).map(renderExecutionResult).join('')}
   `);
 }
@@ -182,7 +268,7 @@ function appendInfoLog(title, message) {
   `);
 }
 
-function renderCollapsibleSection(sectionKey, title, contentId, contentClass = 'llm-rpg-box', initialContent = 'Loadingâ€¦') {
+function renderCollapsibleSection(sectionKey, title, contentId, contentClass = 'llm-rpg-box', initialContent = 'Loading...') {
   const openAttr = isSectionOpen(sectionKey) ? 'open' : '';
   return `
     <details class="llm-rpg-section llm-rpg-collapsible" data-section="${escapeHtml(sectionKey)}" ${openAttr}>
@@ -405,7 +491,7 @@ function splitInventoryAndAssignments(inventory, actorDetail) {
 
 function renderInventoryAndAssignedGear(inventory, actorDetail) {
   const { inventoryEntries } = splitInventoryAndAssignments(inventory, actorDetail);
-  if (!inventoryEntries.length) return '<div class="llm-rpg-empty">â€”</div>';
+  if (!inventoryEntries.length) return '<div class="llm-rpg-empty">None</div>';
 
   return `
     <div class="llm-rpg-inventory-tools">
@@ -416,7 +502,7 @@ function renderInventoryAndAssignedGear(inventory, actorDetail) {
         <div class="llm-rpg-inventory-row" title="${escapeHtml(description || itemName)}" data-search="${escapeHtml(searchText)}">
           <div class="llm-rpg-inventory-main">
             <span class="llm-rpg-inventory-name">${escapeHtml(itemName)}</span>
-            ${description ? '<span class="llm-rpg-inventory-help">â“˜</span>' : ''}
+            ${description ? '<span class="llm-rpg-inventory-help">i</span>' : ''}
           </div>
           ${renderBadge(`x${available}`, 'count')}
         </div>
@@ -425,7 +511,7 @@ function renderInventoryAndAssignedGear(inventory, actorDetail) {
   `;
 }
 
-function renderEntityCards(cards, emptyMessage = 'â€”') {
+function renderEntityCards(cards, emptyMessage = 'None') {
   if (!cards.length) return `<div class="llm-rpg-empty">${escapeHtml(emptyMessage)}</div>`;
   return `
     <div class="llm-rpg-card-list">
@@ -463,7 +549,7 @@ function renderWornItemEntries(wornItems) {
       renderBadge(entry.worn === false ? 'not worn' : 'worn', entry.worn === false ? 'muted' : 'worn'),
     ],
     meta: (entry.placements || []).length
-      ? `<div class="llm-rpg-inline-note">${escapeHtml(entry.placements.map(placement => `${humanizeKey(placement.region)} [${placement.layer}]`).join(' â€¢ '))}</div>`
+      ? `<div class="llm-rpg-inline-note">${escapeHtml(entry.placements.map(placement => `${humanizeKey(placement.region)} [${placement.layer}]`).join(' / '))}</div>`
       : '<div class="llm-rpg-inline-note">No placement data.</div>',
   }));
   return renderEntityCards(cards, 'No worn item entries.');
@@ -476,7 +562,7 @@ function renderCustomSkillCards(actor) {
     description: notes[name]?.description || 'No custom skill note recorded.',
     badges: [renderBadge(`value ${value}`, 'count')],
     meta: Array.isArray(notes[name]?.tags) && notes[name].tags.length
-      ? `<div class="llm-rpg-inline-note">${escapeHtml(notes[name].tags.join(' â€¢ '))}</div>`
+      ? `<div class="llm-rpg-inline-note">${escapeHtml(notes[name].tags.join(' / '))}</div>`
       : '',
   }));
   return renderEntityCards(cards, 'No custom skills.');
@@ -546,6 +632,10 @@ function renderActorDetail(actor) {
 function renderSceneDetail(scene) {
   const tags = scene.scene_tags || [];
   const objects = scene.notable_objects || [];
+  const nearbyNpcs = scene.nearby_npcs || [];
+  const clues = scene.visible_clues || [];
+  const hazards = scene.active_hazards || [];
+  const discoveries = scene.recent_discoveries || [];
   const exits = scene.exits || [];
   const objectDetails = Object.entries(scene.notable_object_details || {}).map(([key, value]) => ({
     title: value.name || key,
@@ -560,11 +650,23 @@ function renderSceneDetail(scene) {
     <div class="llm-rpg-grid llm-rpg-detail-grid">
       <div><span>Location</span><strong>${escapeHtml(scene.location || 'Unknown')}</strong></div>
       <div><span>Tension</span><strong>${escapeHtml(scene.tension_level ?? 0)}</strong></div>
+      <div><span>NPCs</span><strong>${escapeHtml(nearbyNpcs.length)}</strong></div>
+      <div><span>Clues</span><strong>${escapeHtml(clues.length)}</strong></div>
       <div><span>Objects</span><strong>${escapeHtml(objects.length)}</strong></div>
+      <div><span>Hazards</span><strong>${escapeHtml(hazards.length)}</strong></div>
+      <div><span>Discoveries</span><strong>${escapeHtml(discoveries.length)}</strong></div>
       <div><span>Exits</span><strong>${escapeHtml(exits.length)}</strong></div>
     </div>
     <h4>Scene Tags</h4>
     ${renderSimpleArray(tags)}
+    <h4>Nearby NPCs</h4>
+    ${renderSimpleArray(nearbyNpcs)}
+    <h4>Visible Clues</h4>
+    ${renderSimpleArray(clues)}
+    <h4>Active Hazards</h4>
+    ${renderSimpleArray(hazards)}
+    <h4>Recent Discoveries</h4>
+    ${renderSimpleArray(discoveries)}
     <h4>Notable Objects</h4>
     ${renderEntityCards(objectDetails, 'No object details.')}
     <h4>Exits</h4>

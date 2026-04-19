@@ -105,10 +105,11 @@ body.llm-rpg-dragging {
 .llm-rpg-section input,
 .llm-rpg-section textarea,
 .llm-rpg-section select,
-.llm-rpg-settings-grid input,
 .llm-rpg-builder-grid input,
 .llm-rpg-builder-grid textarea,
-.llm-rpg-builder-grid select {
+.llm-rpg-builder-grid select,
+.llm-rpg-session-summary-grid input,
+.llm-rpg-session-summary-grid textarea {
   width: 100%;
   box-sizing: border-box;
 }
@@ -118,6 +119,11 @@ body.llm-rpg-dragging {
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 12px;
+}
+
+.llm-rpg-actions .menu_button {
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .llm-rpg-box {
@@ -192,6 +198,29 @@ body.llm-rpg-dragging {
   margin-bottom: 6px;
 }
 
+.llm-rpg-turn-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: rgba(63, 185, 80, 0.12);
+  border: 1px solid rgba(63, 185, 80, 0.2);
+  font-size: 12px;
+}
+
+.llm-rpg-turn-summary.rolled-back {
+  background: rgba(248, 81, 73, 0.12);
+  border-color: rgba(248, 81, 73, 0.24);
+}
+
+.llm-rpg-turn-summary span {
+  opacity: 0.82;
+  text-align: right;
+}
+
 .llm-rpg-result {
   padding: 8px;
   border-radius: 8px;
@@ -252,7 +281,7 @@ body.llm-rpg-dragging {
 }
 
 .llm-rpg-summary::before {
-  content: "▸";
+  content: ">";
   display: inline-block;
   margin-right: 8px;
   transition: transform 0.15s ease;
@@ -270,9 +299,85 @@ body.llm-rpg-dragging {
 }
 
 .llm-rpg-settings-grid,
-.llm-rpg-builder-grid {
+.llm-rpg-builder-grid,
+.llm-rpg-scene-life-grid,
+.llm-rpg-session-summary-grid {
   display: grid;
   gap: 8px;
+}
+
+.llm-rpg-field-row,
+.llm-rpg-toggle-row,
+.llm-rpg-builder-toggle-row {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+}
+
+.llm-rpg-field-row {
+  grid-template-columns: 82px minmax(0, 1fr);
+}
+
+.llm-rpg-toggle-row,
+.llm-rpg-builder-toggle-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.llm-rpg-settings-grid label {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.llm-rpg-settings-grid input[type="text"],
+.llm-rpg-settings-grid select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.llm-rpg-settings-grid input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  justify-self: end;
+}
+
+.llm-rpg-builder-toggle-row label {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.llm-rpg-builder-toggle-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  justify-self: end;
+}
+
+.llm-rpg-lorebook-summary {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.llm-rpg-lorebook-summary span {
+  opacity: 0.78;
+}
+
+.llm-rpg-lorebook-card .llm-rpg-card-description {
+  max-height: 130px;
+  overflow: auto;
+}
+
+.llm-rpg-settings-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.llm-rpg-settings-actions .menu_button {
+  min-width: 70px;
 }
 
 .llm-rpg-builder-actions {
@@ -280,6 +385,34 @@ body.llm-rpg-dragging {
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 4px;
+}
+
+.llm-rpg-scene-life-grid h4 {
+  margin: 12px 0 2px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.llm-rpg-scene-life-grid h4:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.llm-rpg-scene-life-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.llm-rpg-scene-life-actions .menu_button {
+  min-width: 0;
+}
+
+.llm-rpg-scene-archive {
+  display: grid;
+  gap: 8px;
 }
 
 .llm-rpg-pill {
@@ -323,6 +456,10 @@ body.llm-rpg-dragging {
   background: rgba(245, 158, 11, 0.14);
 }
 
+.llm-rpg-pill-fail {
+  background: rgba(248, 81, 73, 0.18);
+}
+
 .llm-rpg-inventory-grid,
 .llm-rpg-card-list,
 .llm-rpg-spell-groups,
@@ -364,6 +501,37 @@ body.llm-rpg-dragging {
   justify-content: flex-end;
 }
 
+.llm-rpg-extraction-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.llm-rpg-extraction-actions .menu_button {
+  min-width: 0;
+}
+
+.llm-rpg-extraction-actions .llm-rpg-extraction-dismiss-btn {
+  opacity: 0.88;
+}
+
+.llm-rpg-extraction-status {
+  margin-top: 8px;
+}
+
+.llm-rpg-extraction-status-info {
+  color: #9ec5ff;
+}
+
+.llm-rpg-extraction-status-success {
+  color: #8bd3a8;
+}
+
+.llm-rpg-extraction-status-error {
+  color: #ff9898;
+}
+
 .llm-rpg-card-description {
   font-size: 12px;
   line-height: 1.45;
@@ -375,6 +543,23 @@ body.llm-rpg-dragging {
   margin-top: 6px;
   font-size: 11px;
   opacity: 0.8;
+}
+
+.llm-rpg-extraction-summary {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+
+.llm-rpg-extraction-card .llm-rpg-card-description,
+.llm-rpg-extraction-card .llm-rpg-inline-note {
+  word-break: break-word;
+}
+
+.llm-rpg-log-turn-meta {
+  margin-bottom: 8px;
 }
 
 .llm-rpg-actor-subsection {

@@ -1,20 +1,34 @@
 ﻿const MODULE_NAME = 'llm_rpg_bridge';
 
+const MAX_RESOLVE_CHAT_MESSAGES = 8;
+const MAX_RESOLVE_CHAT_CHARS = 700;
+
 const DEFAULT_SETTINGS = Object.freeze({
   backendBaseUrl: 'http://127.0.0.1:8010',
   actorId: 'player',
   autoRefreshOnLoad: true,
   showFloatingPanel: true,
   injectNarrationBlockIntoChat: true,
+  resolveNarrativeTurns: true,
+  includeExtractionOnResolveTurn: false,
+  failurePolicy: 'best_effort',
   keepExecutionLog: true,
   inspectorOpen: false,
   panelPosition: null,
   inspectorPosition: null,
   sectionOpen: {
     overview: true,
+    scene: false,
+    scene_lifecycle: true,
     inventory: true,
     builder: false,
     quests: true,
+    relationships: true,
+    session_summary: false,
+    lorebook: true,
+    activated_lore: true,
+    extraction_review: true,
+    journal: false,
     events: false,
     log: true,
     settings: false,
@@ -41,8 +55,24 @@ const DEFAULT_SETTINGS = Object.freeze({
   },
 });
 
-const READ_ONLY_COMMANDS = new Set(['inventory', 'quest', 'journal', 'actor', 'campaign', 'scene']);
-const MUTATION_COMMANDS = new Set(['use_item', 'cast', 'equip', 'new', 'new_item', 'new_spell', 'new_custom_skill']);
+const READ_ONLY_COMMANDS = new Set(['inventory', 'quest', 'journal', 'lorebook', 'actor', 'campaign', 'scene', 'relationships']);
+const MUTATION_COMMANDS = new Set([
+  'use_item',
+  'cast',
+  'equip',
+  'new',
+  'new_item',
+  'new_spell',
+  'new_custom_skill',
+  'condition',
+  'quest_update',
+  'relationship_note',
+  'scene_move',
+  'scene_object',
+  'scene_clue',
+  'scene_hazard',
+  'scene_discovery',
+]);
 
 function getContextSafe() {
   if (!globalThis.SillyTavern || typeof globalThis.SillyTavern.getContext !== 'function') {
@@ -163,9 +193,91 @@ function clearPendingNarrationContext() {
   return saveMetadata();
 }
 
+function getResolvedTurnKey() {
+  return getChatMetadata()[`${MODULE_NAME}_resolved_turn_key`] ?? null;
+}
+
+async function setResolvedTurnKey(value) {
+  const chatMetadata = getChatMetadata();
+  if (value) {
+    chatMetadata[`${MODULE_NAME}_resolved_turn_key`] = value;
+  } else {
+    delete chatMetadata[`${MODULE_NAME}_resolved_turn_key`];
+  }
+  await saveMetadata();
+}
+
+function getActivatedLoreContext() {
+  return getChatMetadata()[`${MODULE_NAME}_activated_lore`] ?? null;
+}
+
+async function setActivatedLoreContext(payload) {
+  const chatMetadata = getChatMetadata();
+  if (payload) {
+    chatMetadata[`${MODULE_NAME}_activated_lore`] = payload;
+  } else {
+    delete chatMetadata[`${MODULE_NAME}_activated_lore`];
+  }
+  await saveMetadata();
+}
+
+function getExtractionReviewContext() {
+  return getChatMetadata()[`${MODULE_NAME}_extraction_review`] ?? null;
+}
+
+async function setExtractionReviewContext(payload) {
+  const chatMetadata = getChatMetadata();
+  if (payload) {
+    chatMetadata[`${MODULE_NAME}_extraction_review`] = payload;
+  } else {
+    delete chatMetadata[`${MODULE_NAME}_extraction_review`];
+  }
+  await saveMetadata();
+}
+
 function buildActorQuery() {
   const actorId = getSettings().actorId?.trim();
   return actorId ? `?actor_id=${encodeURIComponent(actorId)}` : '';
+}
+
+function buildQuery(params = {}) {
+  const search = new URLSearchParams();
+  const actorId = getSettings().actorId?.trim();
+  if (actorId) search.set('actor_id', actorId);
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue;
+    search.set(key, String(value));
+  }
+  const rendered = search.toString();
+  return rendered ? `?${rendered}` : '';
+}
+
+function buildRecentChatMessages(chat = null, options = {}) {
+  const source = Array.isArray(chat) ? chat : (getContextSafe().chat || []);
+  const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : MAX_RESOLVE_CHAT_MESSAGES;
+  const excludeLatestUserText = String(options.excludeLatestUserText ?? '').trim();
+  const collected = [];
+  let skippedLatestUser = false;
+
+  for (let index = source.length - 1; index >= 0; index -= 1) {
+    const message = source[index];
+    if (!message || message.is_system) continue;
+    const content = String(message.mes ?? '').trim();
+    if (!content || content.startsWith('/')) continue;
+    const role = message.is_user ? 'user' : 'assistant';
+    if (!skippedLatestUser && excludeLatestUserText && role === 'user' && content === excludeLatestUserText) {
+      skippedLatestUser = true;
+      continue;
+    }
+    collected.push({
+      role,
+      name: String(message.name ?? '').trim() || null,
+      content: content.length > MAX_RESOLVE_CHAT_CHARS ? `${content.slice(0, MAX_RESOLVE_CHAT_CHARS)}...` : content,
+    });
+    if (collected.length >= limit) break;
+  }
+
+  return collected.reverse();
 }
 
 async function requestJson(path, options = {}) {

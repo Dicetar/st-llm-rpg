@@ -9,6 +9,14 @@
       "heal_amount": 7,
       "narration_hint": "A glass vial of red restorative fluid."
     },
+    "potion of arousal": {
+      "name": "potion of arousal",
+      "kind": "consumable",
+      "consumable": true,
+      "effect": "arousal",
+      "description": "Amber vial, black-wax seal. One dose surges libido to 3.0x and heightens sensitivity for 2-4 hours; two doses in succession sharpen the effect, making touch difficult to ignore.",
+      "narration_hint": "An amber alchemical vial meant to heighten desire and sensitivity."
+    },
     "ceremonial dagger": {
       "name": "ceremonial dagger",
       "kind": "weapon",

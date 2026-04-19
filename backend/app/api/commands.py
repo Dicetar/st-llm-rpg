@@ -2,10 +2,10 @@ from fastapi import APIRouter, HTTPException
 
 from app.domain.models import CommandExecutionRequest, ParseCommandsRequest, ParseCommandsResponse
 from app.services.command_engine import CommandEngine
-from app.services.repository import JsonStateRepository
+from app.services.repository import create_repository
 
 router = APIRouter(tags=["commands"])
-repository = JsonStateRepository()
+repository = create_repository()
 engine = CommandEngine(repository)
 
 
@@ -20,4 +20,4 @@ def execute_commands(payload: CommandExecutionRequest):
     try:
         return engine.execute(payload).model_dump()
     except (ValueError, KeyError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail={"error_code": "command_execution_failed", "message": str(exc)}) from exc

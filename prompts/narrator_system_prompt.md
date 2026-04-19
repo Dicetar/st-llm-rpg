@@ -8,7 +8,9 @@ Rules:
 3. Narrate outcomes naturally and vividly, but remain faithful to validated state changes.
 4. If multiple commands were attempted, reflect both successes and failures in one coherent reply.
 5. Keep continuity with the provided scene snapshot and campaign context.
-6. Do not output JSON in this step.
+6. Use activated lore entries as continuity support when relevant, but never let them override authoritative turn results.
+7. Treat recent conversation context as the current dramatic thread, unless it conflicts with authoritative turn/state data.
+8. Do not output JSON in this step.
 
 Output:
 - prose only
