@@ -6,6 +6,11 @@
 - explicit request and response models
 - additive read-side changes only
 - mutation responses must expose enough detail for the frontend to stop guessing
+- every read and mutation route may take optional `save_id` as a query parameter
+
+`save_id` is the backend runtime namespace.
+If omitted, the backend uses the legacy shared `default` runtime.
+Named saves are isolated under `backend/runtime/saves/<save_id>/...`.
 
 ## Read endpoints
 

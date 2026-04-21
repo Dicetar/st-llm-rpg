@@ -1,6 +1,6 @@
 param(
     [string]$RepoRoot = "D:\Projects\st-llm-rpg",
-    [string]$SillyTavernExtensionDir = "D:\Ollama\STavern\SillyTavern\data\default-user\extensions\llm-rpg-bridge"
+    [string]$SillyTavernExtensionDir = "D:\Ollama\STavern\SillyTavern\public\scripts\extensions\third-party\llm-rpg-bridge"
 )
 
 $source = Join-Path $RepoRoot "frontend-extension\llm-rpg-bridge"

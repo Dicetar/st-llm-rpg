@@ -330,8 +330,7 @@ def test_lorebook_sync_builds_keyword_insertion_entries(tmp_path):
 
 def test_session_summary_endpoint_updates_journal_and_lorebook_insertions(tmp_path, monkeypatch):
     repository = make_repo(tmp_path)
-    monkeypatch.setattr(journal_api, "repository", repository)
-    monkeypatch.setattr(journal_api, "lore_service", LoreUpdateService(repository))
+    monkeypatch.setattr(journal_api, "create_repository", lambda *args, **kwargs: repository)
 
     response = journal_api.create_session_summary(
         JournalSessionSummaryCreate(

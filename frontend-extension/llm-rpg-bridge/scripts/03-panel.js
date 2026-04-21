@@ -703,6 +703,12 @@ function getSceneLifecycleHtml() {
 function getSessionSummaryHtml() {
   return `
     <div class="llm-rpg-session-summary-grid">
+      <label for="llm-rpg-session-summary-draft-instructions">Draft Instructions</label>
+      <textarea id="llm-rpg-session-summary-draft-instructions" rows="2" placeholder="Optional focus, for example: summarize relationship and quest developments only."></textarea>
+      <div class="llm-rpg-scene-life-actions">
+        <button id="llm-rpg-session-summary-draft" class="menu_button" type="button">Summarize & Fill</button>
+      </div>
+      <div id="llm-rpg-session-summary-status" class="llm-rpg-inline-note">Drafting is advisory only. Review the filled fields before saving.</div>
       <label for="llm-rpg-session-summary-text">Summary</label>
       <textarea id="llm-rpg-session-summary-text" rows="4" placeholder="What should become durable session memory?"></textarea>
       <label for="llm-rpg-session-summary-facts">Durable Facts</label>
@@ -788,12 +794,17 @@ function buildSessionSummaryPayloadFromForm() {
 
 function clearSessionSummaryForm() {
   for (const selector of [
+    '#llm-rpg-session-summary-draft-instructions',
     '#llm-rpg-session-summary-text',
     '#llm-rpg-session-summary-facts',
     '#llm-rpg-session-summary-tags',
   ]) {
     const node = document.querySelector(selector);
     if (node) node.value = '';
+  }
+  const status = document.querySelector('#llm-rpg-session-summary-status');
+  if (status) {
+    status.textContent = 'Drafting is advisory only. Review the filled fields before saving.';
   }
 }
 
@@ -813,6 +824,67 @@ async function submitSessionSummaryForm() {
   appendInfoLog('/session_summary', 'Session summary recorded and lorebook insertion entries rebuilt.');
   await appendInfoMessageToChat('RPG Session Summary', [payload.summary, ...payload.durable_facts.map(fact => `Fact: ${fact}`)]);
   return response;
+}
+
+async function draftSessionSummaryFromChat(instructions = '') {
+  const messages = buildSessionSummaryChatMessages();
+  if (!messages.length) {
+    throw new Error('No eligible chat messages were found to summarize.');
+  }
+
+  return requestJson(`/journal/draft-session-summary${buildActorQuery()}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      chat_title: getCurrentChatTitle(),
+      instructions: String(instructions || '').trim() || null,
+      messages,
+    }),
+  });
+}
+
+function fillSessionSummaryDraft(draft) {
+  const summaryInput = document.querySelector('#llm-rpg-session-summary-text');
+  const factsInput = document.querySelector('#llm-rpg-session-summary-facts');
+  const tagsInput = document.querySelector('#llm-rpg-session-summary-tags');
+  const status = document.querySelector('#llm-rpg-session-summary-status');
+
+  if (summaryInput) summaryInput.value = draft.summary || '';
+  if (factsInput) factsInput.value = (draft.durable_facts || []).join('\n');
+  if (tagsInput && !tagsInput.value.trim()) {
+    tagsInput.value = 'session, catchup';
+  }
+  if (status) {
+    const warningText = (draft.warnings || []).length ? ` warnings: ${draft.warnings.join(', ')}` : '';
+    const messageCount = Number(draft?.source_counts?.messages || 0);
+    status.textContent = `Drafted from ${messageCount} chat message${messageCount === 1 ? '' : 's'}.${warningText}`;
+  }
+}
+
+function formatSessionSummaryDraftResult(draft) {
+  const facts = (draft.durable_facts || []).map(fact => `- ${fact}`).join('\n') || '- None';
+  const warnings = (draft.warnings || []).map(warning => `- ${warning}`).join('\n') || '- None';
+  return [
+    '[RPG SESSION SUMMARY DRAFT]',
+    `Chat: ${draft.chat_title || 'unknown_chat'}`,
+    `Model: ${draft.model || 'unknown'}`,
+    '',
+    draft.summary || '',
+    '',
+    'Durable facts:',
+    facts,
+    '',
+    'Warnings:',
+    warnings,
+    '[/RPG SESSION SUMMARY DRAFT]',
+  ].join('\n');
+}
+
+async function draftSessionSummaryFromForm() {
+  const instructions = document.querySelector('#llm-rpg-session-summary-draft-instructions')?.value || '';
+  const draft = await draftSessionSummaryFromChat(instructions);
+  fillSessionSummaryDraft(draft);
+  appendInfoLog('/session_summary_draft', `Drafted session summary from ${draft.source_counts?.messages || 0} chat messages.`);
+  return draft;
 }
 
 async function syncLorebookFromPanel() {
@@ -949,6 +1021,13 @@ async function sceneDraftCloseCommand(rawText) {
   fillSceneCloseDraft(draft);
   appendInfoLog('/scene_draft_close', `Drafted close summary for ${draft.scene_id}.`);
   return formatSceneDraftResult(draft);
+}
+
+async function sessionSummaryDraftCommand(rawText) {
+  const draft = await draftSessionSummaryFromChat(rawText);
+  fillSessionSummaryDraft(draft);
+  appendInfoLog('/session_summary_draft', `Drafted session summary from ${draft.source_counts?.messages || 0} chat messages.`);
+  return formatSessionSummaryDraftResult(draft);
 }
 
 async function sceneOpenCommand(rawText) {
@@ -1098,6 +1177,56 @@ function bindQuestEditorHandlers() {
   questsRoot.dataset.questEditorBound = 'true';
 }
 
+function clearExecutionLog() {
+  const root = document.querySelector('#llm-rpg-log');
+  if (!root) return;
+  root.dataset.initialized = 'true';
+  root.innerHTML = '<div class="llm-rpg-empty">No executions yet.</div>';
+}
+
+function refreshSaveBindingControls() {
+  const binding = getSaveBinding();
+  const saveNameInput = document.querySelector('#llm-rpg-save-name');
+  const saveIdInput = document.querySelector('#llm-rpg-save-id');
+  const saveMeta = document.querySelector('#llm-rpg-save-meta');
+
+  if (saveNameInput) saveNameInput.value = binding.saveName || '';
+  if (saveIdInput) saveIdInput.value = binding.saveId || '';
+  if (saveMeta) {
+    saveMeta.textContent = `Chat title: ${getCurrentChatTitle()} | source: ${binding.source || 'manual'}`;
+  }
+}
+
+async function applySaveBinding(binding) {
+  const normalized = normalizeSaveBinding(binding, binding?.source || 'manual');
+  const previous = getSaveBinding();
+  const changed = previous.saveId !== normalized.saveId;
+
+  await setSaveBinding(normalized, { clearTransientState: changed });
+  refreshSaveBindingControls();
+
+  if (changed) {
+    clearExecutionLog();
+    refreshActivatedLorePanel();
+    refreshExtractionReviewPanel();
+  }
+
+  return normalized;
+}
+
+function buildSaveBindingFromSettingsInputs() {
+  const enteredSaveName = document.querySelector('#llm-rpg-save-name')?.value?.trim() || '';
+  if (!enteredSaveName) {
+    return deriveDefaultSaveBinding();
+  }
+
+  return normalizeSaveBinding({
+    saveName: enteredSaveName,
+    chatTitle: getCurrentChatTitle(),
+    source: 'manual',
+  }, 'manual');
+}
+
 async function refreshPanel(refreshHints) {
   return await refreshPanelFromHints(refreshHints);
 }
@@ -1109,6 +1238,7 @@ function normalizeRefreshHints(refreshHints) {
 }
 
 async function refreshPanelFromHints(refreshHints) {
+  refreshSaveBindingControls();
   const hints = normalizeRefreshHints(refreshHints);
   const shouldFetchOverview = hints.has('overview') || hints.has('inventory') || hints.has('actor');
   const shouldFetchActor = hints.has('actor') || hints.has('inventory') || hints.has('overview');
@@ -1442,6 +1572,10 @@ async function dispatchRegisteredCommand(commandName, text) {
     return await sceneDraftCloseCommand(text);
   }
 
+  if (commandName === 'session_summary_draft') {
+    return await sessionSummaryDraftCommand(text);
+  }
+
   if (commandName === 'session_summary') {
     return await sessionSummaryCommand(text);
   }
@@ -1457,10 +1591,13 @@ async function dispatchRegisteredCommand(commandName, text) {
   if (commandName === 'rpg') {
     const { subcommand, remainder } = parseRpgProxyText(text);
     if (!subcommand) {
-      throw new Error('Usage: /rpg actor | campaign | scene | inventory | quest | journal | lorebook | relationships | session_summary | scene_open | scene_close | scene_draft_close | condition | scene_move | scene_object | scene_clue | scene_hazard | scene_discovery | new ...');
+      throw new Error('Usage: /rpg actor | campaign | scene | inventory | quest | journal | lorebook | relationships | session_summary | session_summary_draft | scene_open | scene_close | scene_draft_close | condition | scene_move | scene_object | scene_clue | scene_hazard | scene_discovery | new ...');
     }
     if (subcommand === 'scene_draft_close') {
       return await sceneDraftCloseCommand(remainder);
+    }
+    if (subcommand === 'session_summary_draft') {
+      return await sessionSummaryDraftCommand(remainder);
     }
     if (subcommand === 'session_summary') {
       return await sessionSummaryCommand(remainder);
@@ -1668,12 +1805,22 @@ function getBuilderComposerHtml() {
 
 function getMainPanelHtml() {
   const settings = getSettings();
+  const saveBinding = getSaveBinding();
   const settingsInner = `
     <div class="llm-rpg-settings-grid">
       <div class="llm-rpg-field-row">
         <label for="llm-rpg-backend-url">Backend URL</label>
         <input id="llm-rpg-backend-url" type="text" value="${escapeHtml(settings.backendBaseUrl)}" />
       </div>
+      <div class="llm-rpg-field-row">
+        <label for="llm-rpg-save-name">Save Name</label>
+        <input id="llm-rpg-save-name" type="text" value="${escapeHtml(saveBinding.saveName || '')}" />
+      </div>
+      <div class="llm-rpg-field-row">
+        <label for="llm-rpg-save-id">Save ID</label>
+        <input id="llm-rpg-save-id" type="text" value="${escapeHtml(saveBinding.saveId || '')}" readonly />
+      </div>
+      <div id="llm-rpg-save-meta" class="llm-rpg-inline-note">Chat title: ${escapeHtml(getCurrentChatTitle())} | source: ${escapeHtml(saveBinding.source || 'manual')}</div>
       <div class="llm-rpg-field-row">
         <label for="llm-rpg-actor-id">Actor ID</label>
         <input id="llm-rpg-actor-id" type="text" value="${escapeHtml(settings.actorId)}" />
@@ -1694,6 +1841,7 @@ function getMainPanelHtml() {
         <input id="llm-rpg-include-extraction" type="checkbox" ${settings.includeExtractionOnResolveTurn ? 'checked' : ''} />
       </div>
       <div class="llm-rpg-settings-actions">
+        <button id="llm-rpg-use-chat-title" class="menu_button">Use Chat Title</button>
         <button id="llm-rpg-save-settings" class="menu_button">Save</button>
       </div>
     </div>
@@ -1831,8 +1979,19 @@ function mountPanel() {
     settings.resolveNarrativeTurns = Boolean(document.querySelector('#llm-rpg-resolve-turns')?.checked);
     settings.includeExtractionOnResolveTurn = Boolean(document.querySelector('#llm-rpg-include-extraction')?.checked);
     saveSettings();
+    await applySaveBinding(buildSaveBindingFromSettingsInputs());
     notify('LLM RPG Bridge settings saved.', 'success');
     await refreshPanel().catch(error => notify(error.message, 'error'));
+  });
+
+  document.querySelector('#llm-rpg-use-chat-title')?.addEventListener('click', async () => {
+    try {
+      await applySaveBinding(deriveDefaultSaveBinding());
+      notify('Save binding reset from current chat title.', 'success');
+      await refreshPanel().catch(error => notify(error.message, 'error'));
+    } catch (error) {
+      notify(error.message, 'error');
+    }
   });
 
   document.querySelector('#llm-rpg-refresh')?.addEventListener('click', async () => {
@@ -1884,6 +2043,15 @@ function mountPanel() {
     clearSceneLifecycleForms();
   });
 
+  document.querySelector('#llm-rpg-session-summary-draft')?.addEventListener('click', async () => {
+    try {
+      await draftSessionSummaryFromForm();
+      notify('Session summary drafted from current chat.', 'success');
+    } catch (error) {
+      notify(error.message, 'error');
+    }
+  });
+
   document.querySelector('#llm-rpg-session-summary-save')?.addEventListener('click', async () => {
     try {
       await submitSessionSummaryForm();
@@ -1931,6 +2099,7 @@ function mountPanel() {
     clearBuilderComposer();
   });
   updateBuilderComposerForm();
+  refreshSaveBindingControls();
   refreshActivatedLorePanel();
   refreshExtractionReviewPanel();
 

@@ -1,121 +1,31 @@
-# 04 — Step by step realization plan
+# 04 - Bridge roadmap status
 
-## Phase 1 — prove the loop
+This doc is now a status marker, not a future build recipe.
 
-Goal: commands update backend state and narration reflects it.
+## Completed bridge phases
 
-### Task 1
-Get the backend and extension talking.
+The repo has already moved past the original prove-the-loop work:
 
-Done when:
-- panel refresh works
-- `/inventory` returns backend data
+- backend and extension talk reliably
+- read commands refresh backend state into panels
+- mutating commands return authoritative action output
+- pending narration injection exists for command-only flows
+- full-turn narration works through `/rpg_resolve` and optional backend-resolved normal turns
+- scene lifecycle controls, lorebook inspection, session summaries, activated lore, and extraction review are all present in the bridge
 
-### Task 2
-Get one mutating command working reliably.
+## Current milestone
 
-Recommended first:
-- `/use_item`
+The next bridge milestone is **Memory And Turn Quality**:
 
-Done when:
-- backend mutation is recorded
-- panel refreshes
-- narration reflects the changed state
+1. establish a repeatable live SillyTavern smoke baseline
+2. harden request reset and context refresh behavior around slow or canceled `resolve-turn` calls
+3. tune lore activation and narration quality from real play traces
+4. deepen extraction-review-to-state workflows for supported categories
+5. improve session summary and durable memory quality without moving authority into the frontend
 
-### Task 3
-Add `/cast`
+## Rules for continuation
 
-Done when:
-- spell existence is checked
-- spell level is checked
-- slot is reduced
-- result is narrated correctly
-
-## Phase 2 — tighten prompt flow
-
-### Task 4
-Inspect injected narration block in generation requests.
-
-Check:
-- is it inserted exactly once
-- is it inserted before the last user message
-- does the model obey it
-
-### Task 5
-Trim the narration block format.
-
-Make it:
-- compact
-- factual
-- hard to misread
-- easy for any model to obey
-
-## Phase 3 — improve the player UX
-
-### Task 6
-Replace raw JSON return blocks for `/inventory` and `/quest` with nicer formatted text.
-
-### Task 7
-Add quick buttons in the panel:
-- Inventory
-- Refresh
-- Quest
-- Journal
-- Rest
-- End Scene
-
-### Task 8
-Add an action composer:
-- command type dropdown
-- target input
-- execute button
-
-This helps when slash commands are annoying on mobile or in messy sessions.
-
-## Phase 4 — automatic updates from narration
-
-### Task 9
-After every AI reply, run a structured extraction pass in LM Studio or the backend.
-
-Only auto-apply:
-- item gain/loss
-- gold changes
-- location changes
-- quest progression
-- conditions
-- scene object changes
-
-Do not blindly auto-apply:
-- emotions
-- secrets
-- inferred relationship shifts
-- symbolic interpretations
-
-## Phase 5 — scene/journal maturity
-
-### Task 10
-Add explicit scene lifecycle:
-
-- start scene
-- active scene
-- close scene
-- archive summary
-
-### Task 11
-Split journals into:
-- raw turn log
-- scene summaries
-- canon facts
-
-## Phase 6 — decide whether to stay in ST
-
-Stay in ST if:
-- chat remains the main experience
-- panels are enough
-- command UX feels good
-
-Move to a custom frontend later if:
-- you want full dashboards
-- you need deep drag-and-drop inventory
-- you want complex map/combat UX
-- you want branch-aware timeline management
+- keep the bridge thin
+- keep backend contracts stable and additive
+- avoid local truth drift
+- treat new UI affordances as views or command launchers, not as game-rule owners

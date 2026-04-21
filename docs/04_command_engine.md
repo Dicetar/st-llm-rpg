@@ -1,95 +1,67 @@
-# 04 — Command Engine
+# 04 - Command Engine
 
-## Goal
-Implement slash commands as deterministic operations against the authoritative state.
+## Current role
 
-## Command categories
+The command engine is the authoritative slash-command executor behind:
 
-### Read commands
-These do not mutate state.
-Examples:
+- `POST /commands/execute`
+- the command-execution phase inside `POST /narration/resolve-turn`
+
+Its job is to parse or accept explicit commands, validate them against backend state, mutate a working repository, emit stable turn results, and return narration-safe summaries.
+
+## Read commands
+
+These do not mutate canonical state:
+
 - `/inventory`
-- `/quests`
+- `/quest` and `/quests`
 - `/journal`
+- `/lorebook`
+- `/actor`
+- `/campaign`
 - `/scene`
-- `/sheet`
+- `/relationships` and `/relationship`
 
-### Mutation commands
-These attempt to change state.
-Examples:
-- `/use_item health potion`
-- `/equip iron sword`
-- `/unequip shield`
-- `/cast suggestion`
-- `/use_skill persuasion`
-- `/rest short`
-- `/move north`
+## Mutation commands
 
-## Batch command execution
-A single player message may include multiple commands.
+These mutate canonical state through the backend contract:
 
-Recommended policy:
-- parse all commands in order
-- execute them left to right
-- commit each successful command independently
-- include failures in the final execution report
-- narrate the combined result
-
-## Command lifecycle
-1. Parse input into normalized command objects.
-2. Validate input shape.
-3. Load relevant actor/scene/resource state.
-4. Check command-specific preconditions.
-5. Build mutation plan.
-6. Apply mutation plan in a transaction.
-7. Write event log entry.
-8. Return command result to caller.
-9. Build narration context.
-
-## Example: `/use_item health potion`
-Checks:
-- item exists in actor inventory
-- quantity > 0
-- item is usable in current context
-
-Effects:
-- subtract 1 quantity
-- apply healing or relevant effect
-- append event log
-- expose result to narration layer
-
-## Example: `/cast suggestion`
-Checks:
-- spell exists for actor
-- actor can currently cast
-- appropriate spell slot is available
-- scene has a valid target or target-selection step
-
-Effects:
-- reserve/spend slot
-- record cast event
-- attach cast metadata to narration context
-
-## Recommended first command set
-Implement only these first:
-- `/inventory`
 - `/use_item`
-- `/equip`
-- `/unequip`
 - `/cast`
-- `/quests`
-- `/scene`
-- `/journal`
+- `/equip`
+- `/condition`
+- `/quest_update`
+- `/relationship_note`
+- `/scene_move`
+- `/scene_object`
+- `/scene_clue`
+- `/scene_hazard`
+- `/scene_discovery`
+- `/new`
+- `/new_item`
+- `/new_spell`
+- `/new_custom_skill`
 
-## Failure design
-Every failure must be machine-readable.
+Scene lifecycle endpoint wrappers such as `/scene_open`, `/scene_close`, and `/scene_draft_close` are frontend bridge commands. They are not part of the core command-engine mutation surface.
 
-Examples:
-- `ITEM_NOT_FOUND`
-- `ITEM_QUANTITY_ZERO`
-- `SPELL_UNKNOWN`
-- `SPELL_SLOT_UNAVAILABLE`
-- `INVALID_TARGET`
-- `COMMAND_NOT_ALLOWED_IN_SCENE`
+## Execution model
 
-The narrator should receive the failure reason in plain language so it can respond naturally.
+1. parse mixed text or accept explicit command objects
+2. execute commands left to right in a working repository
+3. record stable event entries for attempted commands
+4. build `results[]`, `state_changes[]`, `refresh_hints[]`, and `overview`
+5. commit, dry-run, or roll back based on `mode` and `failure_policy`
+6. return `narration_context` built from authoritative backend state
+
+## Failure model
+
+- every command result includes `ok`, `message`, and `error_code`
+- `best_effort` commits successful mutations even if another command fails
+- `rollback_on_failure` discards all mutations if any command in the turn fails
+- mixed prose can contain backend commands and ordinary narration, but frontend-only wrapper commands are stripped before backend execution
+
+## Continuation rules
+
+- keep new commands additive to the current contract
+- keep backend validation authoritative
+- do not move game-rule logic into the extension

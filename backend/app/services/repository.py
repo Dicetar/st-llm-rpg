@@ -4,8 +4,11 @@ import json
 import os
 import sqlite3
 import threading
+import hashlib
+import re
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 from shutil import copy2
 from typing import Any, Callable
@@ -21,6 +24,36 @@ STATE_DOCUMENTS = {
     "spell_registry": "spell_registry.json",
     "lorebook_state": "lorebook_state.json",
 }
+
+DEFAULT_SAVE_ID = "default"
+SAFE_SAVE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+UNSAFE_SAVE_ID_CHARS = re.compile(r"[^a-z0-9]+")
+
+
+def normalize_save_id(save_id: str | None) -> str:
+    raw_value = str(save_id or "").strip()
+    if not raw_value:
+        return DEFAULT_SAVE_ID
+
+    canonical = raw_value.casefold()
+    if SAFE_SAVE_ID_PATTERN.fullmatch(canonical):
+        return canonical
+
+    slug = UNSAFE_SAVE_ID_CHARS.sub("-", canonical).strip("-.")
+    slug = re.sub(r"-{2,}", "-", slug)[:48]
+    if not slug:
+        slug = "save"
+
+    digest = hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:8]
+    return f"{slug}--{digest}"
+
+
+def resolve_runtime_dir(project_root: Path, save_id: str | None = None) -> tuple[str, Path]:
+    normalized_save_id = normalize_save_id(save_id)
+    runtime_root = project_root / "runtime"
+    if normalized_save_id == DEFAULT_SAVE_ID:
+        return normalized_save_id, runtime_root
+    return normalized_save_id, runtime_root / "saves" / normalized_save_id
 
 
 def default_lorebook_state() -> dict[str, Any]:
@@ -41,6 +74,7 @@ def default_lorebook_state() -> dict[str, Any]:
 class StateRepository(ABC):
     seed_dir: Path
     runtime_dir: Path
+    save_id: str
 
     @abstractmethod
     def load_campaign_state(self) -> dict[str, Any]:
@@ -124,7 +158,7 @@ class StateRepository(ABC):
 
 
 class JsonStateRepository(StateRepository):
-    def __init__(self, base_dir: Path | None = None) -> None:
+    def __init__(self, base_dir: Path | None = None, save_id: str | None = None) -> None:
         self._lock = threading.RLock()
         project_root = base_dir or BASE_DIR
         seed_dir = project_root / "data" / "seed"
@@ -132,7 +166,7 @@ class JsonStateRepository(StateRepository):
             seed_dir = project_root / "data"
 
         self.seed_dir = seed_dir if base_dir else SEED_DIR
-        self.runtime_dir = project_root / "runtime"
+        self.save_id, self.runtime_dir = resolve_runtime_dir(project_root, save_id)
         self.data_dir = self.runtime_dir / "data"
         self.storage_dir = self.runtime_dir / "storage"
         self.campaign_state_path = self.data_dir / STATE_DOCUMENTS["campaign_state"]
@@ -280,7 +314,7 @@ class JsonStateRepository(StateRepository):
 
 
 class SqliteStateRepository(StateRepository):
-    def __init__(self, base_dir: Path | None = None, database_name: str = "state.sqlite3") -> None:
+    def __init__(self, base_dir: Path | None = None, database_name: str = "state.sqlite3", save_id: str | None = None) -> None:
         self._lock = threading.RLock()
         project_root = base_dir or BASE_DIR
         seed_dir = project_root / "data" / "seed"
@@ -288,7 +322,7 @@ class SqliteStateRepository(StateRepository):
             seed_dir = project_root / "data"
 
         self.seed_dir = seed_dir if base_dir else SEED_DIR
-        self.runtime_dir = project_root / "runtime"
+        self.save_id, self.runtime_dir = resolve_runtime_dir(project_root, save_id)
         self.data_dir = self.runtime_dir / "data"
         self.storage_dir = self.runtime_dir / "storage"
         self.database_path = self.storage_dir / database_name
@@ -536,6 +570,7 @@ class TransactionalStateRepository(StateRepository):
         self.base_repository = base_repository
         self.seed_dir = base_repository.seed_dir
         self.runtime_dir = base_repository.runtime_dir
+        self.save_id = base_repository.save_id
         self._documents: dict[str, dict[str, Any]] = {}
         self._dirty_documents: set[str] = set()
         self._events: list[dict[str, Any]] = []
@@ -649,8 +684,18 @@ class TransactionalStateRepository(StateRepository):
         self._scene_archives.clear()
 
 
-def create_repository(base_dir: Path | None = None, backend: str | None = None) -> StateRepository:
-    selected_backend = (backend or os.getenv("ST_LLM_RPG_REPOSITORY") or REPOSITORY_BACKEND).strip().lower()
+@lru_cache(maxsize=32)
+def _create_live_repository(selected_backend: str, normalized_save_id: str) -> StateRepository:
     if selected_backend == "json":
-        return JsonStateRepository(base_dir=base_dir)
-    return SqliteStateRepository(base_dir=base_dir)
+        return JsonStateRepository(save_id=normalized_save_id)
+    return SqliteStateRepository(save_id=normalized_save_id)
+
+
+def create_repository(base_dir: Path | None = None, backend: str | None = None, save_id: str | None = None) -> StateRepository:
+    selected_backend = (backend or os.getenv("ST_LLM_RPG_REPOSITORY") or REPOSITORY_BACKEND).strip().lower()
+    normalized_save_id = normalize_save_id(save_id)
+    if base_dir is None:
+        return _create_live_repository(selected_backend, normalized_save_id)
+    if selected_backend == "json":
+        return JsonStateRepository(base_dir=base_dir, save_id=normalized_save_id)
+    return SqliteStateRepository(base_dir=base_dir, save_id=normalized_save_id)

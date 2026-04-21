@@ -60,6 +60,29 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8010
 ```
 
+For the live SillyTavern workflow on port `8014`, use the visible-console helper from repo root:
+
+```powershell
+.\tools\scripts\start_backend_visible.cmd
+```
+
+If you want one visible control surface for backend start/reset/stop, runtime reset, extension sync, SillyTavern start/stop, and LM Studio env-key handling, use:
+
+```powershell
+.\tools\scripts\control_panel.cmd
+```
+
+To hard reset a stuck backend request and pull fresh context on the next turn:
+
+```powershell
+.\tools\scripts\reset_backend_visible.cmd
+```
+
+Press `Ctrl+C` in that backend console for a normal stop. If LM Studio itself is still generating after a backend reset, stop generation in LM Studio too.
+
+If you call the `.ps1` scripts directly, run them with PowerShell. Do not prefix them with `python`.
+If you need a non-default bind address, use `-BindHost`, not `-Host`.
+
 Open:
 
 - `http://127.0.0.1:8010/docs`
@@ -190,8 +213,10 @@ curl "http://127.0.0.1:8010/state/lorebook/insertion-entries?actor_id=player&syn
 
 ## Continuation focus
 
-The backend contract is now in place. The next work should stay additive:
+The backend contract is now in place. The next milestone is **Gameplay Expansion Through Memory And Turn Quality**:
 
-1. complete a live frontend smoke pass against resolve-turn, rollback mode, and scene refresh behavior
-2. refine LM Studio prompts and live integration behavior without changing backend authority rules
-3. continue tightening extraction edge cases from real play traces
+1. establish a live SillyTavern smoke baseline for the current bridge
+2. harden resolve-turn request/reset behavior and context refresh expectations
+3. tune lore activation and narration context quality from real play traces
+4. deepen extraction-review-to-state workflows for supported categories
+5. improve session summary and durable memory quality without changing backend authority rules

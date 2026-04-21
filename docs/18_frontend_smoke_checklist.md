@@ -8,6 +8,13 @@ Use this when validating the SillyTavern bridge manually after backend or extens
 - LM Studio running as well if you want to test `resolve-turn`
 - extension installed from `frontend-extension/llm-rpg-bridge/`
 
+## Local workflow checks
+
+1. run `.\tools\scripts\start_backend_visible.cmd` and confirm the backend starts on `8014` in a visible console
+2. run `.\tools\scripts\stop_backend.cmd` and confirm `8014` clears
+3. run `.\tools\scripts\reset_backend_visible.cmd` and confirm the backend restarts cleanly in a visible console
+4. run `.\tools\scripts\sync_st_extension.cmd` and confirm the active extension copy under `public/scripts/extensions/third-party/llm-rpg-bridge` updates
+
 ## Core load checks
 
 1. open SillyTavern and confirm the bridge loads without console errors
@@ -25,10 +32,12 @@ Use this when validating the SillyTavern bridge manually after backend or extens
 
 1. open Lorebook Insertions and confirm keyword entries render with keys and content
 2. click Sync Lorebook and confirm the entry count/revision refresh without tracked file changes
-3. save a Session Summary with at least one durable fact
-4. confirm Journal, Recent Events, and Lorebook Insertions refresh
-5. run `/lorebook` and confirm it returns backend-built keyword insertion entries
-6. run `/session_summary [Short session summary | durable fact one; durable fact two | tag_one,tag_two]` and confirm the new summary appears in the journal and lorebook entries
+3. click `Summarize & Fill` in `Session Summary` on an existing chat and confirm the form fills from the current chat transcript without mutating Journal, Recent Events, or Lorebook Insertions yet
+4. run `/session_summary_draft [focus on quest and relationship developments]` and confirm it fills the same form without committing state
+5. save a Session Summary with at least one durable fact
+6. confirm Journal, Recent Events, and Lorebook Insertions refresh
+7. run `/lorebook` and confirm it returns backend-built keyword insertion entries
+8. run `/session_summary [Short session summary | durable fact one; durable fact two | tag_one,tag_two]` and confirm the new summary appears in the journal and lorebook entries
 
 ## Resolve-turn checks
 

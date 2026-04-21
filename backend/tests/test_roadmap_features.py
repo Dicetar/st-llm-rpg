@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from fastapi import HTTPException
 from pathlib import Path
 import shutil
 
+from app.api import commands as commands_api
+from app.api import journal as journal_api
+from app.api import narration as narration_api
+from app.api import scene as scene_api
+from app.api import state as state_api
 from app.domain.models import (
     ChatContextMessage,
     CommandExecutionRequest,
     ExtractionEnvelope,
     ExtractedUpdate,
+    JournalDraftSessionSummaryRequest,
     JournalEntry,
     NarrationResolveRequest,
     SceneCloseRequest,
@@ -20,7 +27,7 @@ from app.services.extraction_service import ExtractionService
 from app.services.lore_activation_service import LoreActivationService
 from app.services.lm_studio_client import LMStudioClient
 from app.services.lore_update_service import LoreUpdateService
-from app.services.repository import JsonStateRepository, SqliteStateRepository, create_repository
+from app.services.repository import DEFAULT_SAVE_ID, JsonStateRepository, SqliteStateRepository, create_repository, normalize_save_id
 from app.services.scene_service import SceneService
 from app.services.turn_resolution_service import TurnResolutionService
 
@@ -39,6 +46,15 @@ def make_repo(tmp_path: Path, backend: str, name: str):
     if backend == "sqlite":
         return SqliteStateRepository(base_dir=work_root)
     raise ValueError(f"Unsupported backend '{backend}'.")
+
+
+def patch_api_repository_factory(monkeypatch, work_root: Path, backend: str = "sqlite") -> None:
+    def repo_factory(*, base_dir=None, backend: str | None = None, save_id: str | None = None):
+        return create_repository(base_dir=work_root, backend=backend or backend_name, save_id=save_id)
+
+    backend_name = backend
+    for module in (commands_api, journal_api, narration_api, scene_api, state_api):
+        monkeypatch.setattr(module, "create_repository", repo_factory)
 
 
 def normalize_lorebook(payload: dict) -> dict:
@@ -77,6 +93,7 @@ class StubLMStudioClient:
         *,
         extracted_updates: list[ExtractedUpdate] | None = None,
         scene_summary: dict | None = None,
+        session_summary: dict | None = None,
         narration_error: str | None = None,
         extraction_error: str | None = None,
     ) -> None:
@@ -86,11 +103,17 @@ class StubLMStudioClient:
             "durable_facts": [],
             "warnings": [],
         }
+        self.session_summary = session_summary or {
+            "summary": "Stub session summary.",
+            "durable_facts": [],
+            "warnings": [],
+        }
         self.narration_error = narration_error
         self.extraction_error = extraction_error
         self.narration_calls: list[dict] = []
         self.extraction_calls: list[dict] = []
         self.scene_summary_calls: list[dict] = []
+        self.session_summary_calls: list[dict] = []
 
     def generate_narration(self, *, player_input: str, narration_context: dict) -> tuple[str, str]:
         self.narration_calls.append(
@@ -133,12 +156,64 @@ class StubLMStudioClient:
         )
         return deepcopy(self.scene_summary), "stub-scene-summary"
 
+    def generate_session_summary_from_chat(
+        self,
+        *,
+        chat_title: str | None,
+        messages: list[dict],
+        authoritative_context: dict,
+        instructions: str | None = None,
+    ) -> tuple[dict, str]:
+        self.session_summary_calls.append(
+            {
+                "chat_title": chat_title,
+                "messages": deepcopy(messages),
+                "authoritative_context": deepcopy(authoritative_context),
+                "instructions": instructions,
+            }
+        )
+        return deepcopy(self.session_summary), "stub-session-summary"
+
 
 def test_lm_studio_client_builds_bearer_headers_when_api_key_present():
     client = LMStudioClient(narrator_model="test-model", extractor_model="test-model", api_key="sk-lm-test")
 
     assert client._build_headers()["Content-Type"] == "application/json"
     assert client._build_headers()["Authorization"] == "Bearer sk-lm-test"
+
+
+def test_lm_studio_client_caps_narration_completion_tokens(monkeypatch):
+    client = LMStudioClient(
+        narrator_model="test-model",
+        extractor_model="test-model",
+        narration_max_tokens=123,
+    )
+    captured: dict = {}
+
+    def fake_chat_completion(**kwargs):
+        captured.update(kwargs)
+        return "Capped narration."
+
+    monkeypatch.setattr(client, "_chat_completion", fake_chat_completion)
+
+    prose, model = client.generate_narration(
+        player_input="I wait for her answer.",
+        narration_context={
+            "turn_id": "turn_test_cap",
+            "actor_id": "player",
+            "mode": "commit",
+            "failure_policy": "best_effort",
+            "scene": {},
+            "turn_summary": {},
+            "post_command_overview": {},
+            "refresh_hints": [],
+        },
+    )
+
+    assert prose == "Capped narration."
+    assert model == "test-model"
+    assert captured["max_tokens"] == 123
+    assert captured["temperature"] == 0.8
 
 
 def test_lm_studio_client_can_resolve_current_loaded_model(monkeypatch):
@@ -182,6 +257,42 @@ def test_lm_studio_client_normalizes_bare_extractor_array_content():
     assert parsed["updates"][1]["payload"]["visible"] == "hidden"
 
 
+def test_lm_studio_client_recovers_completed_updates_from_truncated_extractor_json():
+    client = LMStudioClient(narrator_model="test-model", extractor_model="test-model")
+
+    parsed = client._parse_json_content(
+        """```json
+{
+  "updates": [
+    {
+      "category": "condition_change",
+      "description": "Lavitz observes active fae transformations.",
+      "confidence": 0.9,
+      "payload": {
+        "condition": "physically transformed with fae features",
+        "action": "add"
+      }
+    },
+    {
+      "category": "scene_object_change",
+      "description": "The draconic musk perfume remains visible.",
+      "confidence": 0.8,
+      "payload": {
+        "object_name": "draconic musk perfume",
+        "visible": true
+      }
+    },
+    {
+      "category": "item_change",
+      "description": "The third update is cut off",
+"""
+    )
+
+    assert len(parsed["updates"]) == 2
+    assert parsed["updates"][0]["category"] == "condition_change"
+    assert parsed["updates"][1]["payload"]["object_name"] == "draconic musk perfume"
+
+
 def test_lm_studio_client_parses_scene_summary_json_shapes_and_prose_fallback():
     client = LMStudioClient(narrator_model="test-model", extractor_model="test-model")
 
@@ -201,6 +312,28 @@ def test_lm_studio_client_parses_scene_summary_json_shapes_and_prose_fallback():
     assert plain["durable_facts"] == ["Seraphina kept the moon key", "Lavitz noticed the seal"]
     assert plain["warnings"] == ["review relationship tone"]
     assert prose["summary"] == "The scene ended with no durable facts established."
+    assert prose["warnings"] == ["model_returned_prose_fallback"]
+
+
+def test_lm_studio_client_parses_session_summary_json_shapes_and_prose_fallback():
+    client = LMStudioClient(narrator_model="test-model", extractor_model="test-model")
+
+    fenced = client._parse_summary_draft_content(
+        """```json
+{"summary":"Lavitz tested the fae bargain boundaries.","durable_facts":["Lavitz accepted the bargain."],"warnings":[]}
+```"""
+    )
+    plain = client._parse_summary_draft_content(
+        '{"text":"The private quarters conversation established a secret accord.","facts":"Lavitz concealed the moon key;Seraphina gained private access","warnings":["review whether access was explicit"]}'
+    )
+    prose = client._parse_summary_draft_content("The chat so far established that Lavitz is still in House Harcourt.")
+
+    assert fenced["summary"] == "Lavitz tested the fae bargain boundaries."
+    assert fenced["durable_facts"] == ["Lavitz accepted the bargain."]
+    assert plain["summary"] == "The private quarters conversation established a secret accord."
+    assert plain["durable_facts"] == ["Lavitz concealed the moon key", "Seraphina gained private access"]
+    assert plain["warnings"] == ["review whether access was explicit"]
+    assert prose["summary"] == "The chat so far established that Lavitz is still in House Harcourt."
     assert prose["warnings"] == ["model_returned_prose_fallback"]
 
 
@@ -287,6 +420,71 @@ def test_create_repository_defaults_to_sqlite_runtime_backend(tmp_path):
     assert repository.database_path.exists()
     assert repository.load_character_state()["actors"]["player"]["name"] in seed_character_state
     assert repository.list_events() == []
+
+
+def test_create_repository_keeps_default_save_on_legacy_runtime_path(tmp_path):
+    work_root = make_work_root(tmp_path, "factory_default_save")
+    repository = create_repository(base_dir=work_root, save_id=DEFAULT_SAVE_ID)
+
+    assert isinstance(repository, SqliteStateRepository)
+    assert repository.save_id == DEFAULT_SAVE_ID
+    assert repository.runtime_dir == work_root / "runtime"
+    assert repository.database_path == work_root / "runtime" / "storage" / "state.sqlite3"
+
+
+def test_create_repository_uses_namespaced_runtime_for_named_saves(tmp_path):
+    work_root = make_work_root(tmp_path, "factory_named_save")
+    repository = create_repository(base_dir=work_root, save_id="House Harcourt Private Quarters")
+    expected_save_id = normalize_save_id("House Harcourt Private Quarters")
+
+    assert isinstance(repository, SqliteStateRepository)
+    assert repository.save_id == expected_save_id
+    assert repository.runtime_dir == work_root / "runtime" / "saves" / expected_save_id
+    assert repository.database_path == work_root / "runtime" / "saves" / expected_save_id / "storage" / "state.sqlite3"
+
+
+def test_named_save_repositories_do_not_share_state_or_events(tmp_path):
+    work_root = make_work_root(tmp_path, "factory_save_isolation")
+    alpha_repo = create_repository(base_dir=work_root, save_id="Alpha Save")
+    beta_repo = create_repository(base_dir=work_root, save_id="Beta Save")
+    alpha_engine = CommandEngine(alpha_repo)
+
+    alpha_engine.execute(
+        CommandExecutionRequest(
+            actor_id="player",
+            commands=[{"name": "new_item", "argument": "chat-bound sigil | 1 | quest | A save-isolated sigil."}],
+        )
+    )
+
+    alpha_inventory = alpha_repo.load_character_state()["actors"]["player"]["inventory"]
+    beta_inventory = beta_repo.load_character_state()["actors"]["player"]["inventory"]
+
+    assert alpha_inventory["chat-bound sigil"] == 1
+    assert "chat-bound sigil" not in beta_inventory
+    assert len(alpha_repo.list_events(limit=10)) == 1
+    assert beta_repo.list_events(limit=10) == []
+
+
+def test_api_save_id_query_scopes_backend_runtime(tmp_path, monkeypatch):
+    work_root = make_work_root(tmp_path, "api_save_scope")
+    patch_api_repository_factory(monkeypatch, work_root)
+    execute_response = commands_api.execute_commands(
+        CommandExecutionRequest(
+            actor_id="player",
+            commands=[{"name": "new_item", "argument": "velvet balcony token | 1 | quest | Save-scoped token."}],
+        ),
+        save_id="Velvet Balcony",
+    )
+    alpha_inventory = state_api.get_inventory(actor_id="player", save_id="Velvet Balcony")
+    beta_inventory = state_api.get_inventory(actor_id="player", save_id="Moonlit Gallery")
+    alpha_events = state_api.get_recent_events(limit=20, save_id="Velvet Balcony")
+    beta_events = state_api.get_recent_events(limit=20, save_id="Moonlit Gallery")
+
+    assert execute_response["results"][0]["ok"] is True
+    assert alpha_inventory["inventory"]["velvet balcony token"] == 1
+    assert "velvet balcony token" not in beta_inventory["inventory"]
+    assert len(alpha_events["events"]) == 1
+    assert beta_events["events"] == []
 
 
 def test_repository_parity_between_json_and_sqlite_for_command_sequence(tmp_path):
@@ -1217,3 +1415,67 @@ def test_scene_service_draft_summary_ignores_readonly_and_rollback_events(tmp_pa
     assert "ignored_2_non_substantive_event(s)" in result["warnings"]
     assert "low_context_no_substantive_events" in result["warnings"]
     assert lm_client.scene_summary_calls[0]["recent_events"] == []
+
+
+def test_journal_draft_session_summary_returns_draft_without_mutating_repository(tmp_path, monkeypatch):
+    work_root = make_work_root(tmp_path, "journal_draft_summary")
+    patch_api_repository_factory(monkeypatch, work_root)
+    lm_client = StubLMStudioClient(
+        session_summary={
+            "summary": "Lavitz and Seraphina established a private understanding in House Harcourt.",
+            "durable_facts": ["Lavitz agreed to continue the conversation in private."],
+            "warnings": ["review whether the promise was explicit"],
+        }
+    )
+    monkeypatch.setattr(journal_api, "LMStudioClient", lambda: lm_client)
+
+    repository = create_repository(base_dir=work_root)
+    before_scene = deepcopy(repository.load_scene_state())
+    before_events = deepcopy(repository.list_events(limit=20))
+    before_journal = deepcopy(repository.list_journal(limit=20))
+    before_lorebook = normalize_lorebook(repository.load_lorebook_state())
+
+    result = journal_api.draft_session_summary(
+        JournalDraftSessionSummaryRequest(
+            chat_title="House Harcourt Night One",
+            instructions="Focus on durable social developments only.",
+            messages=[
+                ChatContextMessage(role="user", content="I ask Lavitz to speak privately."),
+                ChatContextMessage(role="assistant", content="Lavitz closes the door and agrees to listen."),
+            ],
+        ),
+        actor_id="player",
+        save_id="default",
+    )
+
+    assert result["ok"] is True
+    assert result["chat_title"] == "House Harcourt Night One"
+    assert result["scene_id"] == before_scene["scene_id"]
+    assert result["model"] == "stub-session-summary"
+    assert result["summary"] == "Lavitz and Seraphina established a private understanding in House Harcourt."
+    assert result["durable_facts"] == ["Lavitz agreed to continue the conversation in private."]
+    assert result["warnings"] == ["review whether the promise was explicit"]
+    assert result["source_counts"] == {"messages": 2, "user_messages": 1, "assistant_messages": 1}
+    assert lm_client.session_summary_calls[0]["instructions"] == "Focus on durable social developments only."
+    assert lm_client.session_summary_calls[0]["chat_title"] == "House Harcourt Night One"
+    assert repository.load_scene_state() == before_scene
+    assert repository.list_events(limit=20) == before_events
+    assert repository.list_journal(limit=20) == before_journal
+    assert normalize_lorebook(repository.load_lorebook_state()) == before_lorebook
+
+
+def test_journal_draft_session_summary_requires_messages(tmp_path, monkeypatch):
+    work_root = make_work_root(tmp_path, "journal_draft_summary_requires_messages")
+    patch_api_repository_factory(monkeypatch, work_root)
+
+    try:
+        journal_api.draft_session_summary(
+            JournalDraftSessionSummaryRequest(chat_title="Empty transcript", messages=[]),
+            actor_id="player",
+            save_id="default",
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert "messages is required" in str(exc.detail)
+    else:
+        raise AssertionError("Expected draft_session_summary to reject empty message input.")

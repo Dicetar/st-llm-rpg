@@ -3,15 +3,12 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from app.domain.models import EventRecord
 from app.services.command_engine import CommandEngine
 from app.services.lore_update_service import LoreUpdateService
-from app.services.repository import create_repository
+from app.services.repository import StateRepository, create_repository
 
 router = APIRouter(tags=["state"])
-repository = create_repository()
-engine = CommandEngine(repository)
-lore_service = LoreUpdateService(repository)
 
 
-def _get_actor_or_404(actor_id: str):
+def _get_actor_or_404(repository: StateRepository, actor_id: str):
     character_state = repository.load_character_state()
     actors = character_state.get("actors", {})
     if actor_id not in actors:
@@ -20,7 +17,8 @@ def _get_actor_or_404(actor_id: str):
 
 
 @router.get("/state/overview")
-def get_state_overview(actor_id: str = Query(default="player")):
+def get_state_overview(actor_id: str = Query(default="player"), save_id: str = Query(default="default")):
+    engine = CommandEngine(create_repository(save_id=save_id))
     try:
         return engine.build_overview(actor_id).model_dump()
     except KeyError as exc:
@@ -28,8 +26,9 @@ def get_state_overview(actor_id: str = Query(default="player")):
 
 
 @router.get("/state/inventory")
-def get_inventory(actor_id: str = Query(default="player")):
-    actor = _get_actor_or_404(actor_id)
+def get_inventory(actor_id: str = Query(default="player"), save_id: str = Query(default="default")):
+    repository = create_repository(save_id=save_id)
+    actor = _get_actor_or_404(repository, actor_id)
     return {
         "actor_id": actor_id,
         "inventory": actor.get("inventory", {}),
@@ -38,7 +37,8 @@ def get_inventory(actor_id: str = Query(default="player")):
 
 
 @router.get("/state/actor/detail")
-def get_actor_detail(actor_id: str = Query(default="player")):
+def get_actor_detail(actor_id: str = Query(default="player"), save_id: str = Query(default="default")):
+    engine = CommandEngine(create_repository(save_id=save_id))
     try:
         return engine.build_actor_detail(actor_id)
     except KeyError as exc:
@@ -46,27 +46,32 @@ def get_actor_detail(actor_id: str = Query(default="player")):
 
 
 @router.get("/state/campaign/detail")
-def get_campaign_detail():
+def get_campaign_detail(save_id: str = Query(default="default")):
+    repository = create_repository(save_id=save_id)
     return repository.load_campaign_state()
 
 
 @router.get("/state/scene/current")
-def get_current_scene():
+def get_current_scene(save_id: str = Query(default="default")):
+    repository = create_repository(save_id=save_id)
     return repository.load_scene_state()
 
 
 @router.get("/state/scene/detail")
-def get_scene_detail():
+def get_scene_detail(save_id: str = Query(default="default")):
+    repository = create_repository(save_id=save_id)
     return repository.load_scene_state()
 
 
 @router.get("/state/scene/archive")
-def get_scene_archives(limit: int = Query(default=20, ge=1, le=100)):
+def get_scene_archives(limit: int = Query(default=20, ge=1, le=100), save_id: str = Query(default="default")):
+    repository = create_repository(save_id=save_id)
     return {"archives": repository.list_scene_archives(limit=limit)}
 
 
 @router.get("/state/lorebook")
-def get_lorebook_state():
+def get_lorebook_state(save_id: str = Query(default="default")):
+    repository = create_repository(save_id=save_id)
     return repository.load_lorebook_state()
 
 
@@ -74,7 +79,9 @@ def get_lorebook_state():
 def get_lorebook_insertion_entries(
     actor_id: str = Query(default="player"),
     sync: bool = Query(default=True),
+    save_id: str = Query(default="default"),
 ):
+    lore_service = LoreUpdateService(create_repository(save_id=save_id))
     try:
         return lore_service.build_insertion_payload(actor_id=actor_id, sync=sync)
     except KeyError as exc:
@@ -82,7 +89,8 @@ def get_lorebook_insertion_entries(
 
 
 @router.post("/state/lorebook/sync")
-def sync_lorebook_state(actor_id: str = Query(default="player")):
+def sync_lorebook_state(actor_id: str = Query(default="player"), save_id: str = Query(default="default")):
+    lore_service = LoreUpdateService(create_repository(save_id=save_id))
     try:
         lore_sync = lore_service.sync_from_canonical_state(actor_id=actor_id, command_results=[], scene_id=None)
         return {
@@ -95,7 +103,8 @@ def sync_lorebook_state(actor_id: str = Query(default="player")):
 
 
 @router.get("/state/quests")
-def get_active_quests():
+def get_active_quests(save_id: str = Query(default="default")):
+    repository = create_repository(save_id=save_id)
     campaign_state = repository.load_campaign_state()
     quests = campaign_state.get("quests", {})
     active = {name: payload for name, payload in quests.items() if payload.get("status") == "active"}
@@ -103,19 +112,22 @@ def get_active_quests():
 
 
 @router.get("/state/relationships")
-def get_relationships():
+def get_relationships(save_id: str = Query(default="default")):
+    repository = create_repository(save_id=save_id)
     campaign_state = repository.load_campaign_state()
     return {"relationships": campaign_state.get("relationships", {})}
 
 
 @router.post("/state/quest-note")
-def update_quest_note(payload: dict = Body(...)):
+def update_quest_note(payload: dict = Body(...), save_id: str = Query(default="default")):
     quest_name = str(payload.get("quest_name", "")).strip()
     note = str(payload.get("note", ""))
     actor_id = str(payload.get("actor_id", "player")).strip() or "player"
     if not quest_name:
         raise HTTPException(status_code=400, detail="quest_name is required.")
 
+    repository = create_repository(save_id=save_id)
+    lore_service = LoreUpdateService(repository)
     campaign_state = repository.load_campaign_state()
     quests = campaign_state.setdefault("quests", {})
     if quest_name not in quests:
@@ -156,5 +168,6 @@ def update_quest_note(payload: dict = Body(...)):
 
 
 @router.get("/events/recent")
-def get_recent_events(limit: int = Query(default=20, ge=1, le=100)):
+def get_recent_events(limit: int = Query(default=20, ge=1, le=100), save_id: str = Query(default="default")):
+    repository = create_repository(save_id=save_id)
     return {"events": repository.list_events(limit=limit)}

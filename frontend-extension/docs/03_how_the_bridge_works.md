@@ -1,74 +1,95 @@
-# 03 — How the bridge works
+# 03 - How the bridge works
 
 ## Core rule
 
 **SillyTavern does not own canonical mutable state.**
 
-The extension is only the chat/UI shell.
+The extension is the chat and UI shell only.
+It now binds one backend save namespace per ST chat, using the current chat title as the default save name the first time that chat uses the bridge.
 
 Your backend owns:
 
 - inventory
-- spell slots
-- HP/resource changes
+- equipment
+- spell slots and resources
+- conditions
 - quest state
+- relationship state
 - journal persistence
 - event log
-- scene state
+- scene state and scene archive
 
-## Turn flow
+## Read command flow
 
-### Non-mutating command
 Example:
 
 `/inventory`
 
-Flow:
+1. the extension calls a backend read endpoint
+2. the backend returns an authoritative snapshot
+3. the extension refreshes the relevant panel and returns a prompt-safe summary block
 
-1. extension calls backend read endpoint
-2. backend returns authoritative snapshot
-3. extension renders panel and returns a prompt-safe summary block
+All backend requests include the current chat's `save_id`, so one ST chat no longer leaks scene, journal, event, or inventory state into another unless you intentionally point them at the same save.
 
-### Mutating command
+## Mutation command flow
+
 Example:
 
-`/cast suggestion`
+`/cast [suggestion]`
 
-Flow:
+1. the extension sends raw command text to `POST /commands/execute`
+2. the backend validates the command and mutates canonical state
+3. the backend returns parsed commands, per-command results, mutations, overview, refresh hints, and narration context
+4. the extension refreshes affected panels from backend state
+5. the extension stores a pending narration block in chat metadata
+6. on the next generation, the interceptor injects that block once and clears it
 
-1. extension sends raw command text to backend
-2. backend validates the command
-3. backend mutates state
-4. backend returns:
-   - parsed commands
-   - per-command results
-   - mutations
-   - post-command overview
-   - narration context
-5. extension stores a pending narration block in chat metadata
-6. on the next generation, the interceptor injects that block
-7. the model narrates the consequences
+## Resolve-turn flow
 
-## Why this is the correct split
+Example:
 
-If the browser extension directly mutates canonical state, swipes, reloads, and prompt-side hallucinations will eventually desync your game.
+`/rpg_resolve I inspect the desk and watch her reaction.`
 
-By keeping the backend authoritative, you get:
+1. the extension sends text and recent chat context to `POST /narration/resolve-turn`
+2. the backend executes embedded commands first
+3. the backend activates bounded lore context and optionally runs safe extraction
+4. the extension appends narrated prose from the authoritative turn response
+5. the extension updates `Activated Lore`, `Extraction Review`, and affected panels from backend data
 
-- rollback potential
+## Extraction review flow
+
+When extraction is enabled:
+
+- proposed, applied, staged, and warning entries are stored in chat metadata
+- supported review actions create a fresh authoritative backend turn
+- handled entries are hidden from the live queue until the next resolved turn
+
+## Session catch-up flow
+
+For older chats that predate backend memory capture:
+
+- use `Summarize & Fill` in `Session Summary` or `/session_summary_draft [optional instructions]`
+- the bridge sends a bounded transcript from the current ST chat plus the current chat title
+- the backend drafts a summary and durable facts without mutating journal, lorebook, events, or scene state
+- you review the filled form and choose whether to commit it with `Save Summary`
+
+This is the safe catch-up path for ongoing roleplay that started before the current memory workflow existed.
+
+## Why this split is correct
+
+Keeping the backend authoritative gives you:
+
+- rollback behavior
 - event history
 - deterministic validation
-- easier testing
-- future SQLite migration without rewriting the UI
+- easier tests
+- a stable SQLite-backed runtime without moving game rules into the browser
 
 ## What the interceptor does
 
-The interceptor exists so you do not have to manually copy command results into the prompt each turn.
+The interceptor has two small jobs:
 
-Its job is tiny:
+- inject pending narration context for slash-command turns
+- optionally route normal non-slash turns through `POST /narration/resolve-turn`
 
-- look for pending narration data
-- inject it before generation
-- clear it after injection
-
-That keeps the prompt grounded while avoiding duplicate injections.
+It is not a local rules engine.

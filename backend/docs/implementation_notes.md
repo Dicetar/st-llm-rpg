@@ -1,45 +1,43 @@
 # Implementation Notes
 
-## Why this version uses JSON files instead of SQLite
+## Status
 
-This is the fastest way to produce a runnable, inspectable backend skeleton without locking you into a premature schema.
-The repository boundary is deliberately small:
-- load state
-- save state
-- append event
-- append journal
+This note records the backend shape that exists in the current prototype.
+It is not a proposal for a future scaffold.
 
-That lets you replace the file repository with SQLite in the next phase while keeping:
-- route shapes
-- command engine
-- response contracts
+The backend now uses:
+- SQLite runtime storage under `backend/runtime/storage/state.sqlite3`
+- backend-authoritative command execution and turn orchestration
+- LM Studio narration, extraction, and draft-scene-summary sidecars
+- scene lifecycle, journal/session summaries, and lorebook insertion generation
 
 ## Backend responsibilities
 
 The backend is authoritative for:
-- inventory quantities
-- spell slot spending
-- equipment state
-- quest reads
-- current scene reads
-- event log
-- journal entries
+- inventory quantities and item registry metadata
+- spell slot spending and command validation
+- equipment state and layer shifting
+- quest, relationship, and condition updates
+- current scene state and scene archive
+- journal entries, session summaries, and event history
+- lorebook projection and activated lore selection
 
-The backend is not yet authoritative for:
+The backend is intentionally still not authoritative for:
 - dice resolution
 - initiative/combat turns
-- AI-generated post-turn updates
-- relationship deltas inferred from prose
+- ambiguous prose-only relationship inference
+- freeform world modeling outside validated command or extraction rules
 
-## ST integration shape
+## SillyTavern boundary
 
-SillyTavern should not mutate backend state directly in the browser.
-The ST extension should:
-1. capture slash commands or a player text block
-2. call `POST /commands/execute`
-3. send `narration_context` to LM Studio
-4. render the final narration after the state mutation already succeeded or failed
+SillyTavern remains a thin client.
+The bridge should:
+1. capture user prose, explicit slash commands, or scene workflow actions
+2. call backend endpoints such as `POST /commands/execute`, `POST /narration/resolve-turn`, `POST /scene/open`, and `POST /scene/close`
+3. render backend-owned state and refresh only the sections indicated by `refresh_hints`
+
+The browser layer should not mutate canonical state directly.
 
 ## Contract rule
 
-No narration should claim a potion was used, a spell was cast, or an item was gained unless the backend already accepted the mutation.
+No narration should claim a command succeeded, a scene changed, or an item was consumed unless the backend already accepted that mutation or explicitly staged it as a proposal.

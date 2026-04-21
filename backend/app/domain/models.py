@@ -174,6 +174,31 @@ class JournalSessionSummaryCreate(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class JournalDraftSessionSummaryRequest(StrictModel):
+    chat_title: str | None = None
+    instructions: str | None = None
+    messages: list["ChatContextMessage"] = Field(default_factory=list)
+
+    @field_validator("chat_title", "instructions")
+    @classmethod
+    def clean_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class JournalDraftSessionSummaryResponse(StrictModel):
+    ok: bool = True
+    chat_title: str | None = None
+    scene_id: str | None = None
+    model: str | None = None
+    summary: str
+    durable_facts: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    source_counts: dict[str, int] = Field(default_factory=dict)
+
+
 class JournalEntry(StrictModel):
     id: str
     timestamp: str

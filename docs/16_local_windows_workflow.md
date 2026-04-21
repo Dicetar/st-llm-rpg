@@ -1,56 +1,94 @@
-# 16 — Local Windows Workflow
+# 16 - Local Windows Workflow
 
-## Sync the SillyTavern extension
+## Canonical local-dev path
 
-A helper script is provided for keeping the runtime extension folder in sync with the repo copy.
+For this repo, treat these as the default local workflow targets:
 
-### Script
-`tools/scripts/sync_st_extension.ps1`
+- backend bridge URL: `http://127.0.0.1:8014`
+- active SillyTavern extension copy: `D:\Ollama\STavern\SillyTavern\public\scripts\extensions\third-party\llm-rpg-bridge`
+- mutable runtime state: `backend/runtime/`
 
-### Default source
-`D:\Projects\st-llm-rpg\frontend-extension\llm-rpg-bridge`
+If your local SillyTavern build uses a different extension runtime folder, override the sync script destination explicitly instead of changing repo docs.
 
-### Default destination
-`D:\Ollama\STavern\SillyTavern\data\default-user\extensions\llm-rpg-bridge`
+## One control surface
 
-### Usage
+Use the control panel if you want backend start/reset/stop, runtime reset, extension sync, SillyTavern start/stop, and LM Studio auth settings in one visible place:
+
+```powershell
+.\tools\scripts\control_panel.cmd
+```
+
+The panel launches backend and SillyTavern in separate visible consoles.
+For LM Studio auth, prefer the panel's `Use environment key` option plus a user-level `LM_STUDIO_API_KEY`.
+
+## Start, stop, and reset the backend visibly
+
+Use the command wrappers from repo root:
+
+```powershell
+.\tools\scripts\start_backend_visible.cmd
+.\tools\scripts\stop_backend.cmd
+.\tools\scripts\reset_backend_visible.cmd
+```
+
+- `start_backend_visible.cmd` starts the backend in a visible console on `8014`
+- `stop_backend.cmd` clears whatever is listening on `8014`
+- `reset_backend_visible.cmd` clears the port and starts a fresh backend in a visible console
+
+If a `resolve-turn` request is stuck, reset the backend first. If LM Studio is still generating, stop generation there too.
+
+## Sync the active extension copy
+
+Default helper:
+
+```powershell
+.\tools\scripts\sync_st_extension.cmd
+```
+
+PowerShell form:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\scripts\sync_st_extension.ps1
 ```
 
-This mirrors the repo extension folder into the active SillyTavern extension folder.
+Default source:
 
-## Reset tracked runtime state
+- `D:\Projects\st-llm-rpg\frontend-extension\llm-rpg-bridge`
 
-A helper script is provided to restore the tracked backend runtime files back to the current Git HEAD.
+Default destination:
 
-### Script
-`tools/scripts/reset_runtime_state.ps1`
+- `D:\Ollama\STavern\SillyTavern\public\scripts\extensions\third-party\llm-rpg-bridge`
 
-### Usage
+## Reset runtime state
+
+The runtime reset helper no longer restores tracked JSON files. It deletes `backend/runtime/` so the backend can bootstrap a clean runtime from `backend/data/seed/` on next start.
+
+Wrapper:
+
+```powershell
+.\tools\scripts\reset_runtime_state.cmd
+```
+
+PowerShell form:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\scripts\reset_runtime_state.ps1
 ```
 
-This resets:
-- `backend/data/character_state.safe.json`
-- `backend/data/item_registry.json`
-- `backend/data/spell_registry.json`
-- `backend/storage/event_log.jsonl`
-- `backend/storage/journal_entries.jsonl`
+Use it only when the backend is stopped, or pair it with `reset_backend_visible.cmd`.
 
 ## Manual equivalents
 
-### Reset only runtime files
+### Reset runtime manually
+
 ```powershell
-git restore backend/data/character_state.safe.json
-git restore backend/data/item_registry.json
-git restore backend/data/spell_registry.json
-git restore backend/storage/event_log.jsonl
-git restore backend/storage/journal_entries.jsonl
+Remove-Item -LiteralPath .\backend\runtime -Recurse -Force
+New-Item -ItemType Directory -Path .\backend\runtime\data -Force | Out-Null
+New-Item -ItemType Directory -Path .\backend\runtime\storage -Force | Out-Null
 ```
 
 ### Sync extension manually
+
 ```powershell
-robocopy D:\Projects\st-llm-rpg\frontend-extension\llm-rpg-bridge D:\Ollama\STavern\SillyTavern\data\default-user\extensions\llm-rpg-bridge /MIR
+robocopy D:\Projects\st-llm-rpg\frontend-extension\llm-rpg-bridge D:\Ollama\STavern\SillyTavern\public\scripts\extensions\third-party\llm-rpg-bridge /MIR
 ```

@@ -1,70 +1,91 @@
-# 06 — SillyTavern Integration Plan
+# 06 - SillyTavern Integration Baseline
 
-## Recommendation
-Build a **thin** ST extension.
-Do not put canonical business logic into the extension.
+This doc describes the current bridge baseline, not a future v1 sketch.
 
-## What the extension should do
-- register slash commands
-- call backend endpoints
-- render side panels
-- display command validation results
-- submit narration context to the current chat flow
-- refresh panels after each committed turn
+## Extension responsibilities
 
-## Suggested extension panels
-### 1. Overview panel
-Show:
-- current scene title/location
-- current actor summary
-- active quests count
-- key resource pools
+The SillyTavern bridge should:
 
-### 2. Inventory panel
-Show:
-- items
-- equipment
-- currency
-- quick actions for use/equip/unequip
+- register slash commands and endpoint wrappers
+- call backend read and mutation endpoints
+- render state panels and inspector views
+- surface authoritative command results and warnings
+- refresh from backend `refresh_hints`
+- route normal narrative turns through `POST /narration/resolve-turn` when enabled
 
-### 3. Scene panel
-Show:
-- participants
-- notable objects
-- exits
-- active hazards
-- pending checks
+The bridge should not:
 
-### 4. Quests panel
-Show:
-- active quests
-- current stage
-- important notes
+- own canonical mutable state
+- infer inventory, spell slots, quest truth, or scene truth locally
+- bypass backend validation with frontend-only game rules
 
-### 5. Relationships panel
-Show:
-- top actors
-- trust/affection/fear/respect/leverage
-- recent changes
+## Current panel surface
 
-### 6. Journal panel
-Show:
-- recent turn log
-- scene summaries
-- major discoveries
+The bridge now exposes:
 
-## Slash command strategy
-Register only a minimal set first:
+- Overview
+- Scene
+- Scene Lifecycle
+- Inventory
+- Builder / Composer
+- Quests
+- Relationships
+- Session Summary
+- Lorebook Insertions
+- Activated Lore
+- Extraction Review
+- Journal
+- Recent Events
+- Last Executions
+- Connection & Actor
+- Inspector views for actor, scene, and campaign detail
+
+## Current bridge command surface
+
+Read and inspection commands:
+
 - `/inventory`
-- `/use_item`
-- `/equip`
-- `/unequip`
-- `/cast`
 - `/quest`
 - `/journal`
+- `/lorebook`
+- `/actor`
+- `/campaign`
 - `/scene`
-- `/refresh_state`
+- `/relationships`
+- `/rpg_refresh`
 
-## Important rule
-The extension should **never** decide by itself whether a potion exists, a slot remains, or an item was gained.
-It asks the backend.
+Backend mutation commands:
+
+- `/use_item`
+- `/cast`
+- `/equip`
+- `/condition`
+- `/quest_update`
+- `/relationship_note`
+- `/scene_move`
+- `/scene_object`
+- `/scene_clue`
+- `/scene_hazard`
+- `/scene_discovery`
+- `/new`
+- `/new_item`
+- `/new_spell`
+- `/new_custom_skill`
+
+Endpoint wrapper commands:
+
+- `/rpg_resolve`
+- `/scene_open`
+- `/scene_close`
+- `/scene_draft_close`
+- `/session_summary`
+
+## Next milestone direction
+
+The next milestone is **Gameplay Expansion Through Memory And Turn Quality**:
+
+1. establish a live SillyTavern smoke baseline for the current bridge
+2. harden resolve-turn request/reset behavior and context refresh expectations
+3. tune lore activation and narration context quality from real play traces
+4. deepen extraction-review-to-state workflows for supported categories
+5. improve session summary and durable memory quality without changing backend authority rules

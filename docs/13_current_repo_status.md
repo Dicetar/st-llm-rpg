@@ -1,23 +1,33 @@
 # 13 - Current Repository Status
 
-This repository contains a **working prototype slice**, not a complete production system.
+This repository contains a working prototype slice, not a production-complete system.
 
-Already present:
-- FastAPI backend with authoritative state reads, command execution, stable turn contracts, lorebook sync, event logging, journal APIs, `resolve-turn`, scene open/close endpoints, and draft-only scene summary support
+## Already present
+
+- FastAPI backend with authoritative state reads, command execution, stable turn contracts, lorebook sync, event logging, journal APIs, `resolve-turn`, scene open and close endpoints, and draft-only scene summary support
 - SQLite-backed runtime persistence bootstrapped from tracked seed data
 - JSON repository retained as a reference implementation for parity testing
-- command parser and command handlers for `/inventory`, `/use_item`, `/cast`, `/equip`, `/quest`, `/journal`, `/condition`, `/new`, `/new_item`, `/new_spell`, and `/new_custom_skill`
-- broader quest and relationship commands for manual continuation work, including `quest_update`, `relationships`, and `relationship_note`
-- scene upkeep commands for manual continuation work, including `scene_move`, `scene_object`, `scene_clue`, `scene_hazard`, and `scene_discovery`
+- command parser and command handlers for read, mutation, builder, quest, relationship, scene upkeep, and condition commands
 - optional rollback-on-failure command policy for atomic multi-command turns
-- safe extraction flow that auto-applies only approved categories, skips no-op proposals, and stages unsafe or invalid proposals into events/journal entries with reasons
-- non-fatal `resolve-turn` warning handling so narrator/extractor failures no longer hide already-applied backend state behind a hard API failure
+- safe extraction flow that auto-applies only approved categories, skips no-op proposals, and stages unsafe or invalid proposals into events and journal entries with reasons
+- non-fatal `resolve-turn` warning handling so narrator or extractor failures no longer hide already-applied backend state behind a hard API failure
 - scene archive workflow with summary journaling, durable fact promotion, and LM-drafted close summaries that require user confirmation
-- SillyTavern bridge with overview, scene, scene lifecycle controls, inventory, quests, relationships, journal, events, builder tools, inspector views, backend connector, pending narration injection, and optional backend-resolved normal turns
-- regression tests for command parity, dry-run behavior, turn resolution, extraction, scene lifecycle, draft non-mutation, scene attribution, and mixed-turn failure summaries
-- architecture and migration docs that now distinguish current state from next milestones
+- SillyTavern bridge with overview, scene, scene lifecycle controls, inventory, builder tools, quests, relationships, journal, events, lorebook insertions, activated lore, extraction review, inspector views, backend connector, and optional backend-resolved normal turns
+- visible-console backend helper scripts, runtime reset helper scripts, and active-extension sync helpers for the local Windows workflow
+- regression tests for command parity, dry-run behavior, rollback behavior, turn resolution, extraction, scene lifecycle, draft non-mutation, and mixed-turn failure summaries
 
-Still expected in the next phase:
-- live SillyTavern smoke validation of the split bridge and `resolve-turn` path
-- continued live validation around prompt/extraction edge cases as real play traces produce new model-output shapes
-- optional transport/UX work such as live sync once the current contract stops moving
+## Next milestone
+
+The next milestone is **Gameplay Expansion Through Memory And Turn Quality**:
+
+1. establish a live SillyTavern smoke baseline for the current bridge
+2. harden resolve-turn request/reset behavior and context refresh expectations
+3. tune lore activation and narration context quality from real play traces
+4. deepen extraction-review-to-state workflows for supported categories
+5. improve session summary and durable memory quality without changing backend authority rules
+
+## Deferred
+
+- non-SillyTavern frontend work
+- live sync or WebSocket transport changes
+- storage redesign beyond the current repository boundary

@@ -1,49 +1,28 @@
-# 12 — Migration From Current Files
+# 12 - Migration From Current Files
 
-## Current authority choices
-You decided:
-- `campaign_state.json` is the superior live-state source
-- `Core-Cast.md` is the superior cast-definition source
+## Historical note
 
-## How to migrate them
+This document is retained as provenance, not as an active migration plan.
 
-### 1. `campaign_state.json`
-Use as source for:
-- active quests
-- relationships
-- major events
-- known facts
-- plot flags
-- faction standings
-- current arc
+The original prototype was seeded from older campaign files such as:
 
-This should become backend seed data and/or first DB import.
+- `campaign_state.json`
+- `Core-Cast.md`
+- related lore, style, or campaign reference files
 
-### 2. `Core-Cast.md`
-Use as source for:
-- machine-readable cast registry
-- actor definitions
-- narrative pressure metadata
-- frontend actor panels
-- retrieval identity map
+That initial migration work is no longer the current source of truth.
 
-This should become a normalized `cast_registry` file/table.
+## Current source of truth
 
-### 3. style/spec/bible files
-Use as source for:
-- lorebook/data bank content
-- narrator prompt supplements
-- retrieval memory
-- campaign canon docs
+The repo now treats these as authoritative:
 
-### 4. current scene and character state JSON
-Use selectively.
-Keep only gameplay-safe and structurally relevant parts for the first backend version.
-Do not dump raw messy state directly into the engine without normalization.
+- tracked seed data under `backend/data/seed/`
+- runtime state under `backend/runtime/`
+- backend contracts and tests under `backend/app/` and `backend/tests/`
 
-## Migration order
-1. cast registry
-2. campaign state seed
-3. item/resource/inventory seed
-4. active scene seed
-5. journal/event history if needed
+## Rule for future imports
+
+If older campaign material needs to be imported again, do it as an explicit seed migration or one-off import script checked into the repo.
+
+Do not treat legacy raw files as live state.
+Do not restore them directly over runtime state.

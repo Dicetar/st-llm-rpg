@@ -56,9 +56,12 @@ See:
 - `frontend-extension/docs/02_install_and_enable.md`
 - `docs/18_frontend_smoke_checklist.md`
 
-## Continuation priorities
+## Next milestone
 
-1. run live SillyTavern smoke validation against the split bridge, rollback mode, scene panel, and resolve-turn path
-2. harden prompt/extraction failure paths from real model traces
-3. keep the backend contract stable while refining prompts, UX, and any future transport changes
-4. add only additive command/UI slices that preserve backend authority
+The next milestone is **Gameplay Expansion Through Memory And Turn Quality**:
+
+1. establish a live SillyTavern smoke baseline for the current bridge
+2. harden resolve-turn request/reset behavior and context refresh expectations
+3. tune lore activation and narration context quality from real play traces
+4. deepen extraction-review-to-state workflows for supported categories
+5. improve session summary and durable memory quality without changing backend authority rules

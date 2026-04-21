@@ -79,6 +79,7 @@ async function registerSlashCommands() {
     ['relationships', 'Return current relationship records from backend.'],
     ['journal', 'Return journal guidance from backend.'],
     ['lorebook', 'Return backend-built keyword insertion lorebook entries.'],
+    ['session_summary_draft', 'Draft a session summary from the current chat transcript and fill the Session Summary form without mutating backend state.'],
     ['session_summary', 'Record a session summary and rebuild lorebook insertion entries.'],
     ['condition', 'Add or remove an actor condition through the authoritative backend command contract.'],
     ['quest_update', 'Create or update a quest note, and optionally status and stage.'],

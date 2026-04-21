@@ -2,20 +2,21 @@ param(
     [string]$RepoRoot = "D:\Projects\st-llm-rpg"
 )
 
-$paths = @(
-    "backend\data\character_state.safe.json",
-    "backend\data\item_registry.json",
-    "backend\data\spell_registry.json",
-    "backend\storage\event_log.jsonl",
-    "backend\storage\journal_entries.jsonl"
-)
+$resolvedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+$runtimeRoot = [System.IO.Path]::GetFullPath((Join-Path $resolvedRepoRoot "backend\runtime"))
+$expectedBackendRoot = [System.IO.Path]::GetFullPath((Join-Path $resolvedRepoRoot "backend"))
 
-Push-Location $RepoRoot
-try {
-    foreach ($relativePath in $paths) {
-        git restore --source=HEAD -- $relativePath
-    }
-    Write-Host "Runtime state reset to HEAD for tracked backend files."
-} finally {
-    Pop-Location
+if (-not $runtimeRoot.StartsWith($expectedBackendRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    Write-Error "Refusing to reset runtime outside backend root: $runtimeRoot"
+    exit 1
 }
+
+if (Test-Path $runtimeRoot) {
+    Remove-Item -LiteralPath $runtimeRoot -Recurse -Force
+}
+
+New-Item -ItemType Directory -Path (Join-Path $runtimeRoot "data") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $runtimeRoot "storage") -Force | Out-Null
+
+Write-Host "Reset backend runtime at: $runtimeRoot"
+Write-Host "The backend will bootstrap fresh runtime state from backend/data/seed/ on next start."

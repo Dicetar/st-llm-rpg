@@ -1,7 +1,14 @@
 ﻿const MODULE_NAME = 'llm_rpg_bridge';
 
+const DEFAULT_SAVE_ID = 'default';
+const SAVE_BINDING_VERSION = 1;
+const SAVE_BINDING_METADATA_KEY = `${MODULE_NAME}_save_binding`;
 const MAX_RESOLVE_CHAT_MESSAGES = 8;
 const MAX_RESOLVE_CHAT_CHARS = 700;
+const MAX_SESSION_SUMMARY_CHAT_MESSAGES = 48;
+const MAX_SESSION_SUMMARY_MESSAGE_CHARS = 1000;
+const MAX_SESSION_SUMMARY_TOTAL_CHARS = 16000;
+const SESSION_SUMMARY_HEAD_MESSAGES = 10;
 
 const DEFAULT_SETTINGS = Object.freeze({
   backendBaseUrl: 'http://127.0.0.1:8010',
@@ -170,11 +177,156 @@ function getChatMetadata() {
   return getContextSafe().chatMetadata;
 }
 
+function normalizeWhitespace(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function hashSaveName(value) {
+  let hash = 2166136261;
+  const input = String(value ?? '');
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function buildSaveIdFromName(value) {
+  const normalizedName = normalizeWhitespace(value).toLowerCase();
+  if (!normalizedName || normalizedName === DEFAULT_SAVE_ID) return DEFAULT_SAVE_ID;
+
+  let slug = normalizedName;
+  if (typeof slug.normalize === 'function') {
+    slug = slug.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  slug = slug
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 48);
+
+  if (!slug) slug = 'save';
+  return `${slug}--${hashSaveName(normalizedName)}`;
+}
+
+function normalizeProvidedSaveId(value) {
+  const normalized = normalizeWhitespace(value).toLowerCase();
+  if (!normalized || normalized === DEFAULT_SAVE_ID) return DEFAULT_SAVE_ID;
+
+  const safeValue = normalized
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 64);
+
+  if (/^[a-z0-9][a-z0-9._-]{0,63}$/.test(safeValue)) {
+    return safeValue;
+  }
+
+  return buildSaveIdFromName(normalized);
+}
+
+function getCurrentChatTitle() {
+  const context = getContextSafe();
+  const candidates = [
+    typeof context.getCurrentChatId === 'function' ? context.getCurrentChatId() : null,
+    context.chatId,
+    getChatMetadata()?.main_chat,
+    context.groupId ? context.groups?.find(group => String(group?.id) === String(context.groupId))?.chat_id : null,
+    context.characterId !== undefined && context.characterId !== null ? context.characters?.[context.characterId]?.chat : null,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeWhitespace(candidate);
+    if (normalized) return normalized;
+  }
+
+  return DEFAULT_SAVE_ID;
+}
+
+function normalizeSaveBinding(binding, fallbackSource = 'manual') {
+  const saveName = normalizeWhitespace(binding?.saveName || binding?.save_name || '') || getCurrentChatTitle() || DEFAULT_SAVE_ID;
+  const explicitSaveId = normalizeWhitespace(binding?.saveId || binding?.save_id || '');
+  const source = normalizeWhitespace(binding?.source || '') || fallbackSource;
+  const chatTitle = normalizeWhitespace(binding?.chatTitle || binding?.chat_title || '') || getCurrentChatTitle() || saveName;
+
+  return {
+    version: SAVE_BINDING_VERSION,
+    saveName,
+    saveId: explicitSaveId ? normalizeProvidedSaveId(explicitSaveId) : buildSaveIdFromName(saveName),
+    chatTitle,
+    source,
+    createdAt: Number.isFinite(Number(binding?.createdAt)) ? Number(binding.createdAt) : Date.now(),
+  };
+}
+
+function getStoredSaveBinding() {
+  const value = getChatMetadata()[SAVE_BINDING_METADATA_KEY];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value;
+}
+
+function deriveDefaultSaveBinding() {
+  const chatTitle = getCurrentChatTitle();
+  return normalizeSaveBinding(
+    {
+      saveName: chatTitle,
+      chatTitle,
+      source: 'chat_title',
+    },
+    'chat_title',
+  );
+}
+
+function getSaveBinding() {
+  const stored = getStoredSaveBinding();
+  return stored ? normalizeSaveBinding(stored, stored.source || 'manual') : deriveDefaultSaveBinding();
+}
+
+function saveBindingsEqual(left, right) {
+  return Boolean(left)
+    && Boolean(right)
+    && left.saveId === right.saveId
+    && left.saveName === right.saveName
+    && left.chatTitle === right.chatTitle
+    && left.source === right.source
+    && Number(left.version || 0) === Number(right.version || 0);
+}
+
+function clearTransientTurnMetadata(chatMetadata) {
+  delete chatMetadata[`${MODULE_NAME}_pending_narration`];
+  delete chatMetadata[`${MODULE_NAME}_resolved_turn_key`];
+  delete chatMetadata[`${MODULE_NAME}_activated_lore`];
+  delete chatMetadata[`${MODULE_NAME}_extraction_review`];
+}
+
 async function saveMetadata() {
   const context = getContextSafe();
   if (typeof context.saveMetadata === 'function') {
     await context.saveMetadata();
   }
+}
+
+async function setSaveBinding(binding, options = {}) {
+  const normalized = normalizeSaveBinding(binding, binding?.source || 'manual');
+  const chatMetadata = getChatMetadata();
+  const previous = getStoredSaveBinding();
+  chatMetadata[SAVE_BINDING_METADATA_KEY] = normalized;
+  if (options.clearTransientState && (!previous || previous.saveId !== normalized.saveId)) {
+    clearTransientTurnMetadata(chatMetadata);
+  }
+  await saveMetadata();
+  return normalized;
+}
+
+async function ensureSaveBinding() {
+  const stored = getStoredSaveBinding();
+  const normalized = stored ? normalizeSaveBinding(stored, stored.source || 'manual') : deriveDefaultSaveBinding();
+  if (!stored || !saveBindingsEqual(stored, normalized)) {
+    await setSaveBinding(normalized, { clearTransientState: false });
+  }
+  return normalized;
 }
 
 function setPendingNarrationContext(payload) {
@@ -236,8 +388,7 @@ async function setExtractionReviewContext(payload) {
 }
 
 function buildActorQuery() {
-  const actorId = getSettings().actorId?.trim();
-  return actorId ? `?actor_id=${encodeURIComponent(actorId)}` : '';
+  return buildQuery();
 }
 
 function buildQuery(params = {}) {
@@ -280,9 +431,72 @@ function buildRecentChatMessages(chat = null, options = {}) {
   return collected.reverse();
 }
 
+function buildSessionSummaryChatMessages(chat = null, options = {}) {
+  const source = Array.isArray(chat) ? chat : (getContextSafe().chat || []);
+  const maxMessages = Number.isFinite(Number(options.limit)) ? Number(options.limit) : MAX_SESSION_SUMMARY_CHAT_MESSAGES;
+  const perMessageChars = Number.isFinite(Number(options.messageCharLimit)) ? Number(options.messageCharLimit) : MAX_SESSION_SUMMARY_MESSAGE_CHARS;
+  const maxTotalChars = Number.isFinite(Number(options.totalCharLimit)) ? Number(options.totalCharLimit) : MAX_SESSION_SUMMARY_TOTAL_CHARS;
+  const headMessages = Number.isFinite(Number(options.headMessages)) ? Number(options.headMessages) : SESSION_SUMMARY_HEAD_MESSAGES;
+
+  const eligible = [];
+  for (const message of source) {
+    if (!message || message.is_system) continue;
+    const rawContent = String(message.mes ?? '').trim();
+    if (!rawContent || rawContent.startsWith('/')) continue;
+    const role = message.is_user ? 'user' : 'assistant';
+    const content = rawContent.length > perMessageChars ? `${rawContent.slice(0, perMessageChars)}...` : rawContent;
+    eligible.push({
+      role,
+      name: String(message.name ?? '').trim() || null,
+      content,
+    });
+  }
+
+  if (!eligible.length) return [];
+
+  const totalChars = eligible.reduce((sum, message) => sum + message.content.length, 0);
+  if (eligible.length <= maxMessages && totalChars <= maxTotalChars) {
+    return eligible;
+  }
+
+  const head = eligible.slice(0, Math.min(headMessages, maxMessages, eligible.length));
+  const remainingCapacity = Math.max(0, maxMessages - head.length);
+  const tail = [];
+  let usedChars = head.reduce((sum, message) => sum + message.content.length, 0);
+
+  for (let index = eligible.length - 1; index >= head.length; index -= 1) {
+    if (tail.length >= remainingCapacity) break;
+    const message = eligible[index];
+    if (usedChars + message.content.length > maxTotalChars) {
+      if (tail.length) break;
+      continue;
+    }
+    tail.push(message);
+    usedChars += message.content.length;
+  }
+
+  const merged = [...head, ...tail.reverse()];
+  if (merged.length <= maxMessages && usedChars <= maxTotalChars) {
+    return merged;
+  }
+  return merged.slice(0, maxMessages);
+}
+
+function appendQueryParamsToPath(path, params = {}) {
+  const url = new URL(path, 'http://llm-rpg.local');
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue;
+    url.searchParams.set(key, String(value));
+  }
+  return `${url.pathname}${url.search}`;
+}
+
 async function requestJson(path, options = {}) {
+  await ensureSaveBinding();
   const settings = getSettings();
-  const url = `${settings.backendBaseUrl.replace(/\/$/, '')}${path}`;
+  const saveBinding = getSaveBinding();
+  const scopedPath = appendQueryParamsToPath(path, { save_id: saveBinding.saveId });
+  const url = `${settings.backendBaseUrl.replace(/\/$/, '')}${scopedPath}`;
   const response = await fetch(url, {
     ...options,
     headers: {

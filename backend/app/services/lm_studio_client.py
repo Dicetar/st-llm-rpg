@@ -10,8 +10,11 @@ from app.config import (
     LM_STUDIO_API_KEY,
     LM_STUDIO_BASE_URL,
     LM_STUDIO_CHAT_COMPLETIONS_PATH,
+    LM_STUDIO_EXTRACTOR_MAX_TOKENS,
     LM_STUDIO_EXTRACTOR_MODEL,
     LM_STUDIO_MODEL,
+    LM_STUDIO_NARRATION_MAX_TOKENS,
+    LM_STUDIO_SUMMARY_MAX_TOKENS,
     LM_STUDIO_TIMEOUT_SECONDS,
     PROMPTS_DIR,
 )
@@ -33,6 +36,9 @@ class LMStudioClient:
         extractor_model: str = LM_STUDIO_EXTRACTOR_MODEL,
         api_key: str = LM_STUDIO_API_KEY,
         timeout_seconds: float = LM_STUDIO_TIMEOUT_SECONDS,
+        narration_max_tokens: int = LM_STUDIO_NARRATION_MAX_TOKENS,
+        extractor_max_tokens: int = LM_STUDIO_EXTRACTOR_MAX_TOKENS,
+        summary_max_tokens: int = LM_STUDIO_SUMMARY_MAX_TOKENS,
         prompts_dir: Path = PROMPTS_DIR,
     ) -> None:
         self.base_url = base_url.rstrip("/")
@@ -40,6 +46,9 @@ class LMStudioClient:
         self.extractor_model = extractor_model or narrator_model
         self.api_key = api_key.strip()
         self.timeout_seconds = timeout_seconds
+        self.narration_max_tokens = narration_max_tokens
+        self.extractor_max_tokens = extractor_max_tokens
+        self.summary_max_tokens = summary_max_tokens
         self.prompts_dir = prompts_dir
 
     def generate_narration(self, *, player_input: str, narration_context: dict[str, Any]) -> tuple[str, str]:
@@ -74,6 +83,8 @@ class LMStudioClient:
                 ]
             )
         prompt_parts.append("Return prose only.")
+        if self.narration_max_tokens > 0:
+            prompt_parts.append("Keep the response compact: usually 1-3 paragraphs, no more than the requested output token budget.")
         prompt = "\n\n".join(
             prompt_parts
         )
@@ -84,6 +95,7 @@ class LMStudioClient:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.8,
+            max_tokens=self.narration_max_tokens,
         )
         return content, model
 
@@ -129,6 +141,7 @@ class LMStudioClient:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
+            max_tokens=self.extractor_max_tokens,
         )
         try:
             parsed = self._parse_json_content(content)
@@ -175,8 +188,53 @@ class LMStudioClient:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
+            max_tokens=self.summary_max_tokens,
         )
-        return self._parse_scene_summary_content(content), model
+        return self._parse_summary_draft_content(content), model
+
+    def generate_session_summary_from_chat(
+        self,
+        *,
+        chat_title: str | None,
+        messages: list[dict[str, Any]],
+        authoritative_context: dict[str, Any],
+        instructions: str | None = None,
+    ) -> tuple[dict[str, Any], str]:
+        model = self._resolve_model(self.narrator_model)
+
+        system_prompt = self._load_prompt("session_summary_system_prompt.md")
+        schema_prompt = "\n".join(
+            [
+                "Return a JSON object with the exact shape:",
+                '{"summary":"concise session summary","durable_facts":["fact safe to preserve"],"warnings":[]}',
+                "Use only facts supported by the provided transcript and authoritative context.",
+                "Do not invent inventory, quest completion, resource usage, relationship scores, or hidden motives unless explicit.",
+                "Treat this as a draft for durable memory, not a state mutation.",
+            ]
+        )
+        prompt = "\n\n".join(
+            [
+                schema_prompt,
+                "Optional user instructions:",
+                instructions or "(none)",
+                "Chat title:",
+                chat_title or "(none)",
+                "Authoritative context (JSON):",
+                json.dumps(authoritative_context, indent=2, ensure_ascii=False),
+                "Chat transcript (most recent last):",
+                self._render_chat_context(messages),
+            ]
+        )
+        content = self._chat_completion(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=self.summary_max_tokens,
+        )
+        return self._parse_summary_draft_content(content), model
 
     def _load_prompt(self, filename: str) -> str:
         return (self.prompts_dir / filename).read_text(encoding="utf-8")
@@ -226,13 +284,17 @@ class LMStudioClient:
         model: str,
         messages: list[dict[str, Any]],
         temperature: float,
+        max_tokens: int | None = None,
     ) -> str:
+        payload_dict: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if max_tokens is not None and max_tokens > 0:
+            payload_dict["max_tokens"] = int(max_tokens)
         payload = json.dumps(
-            {
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-            }
+            payload_dict
         ).encode("utf-8")
         req = request.Request(
             f"{self.base_url}{LM_STUDIO_CHAT_COMPLETIONS_PATH}",
@@ -282,11 +344,65 @@ class LMStudioClient:
                 except json.JSONDecodeError:
                     pass
 
+            recovered_updates = self._recover_partial_extractor_updates(stripped)
+            if recovered_updates:
+                return {"updates": recovered_updates}
+
             start = stripped.find("{")
             end = stripped.rfind("}")
             if start == -1 or end == -1 or end < start:
                 raise exc
             return self._normalize_extractor_json(json.loads(stripped[start : end + 1]))
+
+    def _recover_partial_extractor_updates(self, content: str) -> list[dict[str, Any]]:
+        updates_key = content.find('"updates"')
+        array_start = content.find("[", updates_key if updates_key != -1 else 0)
+        if array_start == -1:
+            return []
+
+        objects: list[dict[str, Any]] = []
+        index = array_start + 1
+        while index < len(content):
+            object_start = content.find("{", index)
+            if object_start == -1:
+                break
+            object_end = self._find_balanced_json_object_end(content, object_start)
+            if object_end == -1:
+                break
+            try:
+                parsed = json.loads(content[object_start : object_end + 1])
+            except json.JSONDecodeError:
+                break
+            if isinstance(parsed, dict):
+                objects.append(parsed)
+            index = object_end + 1
+
+        return objects
+
+    def _find_balanced_json_object_end(self, content: str, start: int) -> int:
+        depth = 0
+        in_string = False
+        escaped = False
+        for index in range(start, len(content)):
+            char = content[index]
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\" and in_string:
+                escaped = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return index
+        return -1
 
     def _normalize_extractor_json(self, parsed: Any) -> Any:
         if isinstance(parsed, list):
@@ -295,7 +411,7 @@ class LMStudioClient:
             return {"updates": [parsed]}
         return parsed
 
-    def _parse_scene_summary_content(self, content: str) -> dict[str, Any]:
+    def _parse_summary_draft_content(self, content: str) -> dict[str, Any]:
         stripped = str(content).strip()
         if stripped.startswith("```"):
             stripped = re.sub(r"^```(?:json)?\s*", "", stripped, count=1, flags=re.IGNORECASE)
@@ -310,18 +426,18 @@ class LMStudioClient:
                 try:
                     parsed = json.loads(stripped[start : end + 1])
                 except json.JSONDecodeError:
-                    return self._scene_summary_prose_fallback(stripped)
+                    return self._summary_draft_prose_fallback(stripped)
             else:
-                return self._scene_summary_prose_fallback(stripped)
+                return self._summary_draft_prose_fallback(stripped)
 
         if not isinstance(parsed, dict):
-            return self._scene_summary_prose_fallback(stripped)
+            return self._summary_draft_prose_fallback(stripped)
 
         summary = str(parsed.get("summary") or parsed.get("scene_summary") or parsed.get("text") or "").strip()
         durable_facts = self._coerce_string_list(parsed.get("durable_facts") or parsed.get("facts") or [])
         warnings = self._coerce_string_list(parsed.get("warnings") or [])
         if not summary:
-            fallback = self._scene_summary_prose_fallback(stripped)
+            fallback = self._summary_draft_prose_fallback(stripped)
             return {
                 "summary": fallback["summary"],
                 "durable_facts": durable_facts,
@@ -329,13 +445,16 @@ class LMStudioClient:
             }
         return {"summary": summary, "durable_facts": durable_facts, "warnings": warnings}
 
-    def _scene_summary_prose_fallback(self, content: str) -> dict[str, Any]:
+    def _summary_draft_prose_fallback(self, content: str) -> dict[str, Any]:
         summary = str(content or "").strip() or "No scene summary could be drafted from the model response."
         return {
             "summary": summary,
             "durable_facts": [],
             "warnings": ["model_returned_prose_fallback"],
         }
+
+    def _parse_scene_summary_content(self, content: str) -> dict[str, Any]:
+        return self._parse_summary_draft_content(content)
 
     def _coerce_string_list(self, value: Any) -> list[str]:
         if isinstance(value, str):
