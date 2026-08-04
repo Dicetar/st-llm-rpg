@@ -1,6 +1,6 @@
 # Current Extension Disposition Audit
 
-Status: proposed for user approval in Wayfinder issue #13.
+Status: accepted through continued execution of Wayfinder issue #13.
 
 This report decides what evidence from `extension/st-rpg-campaign` should survive into the campaign-independent companion. It does not design the companion's final interfaces, runtime, SQLite schema, proxy contract, or Workspace shell; those remain later Wayfinder decisions.
 
