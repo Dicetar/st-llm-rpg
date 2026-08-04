@@ -1,6 +1,6 @@
 # Separate Campaign and Binding history with replayable Events
 
-Status: accepted for Wayfinder prototypes. Wayfinder #18 must validate the physical SQLite design and snapshot cadence; #26 will confirm or revise the final architecture from measured evidence.
+Status: accepted and persistence-proven by Wayfinder #18. The SQLite prototype validated atomic accepted mutations, revision reconstruction, forks, stale tabs, migration, backup/restore, and restart behavior; #26 will confirm or revise the final architecture from measured evidence.
 
 Campaign truth and chat-specific state use separate optimistic-concurrency histories inside one SQLite authority. Every accepted Campaign Operation creates exactly one Campaign Revision and immutable Campaign Event; every accepted Binding Operation creates one Binding Revision and immutable Binding Event without manufacturing a Campaign change. Binding identity, Campaign Anchor, Sync Boundary, and Context pins use fixed facet counters so unrelated chat-specific actions do not conflict, while one transaction may append both Event kinds for explicit campaign-and-anchor or branch-and-bind workflows.
 

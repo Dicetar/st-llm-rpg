@@ -278,7 +278,7 @@ interface Narration {
 }
 ```
 
-`NarratorExchange` contains the explicit `linked` or `unlinked` route, Chat Binding metadata when linked, SillyTavern generation type, request ID, and OpenAI-compatible Chat Completion request. Missing or unknown routing metadata is rejected; it never defaults to unlinked.
+`NarratorExchange` contains the raw single `X-ST-RPG-Exchange` value and unknown OpenAI-compatible Chat Completion body. Narration decodes and validates the explicit linked or unlinked route, Chat Binding metadata, Chat Locator, SillyTavern generation type, request ID, bridge compatibility, and body. Missing or unknown routing metadata is rejected; it never defaults to unlinked. Exact wire, recovery, Problems, and delivery rules are fixed provisionally in [SillyTavern bridge and narrator proxy](./sillytavern-bridge-and-narrator-proxy.md).
 
 The Module hides:
 
@@ -290,7 +290,7 @@ The Module hides:
 - atomic final delivery and recovery diagnostics;
 - cancellation propagation to every model stage.
 
-`ProxyDelivery` is transport-neutral enough for the Fastify Adapter to produce either a transparent upstream byte stream or one atomic OpenAI completion. No successful linked headers are committed before final text exists. Narration never mutates Campaign state and never automatically retries after output may have been generated.
+`ProxyDelivery` is transport-neutral enough for the Fastify Adapter to produce either a transparent upstream byte stream or one atomic OpenAI completion. Atomic content is structurally a complete message for normal/regenerate/swipe or a suffix for continue. No successful linked headers are committed before final text exists. Narration never mutates Campaign state and never automatically retries after output may have been generated. A recoverable unenhanced draft is bounded volatile state behind Narration, not another public stage or a durable record.
 
 ### Worker Jobs
 
@@ -441,7 +441,8 @@ These targets guide prototypes; #26 confirms or revises them from measurements:
 
 - #17 may design Campaign Journal schema, event/snapshot history, revision concurrency, branches, and Chat Binding lifecycle against the Campaign Engine Interface.
 - #18 may prototype persistence through Campaign Engine and Campaign Journal without HTTP or Workspace dependencies.
-- #19 may design exact bridge/proxy wire metadata and errors against the one-method Narration Interface.
+- #19 fixes the provisional bridge/proxy wire, one-method Narration transaction, errors, cancellation, recovery, and atomic delivery contract in [SillyTavern bridge and narrator proxy](./sillytavern-bridge-and-narrator-proxy.md).
+- #20 must validate that contract against the pinned SillyTavern build, real LM Studio, captured chat JSONL, and a real phone before it becomes implementation authority.
 - #21 may design retrieval stages inside the one-method Context Interface.
 - #23 may design Workspace information architecture against task-oriented Workspace documents and intents.
 - #24 may design durable Worker Jobs and model scheduling without granting Campaign mutation capability.
