@@ -1,0 +1,106 @@
+{
+  "kind": "st-narrator-proxy-spike-evidence",
+  "captured_at": "2026-08-05",
+  "sanitized": true,
+  "environment": {
+    "sillytavern_version": "1.18.0",
+    "sillytavern_revision": "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "sillytavern_port": 8001,
+    "proxy_port": 8002,
+    "lm_studio_port": 1234,
+    "live_model": "mistralai/mistral-nemo-instruct-2407"
+  },
+  "pinned_st_fixture": {
+    "normal_unlinked": "one user message and one full assistant message",
+    "normal_linked": "one user message and one full assistant message",
+    "regenerate_linked": "replaced the assistant message once",
+    "continue_linked": "appended one suffix to the existing assistant message",
+    "swipe_linked": "preserved the prior candidate and added one selected alternative",
+    "stop_linked": {
+      "cancelled_ms": 123,
+      "assistant_bytes_committed": 0,
+      "late_reply_after_ms": 10500,
+      "late_reply_present": false
+    },
+    "campaign_outage_linked": {
+      "http_status": 503,
+      "upstream_calls": 0,
+      "assistant_message_present": false,
+      "user_message_retained": true
+    },
+    "campaign_outage_explicit_unlinked": "completed through LM Studio fixture",
+    "saved_jsonl": {
+      "sha256": "59CE70F8E6698228533BF0C3FE7895589E94D58D9AC8F27C786AA4364B422F49",
+      "lines": 14,
+      "messages": 13,
+      "binding_marker_present": true,
+      "forbidden_text_hits": {
+        "X-ST-RPG-Exchange": 0,
+        "Narration Draft": 0,
+        "Context Capsule": 0,
+        "MUST_NOT_APPEAR": 0,
+        "OUTAGE_MUST_NOT_APPEAR": 0
+      }
+    }
+  },
+  "live_lm_studio": {
+    "unlinked_streaming": {
+      "visible_result": "LIVE_UNLINKED_OK",
+      "browser_elapsed_ms": 5300,
+      "upstream_elapsed_ms": 4700,
+      "upstream_calls": 1
+    },
+    "linked_atomic_streaming": {
+      "visible_result": "LIVE_LINKED_OK",
+      "browser_elapsed_ms": 5011,
+      "upstream_elapsed_ms": 4491,
+      "upstream_chunks_buffered": 5,
+      "upstream_bytes_buffered": 1502,
+      "visible_chars_committed": 14,
+      "response_committed_only_after_final_buffer": true
+    },
+    "linked_empty_visible_output": {
+      "assistant_message_present": false,
+      "automatic_retry_count": 0,
+      "required_http_status": 502
+    },
+    "linked_stop_while_upstream_active": {
+      "cancellation_observed_ms": 4,
+      "upstream_calls": 1,
+      "assistant_bytes_committed": 0,
+      "response_committed": false
+    },
+    "unlinked_stop_after_first_chunk": {
+      "cancellation_observed_ms": 2,
+      "upstream_calls": 1,
+      "client_bytes_before_stop": 899,
+      "response_committed": true
+    },
+    "model_catalog": {
+      "http_status": 200,
+      "models": 12,
+      "campaign_attempt_delta": 0
+    }
+  },
+  "admission": {
+    "missing_envelope": [400, "RPG_ROUTING_METADATA_MISSING", 0],
+    "malformed_envelope": [400, "RPG_ROUTING_METADATA_INVALID", 0],
+    "duplicate_envelope": [400, "RPG_ROUTING_METADATA_DUPLICATE", 0],
+    "reused_request_id": [409, "RPG_REQUEST_ID_REUSED", 0],
+    "linked_multiple_choices": [422, "RPG_MULTIPLE_CHOICES_NOT_SUPPORTED", 0],
+    "linked_tools": [422, "RPG_NARRATOR_TOOLS_NOT_SUPPORTED", 0],
+    "copied_binding_locator": [409, "RPG_BINDING_COLLISION", 0]
+  },
+  "host_identity": {
+    "storage": "SillyTavern extension_settings",
+    "server_persisted": true,
+    "browser_local_storage_used": false
+  },
+  "not_yet_accepted": [
+    "real-phone trace at approximately 360 CSS pixels",
+    "full hidden-draft enrichment and recovery, which belongs to Wayfinder issue 22",
+    "production Campaign, Context and SQLite authority checks",
+    "exhaustive codec/schema adversarial cases",
+    "final linked response commit race under a physical disconnect"
+  ]
+}

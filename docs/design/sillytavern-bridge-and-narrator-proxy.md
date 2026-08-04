@@ -25,6 +25,7 @@ It does not fix retrieval scoring, Context Capsule rendering, enrichment prompts
 Evidence:
 
 - [SillyTavern narrator-proxy contract](../research/sillytavern-proxy-contract.md)
+- [SillyTavern narrator-proxy compatibility prototype](../research/sillytavern-narrator-proxy-prototype.md)
 - [Companion runtime and module seams](./companion-runtime-and-module-seams.md)
 - [Campaign authority, history, and Chat Binding lifecycle](./campaign-authority-history-and-bindings.md)
 - ADR [0010](../adr/0010-use-preflight-context-with-bounded-hidden-draft-enrichment.md), [0011](../adr/0011-use-a-single-process-typescript-companion-with-capability-modules.md), and [0012](../adr/0012-separate-campaign-and-binding-history-with-replayable-events.md)
@@ -121,7 +122,7 @@ type StRpgExchangeV1 = Readonly<{
 
 type ChatLocatorV1 = Readonly<{
   version: 1;
-  hostId: string; // UUID persisted once by the bridge installation
+  hostId: string; // UUID persisted once in server-saved ST extension settings
   chat:
     | {
         kind: "character";
@@ -152,6 +153,8 @@ type ChatBindingMarkerV1 = Readonly<{
 ```
 
 The marker contains no Campaign ID, Campaign Revision, player data, or Context. Campaign and Binding authority stays in SQLite.
+
+The Bridge Host ID is not browser-local state. The bridge creates it once in SillyTavern's server-saved `extension_settings`, so desktop, phone, and multiple tabs using one pinned ST installation present one host identity. Browser `localStorage` is invalid for this purpose because different ST origins and devices would manufacture false Binding collisions.
 
 On every generation:
 
@@ -271,6 +274,8 @@ Ordering and invariants:
 12. Return one atomic delivery. Only then may Fastify commit successful response headers.
 
 No linked stage creates a Campaign Event, Binding Event, accepted Operation, Sync Boundary change, journal entry, or automatic Anchor advancement. Diagnostics and volatile recoveries are operational state, not Campaign history.
+
+Pinned SillyTavern saves a submitted user turn before generation interception and completion. A locally blocked or remotely failed normal generation therefore retains that user turn and commits no assistant message. Fail-closed means no narrator bypass and no assistant delivery; it does not mean rolling back the user's message. Error and retry surfaces must describe this accurately.
 
 ## Delivery contract
 

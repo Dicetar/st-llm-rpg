@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "prototype:persistence": "node prototypes/campaign-authority-sqlite-spike/run.mjs",
+    "prototype:proxy": "powershell -NoProfile -ExecutionPolicy Bypass -File prototypes/st-narrator-proxy-spike/run.ps1",
     "test": "node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs"
   },
   "devDependencies": {
