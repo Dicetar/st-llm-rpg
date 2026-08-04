@@ -46,6 +46,8 @@ The proxy terminal always redraws its complete bounded state.
 
 The extension adds a small **RPG Narrator Proxy Spike** section to SillyTavern's Extensions settings. Use **Link this chat** or **Make this chat unlinked**. A linked marker contains only a throwaway Binding ID. The current character avatar/group ID and chat ID are presented separately as mutable locator evidence.
 
+The same section exposes phone-test controls for deterministic Fixture mode, a 10-second linked Stop delay, Campaign outage, and live LM Studio. Fixture text may contain `{generation}`; the proxy replaces it with `NORMAL`, `REGENERATE`, `CONTINUE`, or `SWIPE` so saved behavior is obvious on a physical phone.
+
 Machine-readable state is available on the trusted LAN at:
 
 ```text

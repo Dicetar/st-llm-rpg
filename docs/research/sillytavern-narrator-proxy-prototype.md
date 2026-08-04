@@ -120,9 +120,10 @@ On the physical phone connected to the same LAN/VPN:
 
 1. Reload ST at `http://10.8.1.2:8001` and confirm **RPG Narrator Proxy Spike** reports proxy and Campaign state rather than `proxy unavailable`.
 2. Confirm its displayed eight-character host prefix matches desktop.
-3. In one disposable chat, run linked normal, regenerate, continue, swipe, and Stop while delay is enabled.
-4. Toggle Campaign outage and confirm linked send retains the user turn but creates no assistant; make the chat explicitly unlinked and confirm generation still works.
-5. Return the final visible results and any error/toast wording. The saved JSONL will then be audited once more.
+3. Tap **Fixture**, link one disposable chat, and run normal, regenerate, continue, and swipe. The deterministic results identify their mode.
+4. Tap **10 s Stop delay**, send once, and use SillyTavern Stop before ten seconds. No delayed assistant may appear.
+5. Tap **Campaign outage** and confirm linked send retains the user turn but creates no assistant; make the chat explicitly unlinked and confirm generation still works while the outage remains.
+6. Return the final visible results and any error/toast wording. The saved JSONL will then be audited once more.
 
 Do not close #20 until this physical-device trace passes. Emulation and code inspection are insufficient under the repository's mobile invariant.
 

@@ -9,7 +9,9 @@ const PROXY_BASE = 'http://127.0.0.1:8002/v1';
 // Generation is proxied by the SillyTavern server, so its Custom endpoint must
 // use server loopback. Status is fetched by the browser and therefore must use
 // the same LAN/VPN host the browser used to reach SillyTavern.
-const PROXY_STATE = `http://${window.location.hostname}:8002/prototype/state`;
+const BROWSER_PROXY_BASE = `http://${window.location.hostname}:8002`;
+const PROXY_STATE = `${BROWSER_PROXY_BASE}/prototype/state`;
+const PROXY_CONTROL = `${BROWSER_PROXY_BASE}/prototype/control`;
 const HEADER = 'X-ST-RPG-Exchange';
 const ST_REVISION = '380e31e8c58d196969b6a0da74f431ba999c7e0a';
 let pendingExchange = null;
@@ -99,6 +101,17 @@ async function refreshStatus() {
   }
 }
 
+async function setProxyControl(patch) {
+  const response = await fetch(PROXY_CONTROL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+    signal: AbortSignal.timeout(3000),
+  });
+  if (!response.ok) throw new Error(`Proxy control failed with HTTP ${response.status}.`);
+  await refreshStatus();
+}
+
 async function linkCurrentChat() {
   const current = context();
   locator();
@@ -132,7 +145,7 @@ async function generationInterceptor(_chat, _contextSize, abort, type) {
       route: requestRoute,
       generation,
       locator: locator(),
-      bridge: { version: '0.1.1', sillyTavernRevision: ST_REVISION },
+      bridge: { version: '0.1.2', sillyTavernRevision: ST_REVISION },
     };
     setStatus(`${requestRoute.kind} ${generation} · request ${pendingExchange.requestId.slice(0, 8)} prepared`, 'ok');
   } catch (error) {
@@ -175,6 +188,13 @@ function mountControls() {
         <button type="button" class="menu_button" data-proxy-action="unlink">Make this chat unlinked</button>
         <button type="button" class="menu_button" data-proxy-action="refresh">Refresh status</button>
       </div>
+      <p class="notes">Physical-phone evidence controls:</p>
+      <div class="st-rpg-proxy-spike__actions">
+        <button type="button" class="menu_button" data-proxy-control="fixture">Fixture</button>
+        <button type="button" class="menu_button" data-proxy-control="stop-delay">10 s Stop delay</button>
+        <button type="button" class="menu_button" data-proxy-control="outage">Campaign outage</button>
+        <button type="button" class="menu_button" data-proxy-control="live">Live LM Studio</button>
+      </div>
       <p id="st-rpg-proxy-spike-status" role="status">Checking...</p>
     </div>`;
   const target = document.querySelector('#extensions_settings2') ?? document.querySelector('#extensions_settings');
@@ -184,13 +204,30 @@ function mountControls() {
     if (action === 'link') linkCurrentChat().catch(error => setStatus(String(error.message ?? error), 'error'));
     if (action === 'unlink') unlinkCurrentChat().catch(error => setStatus(String(error.message ?? error), 'error'));
     if (action === 'refresh') refreshStatus();
+    const control = event.target.closest('[data-proxy-control]')?.dataset.proxyControl;
+    if (control === 'fixture') {
+      setProxyControl({ campaignAvailable: true, upstreamMode: 'fixture', linkedDelayMs: 0, fixtureText: 'PHONE_{generation}' })
+        .catch(error => setStatus(String(error.message ?? error), 'error'));
+    }
+    if (control === 'stop-delay') {
+      setProxyControl({ campaignAvailable: true, upstreamMode: 'fixture', linkedDelayMs: 10000, fixtureText: 'PHONE_DELAYED_{generation}' })
+        .catch(error => setStatus(String(error.message ?? error), 'error'));
+    }
+    if (control === 'outage') {
+      setProxyControl({ campaignAvailable: false, upstreamMode: 'fixture', linkedDelayMs: 0, fixtureText: 'PHONE_OUTAGE_{generation}' })
+        .catch(error => setStatus(String(error.message ?? error), 'error'));
+    }
+    if (control === 'live') {
+      setProxyControl({ campaignAvailable: true, upstreamMode: 'live', linkedDelayMs: 0 })
+        .catch(error => setStatus(String(error.message ?? error), 'error'));
+    }
   });
   refreshStatus();
 }
 
 function mount() {
   globalThis.stRpgProxySpikeGenerationInterceptor = generationInterceptor;
-  globalThis.stRpgProxySpike = { linkCurrentChat, unlinkCurrentChat, refreshStatus, locator, route };
+  globalThis.stRpgProxySpike = { linkCurrentChat, unlinkCurrentChat, refreshStatus, setProxyControl, locator, route };
   const current = context();
   const events = current?.eventTypes ?? current?.event_types;
   current?.eventSource?.on?.(events?.CHAT_COMPLETION_SETTINGS_READY, applyExchangeHeader);

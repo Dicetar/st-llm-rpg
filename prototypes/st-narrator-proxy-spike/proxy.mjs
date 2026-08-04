@@ -162,15 +162,16 @@ function delay(ms, signal) {
   });
 }
 
-async function fixtureResult(body, signal) {
+async function fixtureResult(body, envelope, signal) {
   if (signal.aborted) throw signal.reason ?? new Error('aborted');
+  const text = state.control.fixtureText.replaceAll('{generation}', envelope.generation.toUpperCase());
   return {
-    text: state.control.fixtureText,
+    text,
     model: String(body.model),
     finishReason: 'stop',
     upstreamStatus: 200,
     chunks: 1,
-    bytes: Buffer.byteLength(state.control.fixtureText),
+    bytes: Buffer.byteLength(text),
   };
 }
 
@@ -281,12 +282,12 @@ function sendAtomic(response, body, envelope, result) {
   });
 }
 
-async function transparentForward(request, response, raw, body, signal, traceId) {
+async function transparentForward(request, response, raw, body, envelope, signal, traceId) {
   dispatch({ type: 'upstream', traceId, at: new Date().toISOString() });
   if (state.control.upstreamMode === 'unavailable') throw new Error('UPSTREAM_UNAVAILABLE');
   if (state.control.upstreamMode === 'fixture') {
     await delay(state.control.linkedDelayMs, signal);
-    const result = await fixtureResult(body, signal);
+    const result = await fixtureResult(body, envelope, signal);
     const committed = sendAtomic(response, body, {
       requestId: state.attempts.find(item => item.traceId === traceId).requestId,
     }, result);
@@ -392,7 +393,7 @@ async function handleCompletion(request, response) {
       if (state.control.upstreamMode === 'unavailable') throw new Error('UPSTREAM_UNAVAILABLE');
       if (state.control.upstreamMode === 'fixture') {
         dispatch({ type: 'upstream', traceId, at: new Date().toISOString() });
-        result = await fixtureResult(body, controller.signal);
+        result = await fixtureResult(body, envelope, controller.signal);
       } else {
         result = await liveLinkedResult(body, raw, request, controller.signal, traceId);
       }
@@ -417,7 +418,7 @@ async function handleCompletion(request, response) {
       return;
     }
 
-    const result = await transparentForward(request, response, raw, body, controller.signal, traceId);
+    const result = await transparentForward(request, response, raw, body, envelope, controller.signal, traceId);
     terminal = true;
     dispatch({
       type: 'terminal', traceId, outcome: controller.signal.aborted ? 'cancelled' : 'completed', at: new Date().toISOString(),
