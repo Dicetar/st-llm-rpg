@@ -12,12 +12,36 @@ _Avoid_: Save, world state, database
 The explicit association of one SillyTavern chat with one Campaign, including chat-specific narration state such as its Sync Boundary and Context Focus. A binding is never inferred from a copied chat or applied automatically.
 _Avoid_: Campaign, chat metadata, active save
 
+**Chat Locator**:
+Mutable SillyTavern evidence describing which chat currently presents a Chat Binding. It helps detect copies and renames but is never Campaign or Chat Binding identity.
+_Avoid_: Chat Binding ID, Campaign ID, stable chat UUID
+
+**Campaign Anchor**:
+The Campaign Revision a Chat Binding has explicitly accepted as the truth for that chat. If the Campaign advances elsewhere, the binding remains anchored until a person follows the new head or branches.
+_Avoid_: Last seen revision, automatic sync point, current revision cache
+
+**Binding Revision**:
+An immutable numbered version of one Chat Binding's accepted chat-specific state. It is independent from Campaign Revision so locator, Sync Boundary, Context Focus, and Campaign Anchor changes do not create false Campaign conflicts.
+_Avoid_: Campaign Revision, metadata version
+
+**Binding Operation**:
+A typed human-approved request to change one Chat Binding that is accepted atomically or rejected without mutation.
+_Avoid_: Campaign Operation, metadata patch, automatic sync
+
+**Binding Event**:
+An immutable account of one accepted Binding Operation. It records chat-specific history without pretending that the Campaign's RPG truth changed.
+_Avoid_: Campaign Event, UI event, diagnostic log
+
 **Binding Mismatch**:
-A detected disagreement between a Chat Binding's last confirmed Campaign state and current canonical Campaign state. It requires an explicit user reconciliation choice; the system never silently rebinds, overwrites, or branches.
+A detected disagreement between a Chat Binding's Campaign Anchor and current Campaign truth. It requires an explicit user reconciliation choice; the system never silently follows, overwrites, or branches.
 _Avoid_: Stale Campaign, sync error, automatic branch
 
+**Binding Collision**:
+A Chat Binding presented from a Chat Locator different from its accepted locator, as happens after a copy, import, rename, or move. The cause is never guessed; a person must move the binding, create a separate binding, branch, or remain unlinked.
+_Avoid_: Duplicate Campaign, automatic rename, device conflict
+
 **Campaign Revision**:
-An immutable numbered version created by one accepted Campaign Operation. It is the concurrency and recovery boundary for all Campaign state.
+An immutable numbered version created by one accepted Campaign Operation. It is the concurrency and recovery boundary for Campaign truth, not chat-specific Binding state.
 _Avoid_: Record revision, save number
 
 **Campaign Operation**:
@@ -159,9 +183,17 @@ A reversible state that removes a Record or live entry from normal views and Con
 _Avoid_: Delete, hide
 
 **Delete**:
-Permanent removal allowed only when no surviving reference depends on the target.
+Permanent removal from current Campaign state, allowed only when no surviving reference depends on the target. Earlier Campaign Revisions and immutable history still reconstruct the former subject.
 _Avoid_: Archive, remove from collection
 
+**Unlink**:
+An accepted Binding Operation that stops a chat from using its Campaign while retaining the Chat Binding's identity and history for collision detection and recovery.
+_Avoid_: Delete Campaign, clear chat automatically, unlinked route inference
+
+**Purge**:
+Irreversible whole-Campaign erasure after Archive and explicit confirmation. It is destructive maintenance rather than a Campaign Operation and cannot erase separately held copies.
+_Avoid_: Delete Record, Archive, reset
+
 **Lineage**:
-The explicit parent Campaign and Campaign Revision from which a new Campaign was branched.
+The explicit parent Campaign and Campaign Revision from which a self-contained new Campaign was branched. The branch remains usable even if its parent later becomes unavailable.
 _Avoid_: Copied save, main chat link
