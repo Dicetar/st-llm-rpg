@@ -1,6 +1,6 @@
 # Campaign authority, history, and Chat Binding lifecycle
 
-Status: accepted for the persistence prototype in Wayfinder #18. The prototype may revise measured snapshot cadence and physical indexes; it may not weaken the semantic guarantees here without a new decision. Wayfinder #26 will confirm the final architecture.
+Status: semantics proven by the persistence prototype in Wayfinder #18. The prototype revised snapshot trust and triggered the synchronous SQLite worker-thread review described below. Wayfinder #26 will confirm the final architecture and measured execution boundary.
 
 ## Decision
 
@@ -12,7 +12,7 @@ Campaign Engine remains the sole accepted-mutation authority behind `read`, `exe
 
 Every accepted Campaign Operation creates exactly one next Campaign Revision and one Campaign Event. Every accepted Binding Operation creates exactly one next Binding Revision and one Binding Event, but no Campaign Revision. A transaction may create one of each when a Campaign edit explicitly advances its originating Chat Binding's Campaign Anchor or when branching and binding are accepted together.
 
-Current normalized projections make ordinary Workspace, Context, and reference queries fast. Campaign Events store schema-versioned normalized before/after subject images, so historical reconstruction applies accepted results without rerunning old validation or command code. A self-contained revision-zero Campaign Base plus periodic full snapshots bound replay cost. Current projections and periodic snapshots are rebuildable; the Campaign Base and Campaign Events are authority.
+Current normalized projections make ordinary Workspace, Context, and reference queries fast. Campaign Events store schema-versioned normalized before/after subject images, so historical reconstruction applies accepted results without rerunning old validation or command code. A self-contained revision-zero Campaign Base plus periodic full snapshots bound state-application work; snapshots do not bypass Event-prefix integrity verification. Current projections and periodic snapshots are rebuildable; the Campaign Base and Campaign Events are authority.
 
 Chat Bindings use one ordered Binding Revision plus four fixed facet counters—identity, anchor, sync, and pins. A Binding Operation checks only the facets it changes. This prevents a pin toggle, Sync Boundary update, locator reconciliation, and Campaign Anchor acknowledgement from creating unrelated conflicts while retaining one comprehensible binding history.
 
@@ -75,7 +75,7 @@ Delete requires prior Archive and a fresh Reference Graph check. A successful De
 
 ### A snapshot or projection is damaged
 
-A corrupt periodic snapshot is discarded and rebuilt from an earlier valid snapshot or the Campaign Base plus Events. A current projection mismatch enters maintenance and rebuilds from verified history. A broken Campaign Base or Event hash chain fails the affected Campaign closed and requires validated backup restoration; the engine never guesses.
+A corrupt periodic snapshot is discarded and rebuilt from an earlier valid snapshot or the Campaign Base plus Events. A snapshot is never a new trust root: its complete Event-chain prefix is verified from the Campaign Base before its materialized state is accepted. A current projection mismatch enters maintenance and rebuilds from verified history. A broken Campaign Base or Event hash chain fails the affected Campaign closed and requires validated backup restoration; the engine never guesses.
 
 ### The database is restored while tabs are open
 
@@ -552,11 +552,12 @@ To read Campaign Revision R:
 
 1. validate `1 <= R <= currentRevision`;
 2. load the newest valid periodic snapshot at or before R, otherwise the Campaign Base;
-3. verify its state hash and bound Event hash;
-4. load later Events in Campaign Revision order through R;
-5. verify continuous revisions and the Event hash chain;
-6. upcast each schema-versioned after-image and apply it without validation;
-7. produce the requested bounded view.
+3. verify the snapshot state hash and its complete Event-chain prefix from the Campaign Base through the snapshot's bound Event;
+4. accept the snapshot's materialized state only after that prefix verifies;
+5. load later Events in Campaign Revision order through R;
+6. verify continuous revisions and the remaining Event hash chain;
+7. upcast and apply each post-snapshot schema-versioned after-image without mutation validation;
+8. produce the requested bounded view.
 
 Old Campaign Operations remain audit evidence but are never executed during replay. Schema evolution supplies explicit image upcasters; immutable Event bytes are not silently rewritten.
 
@@ -570,7 +571,11 @@ V1 snapshot policy is provisional but exact for #18:
 - a corrupt periodic snapshot may be discarded and recreated;
 - Campaign Events are never compacted or pruned.
 
-The task reconstructs the immutable target revision outside a write transaction, then inserts the snapshot in a short transaction after verifying the target Event hash. #18 must measure replay latency, snapshot size, event-loop delay, and whether 100 is appropriate before #26 accepts it.
+The task reconstructs the immutable target revision outside a write transaction, then inserts the snapshot in a short transaction after verifying the target Event hash. The final #18 trace measured a 2,096,620-byte snapshot for 10,000 representative Records; creation took 284.3 ms and verified reconstruction took 188.4 ms. The prototype did not model 100 small Events, so the 100-Revision cadence remains provisional for #26.
+
+Snapshots are acceleration data, not authority or independent integrity roots. A process-local verified-prefix cache may avoid repeated prefix work only while the same open database generation is known-good. Restore rotates Store Epoch and invalidates it. Suspected corruption and maintenance scrubs always verify from the Campaign Base.
+
+The same run measured a 6.4 ms page read and 2.0 ms single-Record edit, but a 1,243.2 ms 10,000-Record import and 398.1 ms self-contained branch. Those long synchronous calls exceed #16's 50 ms review threshold. #26 must place Campaign Journal behind an asynchronous worker-thread boundary or prove an equivalent non-blocking ownership design; changing synchronous SQLite bindings alone does not solve the event-loop stall.
 
 Current projections serve head reads. Startup verifies schema, head revision, foreign keys, tombstone constraints, and Event continuity. A projection disagreement triggers a pre-repair backup and deterministic rebuild from history. Campaign Base/Event corruption marks that Campaign unavailable until validated restore.
 
@@ -801,7 +806,7 @@ No HTTP route, React view, LM Studio call, addon watcher, or SillyTavern depende
 
 ## Downstream decisions unblocked
 
-- #18 can implement the exact persistence/recovery spike and measure the provisional snapshot policy.
+- #18 proved the persistence/recovery semantics and recorded its measured constraints in `docs/research/campaign-persistence-prototype.md`.
 - #19 can define wire headers and bridge behavior around canonical Binding ID, Chat Locator, collision token, and Campaign Anchor Problems.
 - #21 can read one verified Campaign Revision plus one verified Binding Revision/facet vector for Context planning.
 - #23 can turn structured conflict/collision/lifecycle Problems into guided Workspace sheets without moving authority into React.

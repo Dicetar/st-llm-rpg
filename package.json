@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prototype:persistence": "node prototypes/campaign-authority-sqlite-spike/run.mjs",
     "test": "node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs"
   },
   "devDependencies": {
