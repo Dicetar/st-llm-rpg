@@ -1,0 +1,4 @@
+{
+  "_comment": "Replace null with one open Current Scene. Sync will not replace a different already-open Scene.",
+  "scene": null
+}

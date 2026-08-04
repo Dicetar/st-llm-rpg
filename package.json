@@ -1,0 +1,11 @@
+{
+  "name": "st-llm-rpg",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.12"
+  }
+}

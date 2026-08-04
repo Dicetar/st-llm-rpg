@@ -1,0 +1,41 @@
+﻿{
+    "bundleVersion":  1,
+    "sources":  [
+                    "abilities_addon.json",
+                    "character_addon.json",
+                    "facts_addon.json",
+                    "items_addon.json",
+                    "people_addon.json",
+                    "places_addon.json",
+                    "quests_addon.json",
+                    "relationships_addon.json",
+                    "scene_addon.json",
+                    "world_objects_addon.json"
+                ],
+    "character":  null,
+    "items":  [
+
+              ],
+    "abilities":  [
+
+                  ],
+    "people":  [
+
+               ],
+    "relationships":  [
+
+                      ],
+    "quests":  [
+
+               ],
+    "facts":  [
+
+              ],
+    "places":  [
+
+               ],
+    "worldObjects":  [
+
+                     ],
+    "scene":  null
+}

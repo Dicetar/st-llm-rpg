@@ -1,0 +1,11 @@
+{
+  "display_name": "RPG Workspace C — Boundary Spike",
+  "loading_order": 200,
+  "dependencies": ["third-party/st-rpg-worker-routing-spike"],
+  "js": "index.js?v=0.0.4",
+  "css": "style.css?v=0.0.4",
+  "author": "Dicetar",
+  "version": "0.0.4",
+  "auto_update": false,
+  "minimum_client_version": "1.18.0"
+}

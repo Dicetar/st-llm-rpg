@@ -1,0 +1,26 @@
+{
+  "_comment": "Documentation example only. Files ending in _example.json are not synchronized.",
+  "_field_help": {
+    "id": "Required stable external ID.",
+    "source": "A People addon id or $player.",
+    "target": "A different People addon id or $player.",
+    "kind": "Free-text relationship kind such as ally, employer, rival, or family.",
+    "status": "active, strained, dormant, ended, or other.",
+    "dimensions": "Optional affinity/trust/respect/fear/tension/debt whole numbers from -5 to 5."
+  },
+  "relationships": [
+    {
+      "id": "lavir-employs-player",
+      "source": "lavir",
+      "target": "$player",
+      "kind": "employer",
+      "status": "active",
+      "notes": "Lavir values precision but has not granted full trust.",
+      "dimensions": {
+        "trust": 1,
+        "respect": 2,
+        "tension": 1
+      }
+    }
+  ]
+}

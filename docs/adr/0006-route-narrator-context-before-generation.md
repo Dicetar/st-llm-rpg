@@ -1,0 +1,11 @@
+# Route narrator context deterministically before generation
+
+Status: superseded for the companion architecture by [Use preflight context with bounded hidden-draft enrichment](./0010-use-preflight-context-with-bounded-hidden-draft-enrichment.md). This pre-generation-only router remains the decision for the working fallback extension.
+
+The Campaign Session commits a compact, deterministic Context Capsule Core with every verified Campaign Revision. The browser extension derives an ephemeral Context Focus from that same verified Campaign plus the latest six narrative messages, then registers the combined prompt before SillyTavern assembles the narrator request. The combined prompt has one 8,000-character hard ceiling; Focus cannot grow beyond the remaining space after Core.
+
+The router scores exact Record names and Actor aliases first, then rare name terms, tags/categories, description terms, current Scene membership, collection intent, recent mentions, pins, and manual next-reply selections. Selected Records expand through one hop of typed Campaign links. Every detailed Record uses a kind-specific renderer and reports why it was selected. Common terms are rarity-weighted so repeated names such as “travel item” do not retrieve an entire Collection.
+
+Normal sends precompute Focus on SillyTavern's awaited `MESSAGE_SENT` event. Edits, deletes, and swipes refresh the cache; `GENERATION_AFTER_COMMANDS` only re-registers the already-built packet. Manual focus is cleared after a narrator message is received. Retrieval performs no Campaign write, storage request, embedding query, worker-model call, or World Info synchronization. If dynamic routing is unavailable, the verified compact Core remains the safe fallback.
+
+This design intentionally rejects narrator-owned lookup as the primary path. A creative local model cannot reliably inspect an index, call a tool, wait for a result, and continue in one response. Deterministic pre-retrieval is lower-latency and works across ordinary send, regenerate, continue, and swipe flows. A Record chosen spontaneously by the narrator cannot acquire additional detail midway through the same response; its recent mention can activate detail on the following response, and the player can explicitly queue any Record for the next reply.

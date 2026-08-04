@@ -1,0 +1,29 @@
+{
+  "_comment": "Documentation example only. Files ending in _example.json are not synchronized.",
+  "_field_help": {
+    "id": "Required stable external ID. Unique among all item addon files.",
+    "name": "Required display name.",
+    "summary": "Short description included in narration context.",
+    "details": "Long private notes, not included in context by default.",
+    "tags": "Array of searchable tags.",
+    "quantity": "Non-negative whole number.",
+    "carriedState": "carried, worn, stored, missing, consumed, or other.",
+    "contextPolicy": "automatic or excluded."
+  },
+  "items": [
+    {
+      "id": "wardrobe-key",
+      "name": "Wardrobe key",
+      "summary": "A small iron key taken from the east dressing room.",
+      "details": "Its bow bears House Harcourt's split-crown mark.",
+      "category": "key",
+      "tags": ["house-harcourt", "evidence"],
+      "quantity": 1,
+      "carriedState": "carried",
+      "equippedSlots": [],
+      "condition": "intact",
+      "notes": "Keep concealed from the servants.",
+      "contextPolicy": "automatic"
+    }
+  ]
+}

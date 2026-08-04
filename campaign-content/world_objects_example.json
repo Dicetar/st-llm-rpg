@@ -1,0 +1,20 @@
+{
+  "_comment": "Documentation example only. World Objects are persistent non-portable features, not Inventory Items.",
+  "_field_help": {
+    "state": "Durable present state of the object.",
+    "homePlace": "Optional stable Place addon id. Scene placement remains a Presence."
+  },
+  "worldObjects": [
+    {
+      "id": "dressing-room-cabinet",
+      "name": "Heavy wooden cabinet",
+      "summary": "A broad cabinet positioned over mismatched wall paneling.",
+      "details": "Its rear feet have scored the floor from being moved more than once.",
+      "category": "furniture",
+      "tags": ["evidence", "concealment"],
+      "state": "Closed and difficult to move quietly.",
+      "homePlace": "east-dressing-room",
+      "contextPolicy": "automatic"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "_comment": "Documentation example only. Files ending in _example.json are not synchronized.",
+  "_field_help": {
+    "id": "Required stable external ID used by Relationships.",
+    "summary": "Short context-ready identity.",
+    "details": "Long private notes.",
+    "conditions": "Array of current conditions.",
+    "contextPolicy": "automatic or excluded."
+  },
+  "people": [
+    {
+      "id": "lavir",
+      "name": "Lavir",
+      "aliases": ["Master Lavir"],
+      "pronouns": "he/him",
+      "summary": "A precise court mage searching for a missing witness.",
+      "details": "He serves House Harcourt but guards his private loyalties.",
+      "category": "court mage",
+      "tags": ["court", "house-harcourt"],
+      "appearance": "Immaculate dark robes and silver-threaded gloves.",
+      "personality": "Controlled, exacting, and slow to trust.",
+      "goals": "Locate the witness without alarming the court.",
+      "voiceNotes": "Measured sentences; corrects imprecise wording.",
+      "conditions": [],
+      "contextPolicy": "automatic"
+    }
+  ]
+}

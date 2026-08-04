@@ -1,0 +1,4 @@
+{
+  "_comment": "Add persistent locations to the places array. See places_example.json.",
+  "places": []
+}
