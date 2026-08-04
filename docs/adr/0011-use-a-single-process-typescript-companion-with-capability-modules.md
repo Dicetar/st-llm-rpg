@@ -1,0 +1,9 @@
+# Use a single-process TypeScript companion with capability Modules
+
+Status: accepted for Wayfinder prototypes. Wayfinder #26 will confirm or revise the final architecture from measured evidence.
+
+The companion runs as one pinned Node 24 process at `:8002`, written in strict TypeScript and compiled to ESM. Fastify 5 supplies owned HTTP and static Workspace delivery; built-in `node:sqlite` is the first Campaign Journal Adapter; native fetch/Web Streams connect to LM Studio; and the separate full-page Workspace uses React, Vite, and React Router Data Mode. Runtime wire schemas live in one shared package. Campaign, Workspace, Context, Narration, Worker Jobs, and Inference Runtime remain folders inside the companion rather than separately deployed packages.
+
+Campaign Engine is the sole accepted-mutation authority. Workspace exposes task-oriented documents and user intents. Context exposes one planning Interface. Narration exposes one `respond` Interface that owns explicit linked/unlinked routing and cannot silently bypass linked Campaign handling. Worker Jobs receives Campaign read capability but never mutation capability. Inference Runtime is internal and owns the single narrator-priority model lane. A separate thin SillyTavern Bridge Adapter adds binding and generation metadata and opens Workspace; the existing `st-rpg-campaign` extension remains the fallback.
+
+This shape preserves Depth and Locality without recreating the browser monolith or introducing local microservices. It rejects a universal command-bag kernel, pure vertical workflows with duplicated Campaign rules, repository-per-table storage, a package per Module, generic event buses/provider registries, a browser-side Campaign authority, and patching SillyTavern core. Detailed Interfaces and rejected alternatives are recorded in [Companion runtime and module seams](../design/companion-runtime-and-module-seams.md).
