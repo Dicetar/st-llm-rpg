@@ -1,0 +1,2 @@
+#st-rpg-companion-launcher { cursor: pointer; }
+#st-rpg-companion-launcher:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
