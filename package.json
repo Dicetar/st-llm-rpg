@@ -11,7 +11,7 @@
     "test:workspace-prototype": "node --test prototypes/workspace-shells/workspace-shells.test.mjs",
     "test:worker-jobs-prototype": "node --test prototypes/story-sync-job-spike/prototype.test.mjs",
     "test:cutover-prototype": "node --test prototypes/migration-cutover-spike/prototype.test.mjs",
-    "test:proxy-phone-evidence": "node --test prototypes/st-narrator-proxy-spike/bridge/phone-evidence.test.mjs",
+    "test:proxy-phone-evidence": "node --test prototypes/st-narrator-proxy-spike/run-script.test.mjs prototypes/st-narrator-proxy-spike/bridge/phone-evidence.test.mjs",
     "test": "node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs"
   },
   "devDependencies": {
