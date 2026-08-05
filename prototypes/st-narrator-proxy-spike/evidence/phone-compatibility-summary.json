@@ -1,0 +1,508 @@
+{
+  "schema": "st-rpg.proxy-phone-evidence",
+  "version": 3,
+  "generatedAt": "2026-08-05T17:59:07.591Z",
+  "redaction": "No chat prose, prompts, campaign data, IDs, or generated text are included; only fixed sentinel counts and sanitized transport metadata.",
+  "complete": true,
+  "pass": true,
+  "missingSteps": [],
+  "failedSteps": [],
+  "retrySteps": [],
+  "environmentIncompleteSteps": [],
+  "viewportOutOfRangeSteps": [],
+  "entries": [
+    {
+      "schemaVersion": 3,
+      "step": "normal",
+      "capturedAt": "2026-08-05T17:56:47.038Z",
+      "environment": {
+        "hostname": "10.8.1.2",
+        "connectionPath": "trusted-network",
+        "viewportWidth": 384,
+        "viewportHeight": 692,
+        "devicePixelRatio": 2.8125,
+        "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36"
+      },
+      "route": "linked",
+      "proxyControl": {
+        "campaignAvailable": true,
+        "upstreamMode": "fixture",
+        "linkedDelayMs": 0
+      },
+      "attempt": {
+        "route": "linked",
+        "generation": "normal",
+        "outcome": "completed",
+        "stage": "completed",
+        "upstreamCalls": 1,
+        "upstreamStatus": 200,
+        "upstreamChunks": 1,
+        "upstreamBytes": 12,
+        "visibleChars": 12,
+        "responseCommitted": true,
+        "cancelled": false,
+        "problemCode": null,
+        "elapsedMs": 1,
+        "transitions": [
+          "received",
+          "binding-verified",
+          "upstream",
+          "final-buffered",
+          "completed"
+        ]
+      },
+      "chat": {
+        "messageCount": 2,
+        "userMessages": 1,
+        "assistantMessages": 1,
+        "lastRole": "assistant",
+        "sentinels": {
+          "PHONE_NORMAL": 2,
+          "PHONE_REGENERATE": 0,
+          "PHONE_CONTINUE": 0,
+          "PHONE_SWIPE": 0,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "selectedAssistantSentinels": {
+          "PHONE_NORMAL": 1,
+          "PHONE_REGENERATE": 0,
+          "PHONE_CONTINUE": 0,
+          "PHONE_SWIPE": 0,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "latestAssistantSwipeCount": 1,
+        "latestAssistantSwipeIndex": 0
+      },
+      "statusText": "linked normal · request request- prepared",
+      "checks": {
+        "proxyCompleted": true,
+        "normalSentinelSaved": true
+      },
+      "pass": true
+    },
+    {
+      "schemaVersion": 3,
+      "step": "regenerate",
+      "capturedAt": "2026-08-05T17:56:58.768Z",
+      "environment": {
+        "hostname": "10.8.1.2",
+        "connectionPath": "trusted-network",
+        "viewportWidth": 384,
+        "viewportHeight": 692,
+        "devicePixelRatio": 2.8125,
+        "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36"
+      },
+      "route": "linked",
+      "proxyControl": {
+        "campaignAvailable": true,
+        "upstreamMode": "fixture",
+        "linkedDelayMs": 0
+      },
+      "attempt": {
+        "route": "linked",
+        "generation": "regenerate",
+        "outcome": "completed",
+        "stage": "completed",
+        "upstreamCalls": 1,
+        "upstreamStatus": 200,
+        "upstreamChunks": 1,
+        "upstreamBytes": 16,
+        "visibleChars": 16,
+        "responseCommitted": true,
+        "cancelled": false,
+        "problemCode": null,
+        "elapsedMs": 0,
+        "transitions": [
+          "received",
+          "binding-verified",
+          "upstream",
+          "final-buffered",
+          "completed"
+        ]
+      },
+      "chat": {
+        "messageCount": 2,
+        "userMessages": 1,
+        "assistantMessages": 1,
+        "lastRole": "assistant",
+        "sentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 2,
+          "PHONE_CONTINUE": 0,
+          "PHONE_SWIPE": 0,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "selectedAssistantSentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 1,
+          "PHONE_CONTINUE": 0,
+          "PHONE_SWIPE": 0,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "latestAssistantSwipeCount": 1,
+        "latestAssistantSwipeIndex": 0
+      },
+      "statusText": "linked regenerate · request request- prepared",
+      "checks": {
+        "proxyCompleted": true,
+        "regenerateSentinelSaved": true
+      },
+      "pass": true
+    },
+    {
+      "schemaVersion": 3,
+      "step": "continue",
+      "capturedAt": "2026-08-05T17:57:09.982Z",
+      "environment": {
+        "hostname": "10.8.1.2",
+        "connectionPath": "trusted-network",
+        "viewportWidth": 384,
+        "viewportHeight": 692,
+        "devicePixelRatio": 2.8125,
+        "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36"
+      },
+      "route": "linked",
+      "proxyControl": {
+        "campaignAvailable": true,
+        "upstreamMode": "fixture",
+        "linkedDelayMs": 0
+      },
+      "attempt": {
+        "route": "linked",
+        "generation": "continue",
+        "outcome": "completed",
+        "stage": "completed",
+        "upstreamCalls": 1,
+        "upstreamStatus": 200,
+        "upstreamChunks": 1,
+        "upstreamBytes": 14,
+        "visibleChars": 14,
+        "responseCommitted": true,
+        "cancelled": false,
+        "problemCode": null,
+        "elapsedMs": 0,
+        "transitions": [
+          "received",
+          "binding-verified",
+          "upstream",
+          "final-buffered",
+          "completed"
+        ]
+      },
+      "chat": {
+        "messageCount": 2,
+        "userMessages": 1,
+        "assistantMessages": 1,
+        "lastRole": "assistant",
+        "sentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 2,
+          "PHONE_CONTINUE": 2,
+          "PHONE_SWIPE": 0,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "selectedAssistantSentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 1,
+          "PHONE_CONTINUE": 1,
+          "PHONE_SWIPE": 0,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "latestAssistantSwipeCount": 1,
+        "latestAssistantSwipeIndex": 0
+      },
+      "statusText": "linked continue · request request- prepared",
+      "checks": {
+        "proxyCompleted": true,
+        "continueSentinelSelected": true
+      },
+      "pass": true
+    },
+    {
+      "schemaVersion": 3,
+      "step": "swipe",
+      "capturedAt": "2026-08-05T17:57:18.429Z",
+      "environment": {
+        "hostname": "10.8.1.2",
+        "connectionPath": "trusted-network",
+        "viewportWidth": 384,
+        "viewportHeight": 692,
+        "devicePixelRatio": 2.8125,
+        "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36"
+      },
+      "route": "linked",
+      "proxyControl": {
+        "campaignAvailable": true,
+        "upstreamMode": "fixture",
+        "linkedDelayMs": 0
+      },
+      "attempt": {
+        "route": "linked",
+        "generation": "swipe",
+        "outcome": "completed",
+        "stage": "completed",
+        "upstreamCalls": 1,
+        "upstreamStatus": 200,
+        "upstreamChunks": 1,
+        "upstreamBytes": 11,
+        "visibleChars": 11,
+        "responseCommitted": true,
+        "cancelled": false,
+        "problemCode": null,
+        "elapsedMs": 0,
+        "transitions": [
+          "received",
+          "binding-verified",
+          "upstream",
+          "final-buffered",
+          "completed"
+        ]
+      },
+      "chat": {
+        "messageCount": 2,
+        "userMessages": 1,
+        "assistantMessages": 1,
+        "lastRole": "assistant",
+        "sentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 1,
+          "PHONE_CONTINUE": 1,
+          "PHONE_SWIPE": 2,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "selectedAssistantSentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 0,
+          "PHONE_CONTINUE": 0,
+          "PHONE_SWIPE": 1,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "latestAssistantSwipeCount": 2,
+        "latestAssistantSwipeIndex": 1
+      },
+      "statusText": "linked swipe · request request- prepared",
+      "checks": {
+        "proxyCompleted": true,
+        "swipeSentinelSaved": true,
+        "multipleSwipeCandidates": true
+      },
+      "pass": true
+    },
+    {
+      "schemaVersion": 3,
+      "step": "stop",
+      "capturedAt": "2026-08-05T17:57:32.548Z",
+      "environment": {
+        "hostname": "10.8.1.2",
+        "connectionPath": "trusted-network",
+        "viewportWidth": 384,
+        "viewportHeight": 692,
+        "devicePixelRatio": 2.8125,
+        "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36"
+      },
+      "route": "linked",
+      "proxyControl": {
+        "campaignAvailable": true,
+        "upstreamMode": "fixture",
+        "linkedDelayMs": 10000
+      },
+      "attempt": {
+        "route": "linked",
+        "generation": "normal",
+        "outcome": "cancelled",
+        "stage": "cancelled",
+        "upstreamCalls": 0,
+        "upstreamStatus": null,
+        "upstreamChunks": 0,
+        "upstreamBytes": 0,
+        "visibleChars": 0,
+        "responseCommitted": false,
+        "cancelled": true,
+        "problemCode": "RPG_CANCELLED",
+        "elapsedMs": 1174,
+        "transitions": [
+          "received",
+          "binding-verified",
+          "cancelled"
+        ]
+      },
+      "chat": {
+        "messageCount": 3,
+        "userMessages": 2,
+        "assistantMessages": 1,
+        "lastRole": "user",
+        "sentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 1,
+          "PHONE_CONTINUE": 1,
+          "PHONE_SWIPE": 2,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "selectedAssistantSentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 0,
+          "PHONE_CONTINUE": 0,
+          "PHONE_SWIPE": 1,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "latestAssistantSwipeCount": 2,
+        "latestAssistantSwipeIndex": 1
+      },
+      "statusText": "linked normal · request request- prepared",
+      "checks": {
+        "proxyCancelled": true,
+        "noSuccessCommit": true,
+        "noDelayedSentinel": true
+      },
+      "pass": true
+    },
+    {
+      "schemaVersion": 3,
+      "step": "outage-linked",
+      "capturedAt": "2026-08-05T17:58:41.550Z",
+      "environment": {
+        "hostname": "10.8.1.2",
+        "connectionPath": "trusted-network",
+        "viewportWidth": 384,
+        "viewportHeight": 692,
+        "devicePixelRatio": 2.8125,
+        "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36"
+      },
+      "route": "linked",
+      "proxyControl": {
+        "campaignAvailable": false,
+        "upstreamMode": "fixture",
+        "linkedDelayMs": 0
+      },
+      "attempt": {
+        "route": "linked",
+        "generation": "normal",
+        "outcome": "rejected",
+        "stage": "rejected",
+        "upstreamCalls": 0,
+        "upstreamStatus": null,
+        "upstreamChunks": 0,
+        "upstreamBytes": 0,
+        "visibleChars": 0,
+        "responseCommitted": true,
+        "cancelled": false,
+        "problemCode": "RPG_CAMPAIGN_UNAVAILABLE",
+        "elapsedMs": 0,
+        "transitions": [
+          "received",
+          "rejected"
+        ]
+      },
+      "chat": {
+        "messageCount": 4,
+        "userMessages": 3,
+        "assistantMessages": 1,
+        "lastRole": "user",
+        "sentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 1,
+          "PHONE_CONTINUE": 1,
+          "PHONE_SWIPE": 2,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "selectedAssistantSentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 0,
+          "PHONE_CONTINUE": 0,
+          "PHONE_SWIPE": 1,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 0
+        },
+        "latestAssistantSwipeCount": 2,
+        "latestAssistantSwipeIndex": 1
+      },
+      "statusText": "linked normal · request request- prepared",
+      "checks": {
+        "failedBeforeUpstream": true,
+        "userTurnRetained": true,
+        "noOutageAssistantSaved": true
+      },
+      "pass": true
+    },
+    {
+      "schemaVersion": 3,
+      "step": "outage-unlinked",
+      "capturedAt": "2026-08-05T17:59:00.894Z",
+      "environment": {
+        "hostname": "10.8.1.2",
+        "connectionPath": "trusted-network",
+        "viewportWidth": 384,
+        "viewportHeight": 692,
+        "devicePixelRatio": 2.8125,
+        "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36"
+      },
+      "route": "unlinked",
+      "proxyControl": {
+        "campaignAvailable": false,
+        "upstreamMode": "fixture",
+        "linkedDelayMs": 0
+      },
+      "attempt": {
+        "route": "unlinked",
+        "generation": "normal",
+        "outcome": "completed",
+        "stage": "completed",
+        "upstreamCalls": 1,
+        "upstreamStatus": 200,
+        "upstreamChunks": 1,
+        "upstreamBytes": 19,
+        "visibleChars": 0,
+        "responseCommitted": true,
+        "cancelled": false,
+        "problemCode": null,
+        "elapsedMs": 0,
+        "transitions": [
+          "received",
+          "upstream",
+          "completed"
+        ]
+      },
+      "chat": {
+        "messageCount": 6,
+        "userMessages": 4,
+        "assistantMessages": 2,
+        "lastRole": "assistant",
+        "sentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 1,
+          "PHONE_CONTINUE": 1,
+          "PHONE_SWIPE": 2,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 2
+        },
+        "selectedAssistantSentinels": {
+          "PHONE_NORMAL": 0,
+          "PHONE_REGENERATE": 0,
+          "PHONE_CONTINUE": 0,
+          "PHONE_SWIPE": 0,
+          "PHONE_DELAYED_NORMAL": 0,
+          "PHONE_OUTAGE_NORMAL": 1
+        },
+        "latestAssistantSwipeCount": 1,
+        "latestAssistantSwipeIndex": 0
+      },
+      "statusText": "unlinked normal · request request- prepared",
+      "checks": {
+        "proxyCompleted": true,
+        "outageSentinelSaved": true
+      },
+      "pass": true
+    }
+  ]
+}
