@@ -4,10 +4,10 @@
   "requires": [],
   "dependencies": [],
   "optional": [],
-  "js": "loader.js?v=0.1.6",
+  "js": "loader.js?v=0.1.7",
   "css": "style.css?v=0.1.1",
   "author": "Dicetar",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "auto_update": false,
   "minimum_client_version": "1.18.0",
   "generate_interceptor": "stRpgProxySpikeGenerationInterceptor"
