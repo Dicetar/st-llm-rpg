@@ -6,24 +6,27 @@ const META_KEY = 'stRpgProxySpikeBinding';
 const SETTINGS_KEY = 'stRpgNarratorProxySpike';
 const ROOT_ID = 'st-rpg-proxy-spike-settings';
 const PROXY_BASE = 'http://127.0.0.1:8002/v1';
-// Generation is proxied by the SillyTavern server, so its Custom endpoint must
-// use server loopback. Status is fetched by the browser and therefore must use
-// the same LAN/VPN host the browser used to reach SillyTavern.
 const BROWSER_PROXY_BASE = `http://${window.location.hostname}:8002`;
 const PROXY_STATE = `${BROWSER_PROXY_BASE}/prototype/state`;
 const PROXY_CONTROL = `${BROWSER_PROXY_BASE}/prototype/control`;
 const HEADER = 'X-ST-RPG-Exchange';
 const ST_REVISION = '380e31e8c58d196969b6a0da74f431ba999c7e0a';
 let pendingExchange = null;
+let localIdCounter = 0;
 
 function context() {
   return globalThis.SillyTavern?.getContext?.() ?? null;
 }
 
+function nextLocalId(prefix) {
+  localIdCounter += 1;
+  return `${prefix}-${Date.now().toString(36)}-${localIdCounter.toString(36)}`;
+}
+
 function hostId() {
   const settings = extension_settings[SETTINGS_KEY] ??= {};
-  if (typeof settings.hostId !== 'string') {
-    settings.hostId = crypto.randomUUID();
+  if (typeof settings.hostId !== 'string' || !settings.hostId) {
+    settings.hostId = nextLocalId('host');
     context()?.saveSettingsDebounced?.();
   }
   return settings.hostId;
@@ -117,7 +120,7 @@ async function linkCurrentChat() {
   locator();
   current.chatMetadata[META_KEY] = {
     version: 1,
-    bindingId: bindingMarker()?.bindingId ?? `prototype-${crypto.randomUUID()}`,
+    bindingId: bindingMarker()?.bindingId ?? nextLocalId('binding'),
   };
   await current.saveMetadata();
   await refreshStatus();
@@ -141,11 +144,11 @@ async function generationInterceptor(_chat, _contextSize, abort, type) {
     pendingExchange = {
       protocol: 'st-rpg.narration',
       version: 1,
-      requestId: crypto.randomUUID(),
+      requestId: nextLocalId('request'),
       route: requestRoute,
       generation,
       locator: locator(),
-      bridge: { version: '0.1.2', sillyTavernRevision: ST_REVISION },
+      bridge: { version: '0.1.4', sillyTavernRevision: ST_REVISION },
     };
     setStatus(`${requestRoute.kind} ${generation} · request ${pendingExchange.requestId.slice(0, 8)} prepared`, 'ok');
   } catch (error) {
