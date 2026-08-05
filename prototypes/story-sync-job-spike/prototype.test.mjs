@@ -10,6 +10,7 @@ const cmd = () => ({jobId:'j',campaignId:'c',bindingId:'b',campaignAnchor:10,cam
 const ids = () => { let n=0; return () => `id-${++n}`; };
 const output = () => JSON.stringify({proposals:[{operation:{kind:'transfer-possession',id:'key',to:'mara'},confidence:'high'}]});
 test('fingerprints contiguous source',()=>{const s=sourceEnvelope(src());assert.equal(s.fingerprint.length,64);assert.equal(s.lastMessageIndex,4);});
+test('generates and returns a Job ID when caller omits one',()=>{const j=createJobStore({id:()=> 'generated-job'});const c=cmd();delete c.jobId;assert.equal(j.dispatch(c).jobId,'generated-job');j.close();});
 test('rejects stale anchor',()=>{const j=createJobStore();assert.throws(()=>j.dispatch({...cmd(),campaignAnchor:9}),e=>e.code==='binding_mismatch');j.close();});
 test('repairs malformed output once without authority mutation',()=>{const j=createJobStore({id:ids()});j.dispatch(cmd());const a=j.start('j');const r=j.finish('j',a.attemptId,'bad',output);assert.equal(r.repaired,true);assert.equal(r.job.status,'ready-for-review');assert.equal(r.job.authorityCommit,null);j.close();});
 test('fails after unusable repair',()=>{const j=createJobStore({id:ids()});j.dispatch(cmd());const a=j.start('j');assert.throws(()=>j.finish('j',a.attemptId,'bad',()=> 'bad'),e=>e.code==='worker_output_unusable');assert.equal(j.get('j').status,'failed');j.close();});
