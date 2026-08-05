@@ -1,66 +1,104 @@
 # SillyTavern RPG Campaign
 
-A local-first RPG Campaign workspace built on SillyTavern. The rebuild keeps normal roleplay in SillyTavern while adding verified structured Campaign state, deterministic narration context, editable model-assisted Story Sync, and guarded scene progression.
+A local-first RPG Campaign system for SillyTavern and LM Studio.
 
-## Current production slice
+## Project status
 
-`extension/st-rpg-campaign` implements end-to-end Character, Inventory, Abilities, People, Objectives, World, and Current Scene workflows plus the production Story Sync Review Inbox:
+There are two deliberately separate product paths in this repository:
 
-- create an Item inside Inventory and add its Possession atomically;
-- add a Possession from an existing Item definition in the same editor;
-- edit description, quantity, carried state, equipment, condition, and notes;
-- immediate quantity changes with revision-safe Undo;
-- archive, restore, and guarded permanent deletion;
-- create and edit spells, skills, feats, and powers together with learned/prepared state;
-- learn an existing Ability definition in the same editor;
-- adjust limited Ability uses immediately and inject only available Abilities into narration context;
-- create and edit NPC identity, characterization, conditions, and context policy;
-- add, edit, archive, restore, and remove directed Relationships inside the NPC editor;
-- edit the Player Character, current conditions, and ordered meters without leaving Character;
-- create and edit Objectives with status, stakes, outcome, and ordered add/remove/reorder steps;
-- archive, restore, and guardedly delete Objectives;
-- create and edit Facts, Places, and World Objects from one filtered World collection;
-- build Place hierarchies and ordered connections with stable selectors and cycle validation;
-- create missing linked records inside a World editor without abandoning its draft;
-- archive, restore, and safely delete World records with cross-record and Scene blockers;
-- open and edit one live Current Scene with structured presences, exits, obstacles, countdowns, and threads;
-- create missing linked Places and presence Records inside the Current Scene editor;
-- atomically Advance Scene, carry selected unresolved threads, and preserve the closed Scene as immutable history;
-- author bulk content in valid, documented JSON addon files outside SillyTavern;
-- revision-safely upsert Player Character, Inventory, Abilities, People, Relationships, Quests, Facts, Places, World Objects, and one Current Scene without duplicating stable external IDs;
-- compile a verified compact Core, then retrieve relevant typed Record details from recent chat before narration;
-- persist to chat metadata with server readback and browser recovery;
-- inject a deterministic Context Capsule only after the Campaign revision is verified;
-- inspect the exact injected text, section allocation, and omissions from **Narrator Context**;
-- pin or exclude records and immediately recompile a verified, hard-budgeted capsule;
-- keep large Collections as compact indexes while an inspectable Focus expands exact mentions, semantic matches, Scene links, pins, and manual next-reply selections;
-- route bounded analysis through a separate Campaign Worker profile without changing narration;
-- recover one malformed worker response into durable, field-level Proposals;
-- edit, accept, or reject each proposal and advance the Sync Boundary only after the range is fully reviewed;
-- keep Workspace mounted while Story Sync uses SillyTavern's native Popup.
+- **Working fallback:** `extension/st-rpg-campaign` is implemented, tested, and usable inside SillyTavern today.
+- **Companion rebuild:** the campaign-independent Node/SQLite companion is specified and prototyped, but production implementation has only now begun at GitHub issue #32.
 
-Install it into the included SillyTavern instance:
+Everything under `prototypes/` is throwaway decision evidence. Prototype success does not mean the production companion feature exists.
+
+Normative companion sources:
+
+- `docs/spec/companion-v1-specification.md`
+- `docs/design/final-companion-architecture-and-verification.md`
+- `docs/spec/implementation-tracer-plan.md`
+
+V1 companion narration uses one deterministic preflight Context Plan and one narrator model call. Hidden narration drafts, enrichment rewrites, vectors, narrator tools, automatic narrator retries, and automatic model management are not part of v1.
+
+## Working fallback extension
+
+`extension/st-rpg-campaign` currently implements:
+
+- Character, Inventory, Abilities, People, Relationships, Objectives, World, and Current Scene workflows;
+- typed revision-checked Campaign Operations with guarded archive, restore, delete, and Undo behavior;
+- atomic create-and-attach workflows for Items, Abilities, relationships, Places, and Scene presences;
+- Current Scene editing and atomic Advance Scene with immutable Scene history;
+- additive external JSON addon synchronization with stable external IDs;
+- chat-metadata persistence with server readback, conflict rejection, and browser recovery journaling;
+- deterministic Context Capsule compilation, inspection, pins, exclusions, and hard budgets;
+- bounded Story Sync analysis through a separate worker profile;
+- durable editable Proposals that require explicit human acceptance;
+- native SillyTavern Popup ownership for Story Sync while the Workspace remains mounted.
+
+The fallback remains installed and usable through companion tracers #32–#39. It may be retired only after the full real-device cutover in #40 succeeds.
+
+## Install and run the fallback
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File extension/st-rpg-campaign/install.ps1
 ```
 
-Start SillyTavern with `Start-Local-SillyTavern.cmd`, refresh the browser, open a character chat, and use the gold **R** launcher.
+Start SillyTavern with:
+
+```powershell
+.\Start-Local-SillyTavern.cmd
+```
+
+Refresh the browser, open a character chat, and use the gold **R** launcher.
 
 ## External JSON addons
 
-Fill the valid JSON files in `campaign-content`, or add files such as `items_house-harcourt.json`. Files ending in `_example.json` are documentation only; all other `.json` files are bundled during installation. Double-click `campaign-content/Sync-JSON-Addons.bat` for the normal Windows workflow.
+Fill the valid JSON files in `campaign-content`, or add files such as `items_house-harcourt.json`. Files ending in `_example.json` are documentation only; all other `.json` files are bundled during installation.
+
+For the normal Windows workflow, run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File extension/st-rpg-campaign/install.ps1
+.\campaign-content\Sync-JSON-Addons.bat
 ```
 
 Refresh SillyTavern and press **Sync JSON Addons** in the Workspace. Stable addon IDs are additive upsert keys: repeating sync updates the same imported entries, while removing a row from JSON does not delete it from the Campaign.
 
-Focused checks:
+## Verification
+
+Runtime baseline:
+
+```powershell
+node tools/check-node-version.mjs
+```
+
+Fallback and repository-authority tests:
+
+```powershell
+npm test
+```
+
+Focused fallback suite:
 
 ```powershell
 node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs
 ```
 
-Architecture and domain decisions live in `CONTEXT.md`, `docs/design`, and `docs/adr`. Throwaway integration laboratories remain under `prototypes`; their runtime launchers are disabled after their verdicts.
+Native Popup architecture guard:
+
+```powershell
+node prototypes/st-worker-routing-spike/check-native-popup-surface.mjs
+```
+
+## Next implementation step
+
+Issue #32 builds the smallest production companion slice beside the untouched fallback:
+
+- `apps/companion`;
+- `apps/workspace`;
+- `packages/wire`;
+- `extension/st-rpg-bridge`;
+- `/health` and `/ready`;
+- a static Campaign Book shell;
+- explicit degraded dependency state;
+- bounded runtime-validated Problem documents.
+
+It does not introduce Campaign authority, migration, retrieval, Story Sync jobs, or narrator proxy behavior yet.
