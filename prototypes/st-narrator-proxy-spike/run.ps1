@@ -29,7 +29,7 @@ foreach ($file in $bridgeFiles) {
 }
 
 Write-Host "Installed throwaway bridge at: $destination"
-Write-Host "Reload SillyTavern so bridge version 0.1.3 and the phone recorder are active."
+Write-Host "Close and reopen SillyTavern so bridge version 0.1.5 is active."
 
 $existingState = $null
 try {
