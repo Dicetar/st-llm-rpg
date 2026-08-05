@@ -3,6 +3,7 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
+    "incremental": true,
     "tsBuildInfoFile": "../../.runtime/tsbuild/wire.tsbuildinfo"
   },
   "include": ["src/**/*.ts"]
