@@ -2,6 +2,16 @@
 
 **THROWAWAY PROTOTYPE — this is decision evidence for Wayfinder #23, not production companion code. It stores disposable mock state only in browser memory.**
 
+## Final verdict
+
+Wayfinder #23 selected **Campaign Book** as the base Workspace shell.
+
+- **Campaign Book** is acceptable on mobile and owns the stable cross-device route structure.
+- **Command Deck** is acceptable on mobile and contributes status/work-queue cards where operational information is useful.
+- **Ledger** belongs in the regular desktop UI only. It may appear as an optional wide Collection index/detail mode, but it is not a mobile shell and collapses to normal Collection → Record routes at narrow widths.
+
+The accepted decision is recorded in `docs/design/workspace-shell-decision.md` and ADR 0016. This prototype remains available as comparison evidence.
+
 ## Question
 
 Which separate full-page Workspace shell best supports Campaign Collections, editing, Review Inbox, Context diagnostics, import diffs, backups, settings, conflict recovery, and one-column phone use without turning React into a second Campaign authority?
@@ -97,6 +107,6 @@ The focused suite verifies required task documents, accepted and stale mutation 
 - `styles.css` contains shell-specific desktop and phone behavior.
 - `server.mjs` is a dependency-free LAN server for real-phone evaluation.
 - `workspace-shells.test.mjs` is prototype evidence only.
-- Durable findings and the provisional information architecture live in `docs/design/workspace-shell-comparison.md`.
+- Durable comparison evidence lives in `docs/design/workspace-shell-comparison.md`; the accepted decision lives in `docs/design/workspace-shell-decision.md`.
 
-No file in this directory should be imported into the production companion. Production Workspace implementation remains React, TypeScript, Vite, and React Router Data Mode after the shell decision is accepted.
+No file in this directory should be imported into the production companion. Production Workspace implementation remains React, TypeScript, Vite, and React Router Data Mode.
