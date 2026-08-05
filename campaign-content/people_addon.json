@@ -1,0 +1,4 @@
+{
+  "_comment": "Add externally authored NPCs to the people array. Relationship files refer to these stable ids.",
+  "people": []
+}

@@ -1,0 +1,4 @@
+{
+  "_comment": "Add durable Objectives to the quests array. See quests_example.json.",
+  "quests": []
+}

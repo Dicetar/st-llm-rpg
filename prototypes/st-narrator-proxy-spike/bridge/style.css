@@ -1,0 +1,22 @@
+#st-rpg-proxy-spike-settings .inline-drawer-content {
+  padding: 0.75rem;
+}
+
+.st-rpg-proxy-spike__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#st-rpg-proxy-spike-status {
+  margin: 0.65rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+#st-rpg-proxy-spike-status[data-kind="ok"] {
+  color: var(--SmartThemeQuoteColor);
+}
+
+#st-rpg-proxy-spike-status[data-kind="error"] {
+  color: var(--fullred);
+}

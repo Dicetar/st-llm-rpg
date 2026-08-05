@@ -1,0 +1,32 @@
+{
+  "_comment": "Documentation example only. Exactly one optional Player Character object may exist across addon files.",
+  "_field_help": {
+    "character": "Updates the existing Player Character; it never creates a second player.",
+    "conditions": "Current short-lived conditions supplied to narration.",
+    "meters": "Simple labeled current/max counters such as health, stress, or mana."
+  },
+  "character": {
+    "name": "Evelyn Harcourt",
+    "aliases": ["Lady Evelyn"],
+    "pronouns": "she/her",
+    "summary": "The sole heir of House Harcourt, investigating a dangerous succession conspiracy.",
+    "details": "Private character notes that should not be injected by default.",
+    "category": "player character",
+    "tags": ["house-harcourt", "noble"],
+    "appearance": "Dark formal attire, practical boots, and a concealed signet ring.",
+    "personality": "Observant, stubborn, and careful with trust.",
+    "goals": "Find the witness and secure her claim without exposing allies.",
+    "voiceNotes": "Controlled diction with flashes of dry humor.",
+    "conditions": ["alert"],
+    "meters": [
+      {
+        "id": "stress",
+        "label": "Stress",
+        "current": 1,
+        "max": 5,
+        "notes": "Rises when court scrutiny closes in."
+      }
+    ],
+    "contextPolicy": "automatic"
+  }
+}

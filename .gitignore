@@ -1,28 +1,36 @@
-# Python
+_old/
+
+# Isolated local SillyTavern runtime (contains copied settings and secrets)
+.runtime/
+
+# Generated environments and caches
+node_modules/
+.venv/
+**/.venv/
 __pycache__/
+**/__pycache__/
 *.py[cod]
 .pytest_cache/
-.venv/
-backend/.venv/
+**/.pytest_cache/
+.pytest-run-*/
+.ruff_cache/
+**/.ruff_cache/
+.mypy_cache/
+**/.mypy_cache/
+
+# Codex working caches
+.agents/skills/
+.codex-plugins/
+.codex-remote-attachments/
+.codex-tmp/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.pid
+
+# Local runtime configuration and secrets
 .env
-
-# Node / frontend
-node_modules/
-
-# Editors / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# Runtime data
-data/runtime/*
-!data/runtime/.gitkeep
-data/exports/*
-!data/exports/.gitkeep
-data/logs/*
-!data/logs/.gitkeep
-backend/runtime/**
-!backend/runtime/
-backend/storage/*.bak
-backend/storage/*.tmp
+.env.*
+!.env.example

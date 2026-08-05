@@ -1,0 +1,4 @@
+{
+  "_comment": "Add externally authored Inventory entries to the items array. Keep each id stable across syncs.",
+  "items": []
+}

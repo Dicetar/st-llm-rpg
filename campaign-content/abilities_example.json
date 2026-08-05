@@ -1,0 +1,28 @@
+{
+  "_comment": "Documentation example only. Files ending in _example.json are not synchronized.",
+  "_field_help": {
+    "id": "Required stable external ID. Unique among all ability addon files.",
+    "category": "spell, skill, feat, power, or other.",
+    "accessState": "learned, prepared, enabled, unavailable, or forgotten.",
+    "currentUses": "Optional non-negative whole number or null.",
+    "maxUses": "Optional non-negative whole number or null."
+  },
+  "abilities": [
+    {
+      "id": "mage-hand",
+      "name": "Mage Hand",
+      "summary": "Manipulate a small unattended object at short range.",
+      "details": "A pale spectral hand answers precise gestures.",
+      "category": "spell",
+      "tags": ["arcane", "utility"],
+      "usage": "Conjure and direct the hand with deliberate movements.",
+      "limits": "Cannot attack or carry heavy objects.",
+      "resourceLabel": "uses",
+      "accessState": "prepared",
+      "currentUses": 2,
+      "maxUses": 3,
+      "notes": "Usually prepared while investigating.",
+      "contextPolicy": "automatic"
+    }
+  ]
+}

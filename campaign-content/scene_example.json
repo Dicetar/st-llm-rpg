@@ -1,0 +1,73 @@
+{
+  "_comment": "Documentation example only. Exactly one optional open Scene may exist across addon files.",
+  "_field_help": {
+    "place": "Optional Place addon id.",
+    "presences.subject": "actor, item, possession, or worldObject reference; actor may use $player.",
+    "countdowns": "Simple current/max clocks without formulas.",
+    "threads": "Immediate Scene concerns, not durable Quests."
+  },
+  "scene": {
+    "id": "dressing-room-search",
+    "title": "Search of the east dressing room",
+    "summary": "Evelyn and Lavir quietly inspect the room before the household notices their absence.",
+    "place": "east-dressing-room",
+    "presences": [
+      {
+        "id": "player-present",
+        "subject": { "kind": "actor", "id": "$player" },
+        "role": "investigator",
+        "state": "present",
+        "notes": "Leading the search."
+      },
+      {
+        "id": "lavir-present",
+        "subject": { "kind": "actor", "id": "lavir" },
+        "role": "ally",
+        "state": "present",
+        "notes": "Watching the corridor as well as the evidence."
+      },
+      {
+        "id": "cabinet-present",
+        "subject": { "kind": "worldObject", "id": "dressing-room-cabinet" },
+        "role": "obstacle",
+        "state": "present",
+        "notes": "Blocks suspicious wall paneling."
+      }
+    ],
+    "exits": [
+      {
+        "id": "to-private-corridor",
+        "label": "Door to the private corridor",
+        "destinationPlace": "private-corridor",
+        "status": "open",
+        "notes": "Footsteps can be heard before anyone enters."
+      }
+    ],
+    "obstacles": [
+      {
+        "id": "move-cabinet",
+        "label": "Move the cabinet without alerting the household",
+        "status": "active",
+        "notes": "It is heavy and the floorboards carry sound."
+      }
+    ],
+    "countdowns": [
+      {
+        "id": "servants-return",
+        "label": "Servants return",
+        "current": 1,
+        "max": 4,
+        "notes": "Advance when the search becomes noisy or slow."
+      }
+    ],
+    "threads": [
+      {
+        "id": "hidden-panel",
+        "label": "What lies behind the mismatched paneling?",
+        "status": "open",
+        "notes": "The cabinet must be moved first."
+      }
+    ],
+    "transitionNotes": "The next Scene should follow the discovered route or an interruption by the household."
+  }
+}

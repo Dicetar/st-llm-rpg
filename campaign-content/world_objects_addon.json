@@ -1,0 +1,4 @@
+{
+  "_comment": "Add persistent non-portable objects and features to worldObjects. See world_objects_example.json.",
+  "worldObjects": []
+}

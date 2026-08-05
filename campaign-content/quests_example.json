@@ -1,0 +1,40 @@
+{
+  "_comment": "Documentation example only. Quest steps are ordered and keep stable ids.",
+  "_field_help": {
+    "status": "planned, active, blocked, completed, or failed.",
+    "steps.status": "pending, active, blocked, completed, or skipped.",
+    "involved": "Optional typed references to other addon entries or $player."
+  },
+  "quests": [
+    {
+      "id": "find-the-witness",
+      "name": "Find the witness",
+      "summary": "Locate the servant who saw the private-wing exchange.",
+      "details": "The witness may have fled or been confined by a rival branch of the family.",
+      "category": "investigation",
+      "tags": ["house-harcourt", "succession"],
+      "status": "active",
+      "stakes": "Without testimony, Evelyn cannot prove the inheritance documents were altered.",
+      "outcome": "",
+      "steps": [
+        {
+          "id": "search-private-wing",
+          "label": "Search the private wing for evidence",
+          "status": "active",
+          "notes": "The east dressing room remains unchecked."
+        },
+        {
+          "id": "identify-route",
+          "label": "Determine how the witness left the estate",
+          "status": "pending",
+          "notes": ""
+        }
+      ],
+      "involved": [
+        { "kind": "actor", "id": "$player" },
+        { "kind": "actor", "id": "lavir" }
+      ],
+      "contextPolicy": "automatic"
+    }
+  ]
+}

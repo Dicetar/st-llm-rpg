@@ -1,0 +1,12 @@
+{
+  "display_name": "RPG Context Capsule Model Lab",
+  "loading_order": 1002,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "st-llm-rpg v2 spike",
+  "version": "0.0.3",
+  "homePage": "https://github.com/Dicetar/st-llm-rpg",
+  "minimum_client_version": "1.18.0"
+}

@@ -1,0 +1,52 @@
+{
+  "_comment": "Documentation example only. Place references use stable Place addon ids.",
+  "_field_help": {
+    "parent": "Optional containing Place id.",
+    "connections": "Durable known connections to other Places; Scene exits remain separate live state."
+  },
+  "places": [
+    {
+      "id": "harcourt-estate",
+      "name": "Harcourt Estate",
+      "summary": "An old noble estate divided between public ceremony and guarded private wings.",
+      "details": "The oldest passages predate the current floor plan.",
+      "category": "estate",
+      "tags": ["house-harcourt"],
+      "atmosphere": "Polished restraint over old unease.",
+      "parent": null,
+      "connections": [],
+      "contextPolicy": "automatic"
+    },
+    {
+      "id": "east-dressing-room",
+      "name": "East dressing room",
+      "summary": "A private dressing room adjoining the old ceremonial gallery.",
+      "details": "A heavy cabinet covers part of the original wall paneling.",
+      "category": "room",
+      "tags": ["private-wing", "investigation"],
+      "atmosphere": "Stale perfume, dust, and carefully maintained order.",
+      "parent": "harcourt-estate",
+      "connections": [
+        {
+          "id": "to-private-corridor",
+          "place": "private-corridor",
+          "kind": "doorway",
+          "notes": "Usually watched during formal events."
+        }
+      ],
+      "contextPolicy": "automatic"
+    },
+    {
+      "id": "private-corridor",
+      "name": "Private corridor",
+      "summary": "A narrow corridor linking the family's private rooms.",
+      "details": "Servants use concealed cross-passages behind the paneling.",
+      "category": "corridor",
+      "tags": ["private-wing"],
+      "atmosphere": "Quiet enough that every footstep carries.",
+      "parent": "harcourt-estate",
+      "connections": [],
+      "contextPolicy": "automatic"
+    }
+  ]
+}

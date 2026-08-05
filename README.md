@@ -1,67 +1,66 @@
-# st-llm-rpg
+# SillyTavern RPG Campaign
 
-`st-llm-rpg` is a working local-first narrative/TTRPG prototype built around three boundaries:
+A local-first RPG Campaign workspace built on SillyTavern. The rebuild keeps normal roleplay in SillyTavern while adding verified structured Campaign state, deterministic narration context, editable model-assisted Story Sync, and guarded scene progression.
 
-- `backend/`: FastAPI service that owns authoritative state, command execution, journaling, event history, turn resolution, and scene lifecycle
-- `frontend-extension/`: SillyTavern bridge that renders panels, calls the backend, and routes normal narrative turns through the backend when enabled
-- `LM Studio`: narrator and extractor backend, called only after validated state changes
+## Current production slice
 
-The core rule is unchanged:
+`extension/st-rpg-campaign` implements end-to-end Character, Inventory, Abilities, People, Objectives, World, and Current Scene workflows plus the production Story Sync Review Inbox:
 
-**Commands mutate state first. Narration happens after validated state changes.**
+- create an Item inside Inventory and add its Possession atomically;
+- add a Possession from an existing Item definition in the same editor;
+- edit description, quantity, carried state, equipment, condition, and notes;
+- immediate quantity changes with revision-safe Undo;
+- archive, restore, and guarded permanent deletion;
+- create and edit spells, skills, feats, and powers together with learned/prepared state;
+- learn an existing Ability definition in the same editor;
+- adjust limited Ability uses immediately and inject only available Abilities into narration context;
+- create and edit NPC identity, characterization, conditions, and context policy;
+- add, edit, archive, restore, and remove directed Relationships inside the NPC editor;
+- edit the Player Character, current conditions, and ordered meters without leaving Character;
+- create and edit Objectives with status, stakes, outcome, and ordered add/remove/reorder steps;
+- archive, restore, and guardedly delete Objectives;
+- create and edit Facts, Places, and World Objects from one filtered World collection;
+- build Place hierarchies and ordered connections with stable selectors and cycle validation;
+- create missing linked records inside a World editor without abandoning its draft;
+- archive, restore, and safely delete World records with cross-record and Scene blockers;
+- open and edit one live Current Scene with structured presences, exits, obstacles, countdowns, and threads;
+- create missing linked Places and presence Records inside the Current Scene editor;
+- atomically Advance Scene, carry selected unresolved threads, and preserve the closed Scene as immutable history;
+- author bulk content in valid, documented JSON addon files outside SillyTavern;
+- revision-safely upsert Player Character, Inventory, Abilities, People, Relationships, Quests, Facts, Places, World Objects, and one Current Scene without duplicating stable external IDs;
+- compile a verified compact Core, then retrieve relevant typed Record details from recent chat before narration;
+- persist to chat metadata with server readback and browser recovery;
+- inject a deterministic Context Capsule only after the Campaign revision is verified;
+- inspect the exact injected text, section allocation, and omissions from **Narrator Context**;
+- pin or exclude records and immediately recompile a verified, hard-budgeted capsule;
+- keep large Collections as compact indexes while an inspectable Focus expands exact mentions, semantic matches, Scene links, pins, and manual next-reply selections;
+- route bounded analysis through a separate Campaign Worker profile without changing narration;
+- recover one malformed worker response into durable, field-level Proposals;
+- edit, accept, or reject each proposal and advance the Sync Boundary only after the range is fully reviewed;
+- keep Workspace mounted while Story Sync uses SillyTavern's native Popup.
 
-## Current prototype status
+Install it into the included SillyTavern instance:
 
-The repo already includes:
-
-- a runnable FastAPI backend with read endpoints, command parsing, command execution, resolve-turn orchestration, safe extraction, scene open/close APIs, draft-only scene summaries, lorebook sync, event logging, and journal APIs
-- a SQLite-backed runtime repository bootstrapped from tracked seed data, plus a JSON reference repository kept for parity testing
-- a usable SillyTavern extension with backend-driven command dispatch, overview/scene/scene-lifecycle/inventory/quest/relationship/journal/event panels, an inspector, pending narration injection, and optional backend-first normal turn resolution
-- tracked sample seed data under `backend/data/seed/`
-- ignored runtime state under `backend/runtime/`, bootstrapped automatically from the seed files
-- backend regression tests covering command parity, dry-run behavior, rollback-on-failure behavior, turn resolution, extraction, and scene lifecycle
-
-## Read first
-
-1. `docs/13_current_repo_status.md`
-2. `docs/17_current_dev_workflow.md`
-3. `backend/README.md`
-4. `frontend-extension/README.md`
-5. `docs/01_target_architecture.md`
-
-## Local quick start
-
-### Backend
-
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8010
+```powershell
+powershell -ExecutionPolicy Bypass -File extension/st-rpg-campaign/install.ps1
 ```
 
-Then open:
+Start SillyTavern with `Start-Local-SillyTavern.cmd`, refresh the browser, open a character chat, and use the gold **R** launcher.
 
-- `http://127.0.0.1:8010/docs`
+## External JSON addons
 
-Runtime files are created automatically in `backend/runtime/` the first time the backend or tests touch the repository layer.
-`/narration/resolve-turn` also requires LM Studio's OpenAI-compatible server plus a usable `LM_STUDIO_MODEL`.
+Fill the valid JSON files in `campaign-content`, or add files such as `items_house-harcourt.json`. Files ending in `_example.json` are documentation only; all other `.json` files are bundled during installation. Double-click `campaign-content/Sync-JSON-Addons.bat` for the normal Windows workflow.
 
-### Frontend extension
+```powershell
+powershell -ExecutionPolicy Bypass -File extension/st-rpg-campaign/install.ps1
+```
 
-See:
+Refresh SillyTavern and press **Sync JSON Addons** in the Workspace. Stable addon IDs are additive upsert keys: repeating sync updates the same imported entries, while removing a row from JSON does not delete it from the Campaign.
 
-- `frontend-extension/docs/01_where_to_put_files.md`
-- `frontend-extension/docs/02_install_and_enable.md`
-- `docs/18_frontend_smoke_checklist.md`
+Focused checks:
 
-## Next milestone
+```powershell
+node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs
+```
 
-The next milestone is **Gameplay Expansion Through Memory And Turn Quality**:
-
-1. establish a live SillyTavern smoke baseline for the current bridge
-2. harden resolve-turn request/reset behavior and context refresh expectations
-3. tune lore activation and narration context quality from real play traces
-4. deepen extraction-review-to-state workflows for supported categories
-5. improve session summary and durable memory quality without changing backend authority rules
+Architecture and domain decisions live in `CONTEXT.md`, `docs/design`, and `docs/adr`. Throwaway integration laboratories remain under `prototypes`; their runtime launchers are disabled after their verdicts.

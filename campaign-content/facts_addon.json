@@ -1,0 +1,4 @@
+{
+  "_comment": "Add canonical world and campaign truths to the facts array. See facts_example.json.",
+  "facts": []
+}

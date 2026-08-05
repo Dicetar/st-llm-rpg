@@ -1,0 +1,4 @@
+{
+  "_comment": "Add directed Relationships. source and target use People addon ids or $player.",
+  "relationships": []
+}

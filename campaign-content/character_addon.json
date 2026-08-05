@@ -1,0 +1,4 @@
+{
+  "_comment": "Replace null with one Player Character object. See character_example.json.",
+  "character": null
+}
