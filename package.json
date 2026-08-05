@@ -7,8 +7,10 @@
     "prototype:proxy": "powershell -NoProfile -ExecutionPolicy Bypass -File prototypes/st-narrator-proxy-spike/run.ps1",
     "prototype:workspace": "node prototypes/workspace-shells/server.mjs",
     "prototype:worker-jobs": "node prototypes/story-sync-job-spike/run.mjs",
+    "prototype:cutover": "node prototypes/migration-cutover-spike/run.mjs",
     "test:workspace-prototype": "node --test prototypes/workspace-shells/workspace-shells.test.mjs",
     "test:worker-jobs-prototype": "node --test prototypes/story-sync-job-spike/prototype.test.mjs",
+    "test:cutover-prototype": "node --test prototypes/migration-cutover-spike/prototype.test.mjs",
     "test": "node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs"
   },
   "devDependencies": {
