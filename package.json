@@ -5,6 +5,8 @@
   "scripts": {
     "prototype:persistence": "node prototypes/campaign-authority-sqlite-spike/run.mjs",
     "prototype:proxy": "powershell -NoProfile -ExecutionPolicy Bypass -File prototypes/st-narrator-proxy-spike/run.ps1",
+    "prototype:workspace": "node prototypes/workspace-shells/server.mjs",
+    "test:workspace-prototype": "node --test prototypes/workspace-shells/workspace-shells.test.mjs",
     "test": "node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs"
   },
   "devDependencies": {
