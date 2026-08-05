@@ -1,3 +1,5 @@
+export const PHONE_EVIDENCE_VERSION = 3;
+
 export const PHONE_EVIDENCE_STEPS = Object.freeze([
   'normal',
   'regenerate',
@@ -199,7 +201,7 @@ export function createPhoneEvidenceEntry({
   const evaluation = evaluatePhoneStep(step, chatSummary, attempt);
 
   return Object.freeze({
-    schemaVersion: 2,
+    schemaVersion: PHONE_EVIDENCE_VERSION,
     step,
     capturedAt,
     environment: Object.freeze({
@@ -227,6 +229,7 @@ export function createPhoneEvidenceEntry({
 export function createPhoneEvidenceReport(entries) {
   const latestByStep = new Map();
   for (const entry of Array.isArray(entries) ? entries : []) {
+    if (entry?.schemaVersion !== PHONE_EVIDENCE_VERSION) continue;
     if (PHONE_EVIDENCE_STEPS.includes(entry?.step)) latestByStep.set(entry.step, entry);
   }
   const orderedEntries = PHONE_EVIDENCE_STEPS.map(step => latestByStep.get(step)).filter(Boolean);
@@ -240,21 +243,33 @@ export function createPhoneEvidenceReport(entries) {
   const viewportOutOfRangeSteps = orderedEntries
     .filter(entry => entry.environment?.viewportWidth < 300 || entry.environment?.viewportWidth > 430)
     .map(entry => entry.step);
+  const retrySet = new Set([
+    ...failedSteps,
+    ...environmentIncompleteSteps,
+    ...viewportOutOfRangeSteps,
+  ]);
+  const retrySteps = PHONE_EVIDENCE_STEPS.filter(step => retrySet.has(step));
 
   return Object.freeze({
     schema: 'st-rpg.proxy-phone-evidence',
-    version: 2,
+    version: PHONE_EVIDENCE_VERSION,
     generatedAt: new Date().toISOString(),
     redaction: 'No chat prose, prompts, campaign data, IDs, or generated text are included; only fixed sentinel counts and sanitized transport metadata.',
     complete: missingSteps.length === 0,
-    pass: missingSteps.length === 0
-      && failedSteps.length === 0
-      && environmentIncompleteSteps.length === 0
-      && viewportOutOfRangeSteps.length === 0,
+    pass: missingSteps.length === 0 && retrySteps.length === 0,
     missingSteps,
     failedSteps,
+    retrySteps,
     environmentIncompleteSteps,
     viewportOutOfRangeSteps,
     entries: orderedEntries,
   });
+}
+
+export function nextPhoneEvidenceStep(report) {
+  const pending = new Set([
+    ...(Array.isArray(report?.retrySteps) ? report.retrySteps : []),
+    ...(Array.isArray(report?.missingSteps) ? report.missingSteps : []),
+  ]);
+  return PHONE_EVIDENCE_STEPS.find(step => pending.has(step)) ?? null;
 }
