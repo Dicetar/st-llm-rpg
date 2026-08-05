@@ -29,10 +29,12 @@ Research date: 2026-08-05
 - Enrichment revisions: not executed because the prerequisite draft was already unsafe.
 - Verdict: no-go for hidden-draft rewriting in v1.
 
+## Interpretation
+
+The benchmark intentionally stops before revision when the initial candidate changes a material event. That means revision latency and fidelity were not measured for these models; the prerequisite failed first. This is sufficient to reject the proposed hidden-draft rewrite pipeline for v1 because the pipeline requires a usable draft before any enrichment pass can be trusted.
+
 ## Architecture decision
 
-Hidden drafts and full rewrite enrichment do not justify their latency and complexity for v1. Both representative models changed material story events before enrichment began.
-
-Version 1 therefore uses deterministic preflight Context selection followed by one narrator generation and atomic delivery. It has no hidden draft, enrichment revision, or volatile recovery cache for discarded hidden prose.
+Version 1 uses deterministic preflight Context selection followed by one narrator generation and atomic delivery. It has no hidden draft, enrichment revision, or volatile recovery cache for discarded hidden prose.
 
 This does not reject deterministic Context retrieval, manual pins, ambiguity skip, visibility enforcement, FTS5, reviewed model profiles, or optional future vector retrieval.
