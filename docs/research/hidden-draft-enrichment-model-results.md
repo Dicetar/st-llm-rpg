@@ -31,7 +31,9 @@ Research date: 2026-08-05
 
 ## Interpretation
 
-The benchmark intentionally stops before revision when the initial candidate changes a material event. That means revision latency and fidelity were not measured for these models; the prerequisite failed first. This is sufficient to reject the proposed hidden-draft rewrite pipeline for v1 because the pipeline requires a usable draft before any enrichment pass can be trusted.
+The benchmark intentionally stops before revision when the initial candidate changes a material event. Revision latency and fidelity were therefore not measured for these models; the prerequisite failed first. This is sufficient to reject the proposed hidden-draft rewrite pipeline for v1 because the pipeline requires a usable draft before any enrichment pass can be trusted.
+
+The run does not establish that every future model will fail. It establishes that the tested target workflow is not reliable enough to justify making hidden rewriting part of the first production architecture.
 
 ## Architecture decision
 
