@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PHONE_EVIDENCE_STEPS,
+  PHONE_EVIDENCE_VERSION,
   createPhoneEvidenceEntry,
   createPhoneEvidenceReport,
   evaluatePhoneStep,
+  nextPhoneEvidenceStep,
   sanitizeProxyAttempt,
   selectPhoneAttempt,
   summarizePhoneChat,
@@ -30,7 +32,7 @@ function entry(step, chat, proxyAttempt, route = 'linked', environmentPatch = {}
       attempts: [proxyAttempt],
     },
     environment: {
-      hostname: '10.8.1.2', connectionPath: 'vpn', viewportWidth: 360, viewportHeight: 740,
+      hostname: '10.8.1.2', connectionPath: 'trusted-network', viewportWidth: 360, viewportHeight: 740,
       devicePixelRatio: 3, userAgent: 'Android Browser', ...environmentPatch,
     },
     route,
@@ -106,38 +108,47 @@ test('explicit unlinked outage bypass saves the sentinel', () => {
 test('entry records phone environment without host codes or chat prose', () => {
   const result = entry('normal', [{ is_user: true, mes: 'secret' }, { is_user: false, mes: 'PHONE_NORMAL also secret' }], attempt());
   const text = JSON.stringify(result);
+  assert.equal(result.schemaVersion, PHONE_EVIDENCE_VERSION);
   assert.equal(result.pass, true);
   assert.equal(result.environment.viewportWidth, 360);
   assert.equal('hostPrefix' in result.environment, false);
   assert.equal(text.includes('secret'), false);
 });
 
-test('report passes from seven valid phone results without desktop verification', () => {
+test('report passes from seven valid phone results', () => {
   const entries = passingEntries();
   const report = createPhoneEvidenceReport(entries);
   assert.deepEqual(entries.map(item => item.step), PHONE_EVIDENCE_STEPS);
   assert.equal(report.complete, true);
   assert.equal(report.pass, true);
-  assert.deepEqual(report.failedSteps, []);
-  assert.equal('hostMismatchSteps' in report, false);
+  assert.deepEqual(report.retrySteps, []);
+  assert.equal(nextPhoneEvidenceStep(report), null);
 });
 
-test('report identifies missing and failed steps', () => {
-  const bad = entry('normal', [{ is_user: false, mes: 'wrong' }], attempt());
-  const report = createPhoneEvidenceReport([bad]);
-  assert.equal(report.complete, false);
+test('failed capture remains the next step instead of advancing', () => {
+  const failedNormal = entry('normal', [{ is_user: false, mes: 'wrong' }], attempt());
+  const report = createPhoneEvidenceReport([failedNormal]);
   assert.deepEqual(report.failedSteps, ['normal']);
-  assert.equal(report.missingSteps.length, 6);
+  assert.equal(nextPhoneEvidenceStep(report), 'normal');
 });
 
-test('report still refuses desktop-sized or incomplete environments', () => {
-  const entries = passingEntries();
-  entries[0] = entry('normal', [{ is_user: false, mes: 'PHONE_NORMAL' }], attempt(), 'linked', {
+test('older evidence schemas are ignored rather than poisoning a new run', () => {
+  const old = { ...entry('normal', [{ is_user: false, mes: 'wrong' }], attempt()), schemaVersion: 2 };
+  const report = createPhoneEvidenceReport([old]);
+  assert.equal(report.entries.length, 0);
+  assert.equal(report.missingSteps.length, 7);
+  assert.equal(nextPhoneEvidenceStep(report), 'normal');
+});
+
+test('viewport or environment failure retries the same step', () => {
+  const bad = entry('normal', [{ is_user: false, mes: 'PHONE_NORMAL' }], attempt(), 'linked', {
     viewportWidth: 740,
     userAgent: '',
   });
-  const report = createPhoneEvidenceReport(entries);
+  const report = createPhoneEvidenceReport([bad]);
   assert.deepEqual(report.environmentIncompleteSteps, ['normal']);
   assert.deepEqual(report.viewportOutOfRangeSteps, ['normal']);
+  assert.deepEqual(report.retrySteps, ['normal']);
+  assert.equal(nextPhoneEvidenceStep(report), 'normal');
   assert.equal(report.pass, false);
 });
