@@ -11,9 +11,9 @@ npm run test:proxy-phone-evidence
 npm run prototype:proxy
 ```
 
-Close and reopen SillyTavern on Android so bridge version `0.1.5` loads. Open one disposable saved character chat, then open Extensions → **Phone proxy test**.
+Close and reopen SillyTavern on Android so bridge version `0.1.6` loads. Open one disposable saved character chat, then open Extensions → **Phone proxy test**.
 
-There is no desktop code, UUID, cryptography, step selector, or notes form.
+Leave your normal Custom Chat Completions endpoint unchanged. The bridge redirects only each test request through the proxy and does not alter the saved profile.
 
 ## Use the three buttons
 
