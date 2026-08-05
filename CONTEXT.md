@@ -57,7 +57,7 @@ A stable author-chosen identifier used to match one Campaign Addon entry across 
 _Avoid_: Record ID, name key
 
 **Campaign Event**:
-An immutable account of every accepted Campaign Operation and its affected subjects. Rejected Operations and model drafts do not create Campaign Events.
+An immutable account of every accepted Campaign Operation and its affected subjects. Rejected Operations and model output do not create Campaign Events.
 _Avoid_: Log line, journal entry
 
 **Scene**:
@@ -137,7 +137,7 @@ _Avoid_: Table, record kind
 ## Model-assisted workflow
 
 **Context Capsule**:
-A hard-budgeted, inspectable narration prompt assembled for one generation from a verified Campaign Revision and Chat Binding. It contains compact canonical state plus ephemeral Context Focus without mutating the Campaign.
+A hard-budgeted, inspectable narration prompt rendered for one generation from a verified Campaign Revision, Chat Binding, and Context Plan. It contains compact canonical state plus Context Focus without mutating the Campaign.
 _Avoid_: Lorebook, prompt dump, generated memory
 
 **Context Focus**:
@@ -149,7 +149,7 @@ A deterministic, versioned projection of one Record and its relevant live entrie
 _Avoid_: Prompt dump, serialized Record, generated summary
 
 **Context Plan**:
-An immutable ephemeral result of one preflight or enrichment planning phase. It pins authority revisions, budget accounting, rendered blocks, selections, omissions, ambiguity sets, and model-profile decisions without becoming Campaign or Binding history.
+An immutable ephemeral result of deterministic preflight planning. It pins authority revisions, budget accounting, rendered blocks, selections, omissions, ambiguity sets, and model-profile decisions without becoming Campaign or Binding history.
 _Avoid_: Context Capsule, Campaign Event, saved prompt
 
 **Context Selection**:
@@ -165,20 +165,16 @@ Two or more Records that match one textual reference without unique structural e
 _Avoid_: Best guess, low-confidence match, duplicate Record
 
 **Narrator Model Profile**:
-A reviewed compatibility record for one LM Studio connection and exact model ID, including context capacity, visible-output readiness, prompt format and placement, token estimation, and optional embedding thresholds.
+A reviewed compatibility record for one LM Studio connection and exact model ID, including context capacity, visible-output readiness, prompt format and placement, and token estimation.
 _Avoid_: SillyTavern preset, model alias, global prompt format
 
 **Narrator Visibility**:
 The policy controlling whether Campaign material may be sent to the narrator and whether the narrator may reveal it: **Known** may be used and revealed, **Narrator Secret** may be used but must not be revealed directly, and **Campaign Private** is never sent.
 _Avoid_: Public/private flag, lore visibility
 
-**Narration Draft**:
-An ephemeral hidden reply used to identify relevant Campaign material before final delivery. It is never a chat message, Campaign Record, or Campaign Event.
-_Avoid_: Unsaved reply, Proposal, hidden memory
-
-**Narration Enrichment**:
-The bounded workflow that retrieves Campaign material for a Narration Draft and may rewrite its prose while preserving material actions, dialogue intent, introduced subjects, and outcomes. The final reply is delivered atomically and enrichment never mutates the Campaign.
-_Avoid_: Tool call, Story Sync, automatic lore injection
+**Narration Transaction**:
+The single request flow for one SillyTavern generation. It verifies explicit routing and authority, builds one deterministic Context Plan, makes exactly one narrator model request, buffers the complete linked reply, and delivers it atomically or returns an actionable failure. It never mutates Campaign or Binding history.
+_Avoid_: Hidden draft, enrichment rewrite, tool loop, automatic retry
 
 **Story Sync**:
 A user-triggered analysis of chat messages after one Chat Binding's Sync Boundary that creates editable Proposals without changing the Campaign.
