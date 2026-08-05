@@ -46,3 +46,11 @@ test('browser bridge uses simple local labels and no Web Crypto API', async () =
   assert.match(bridge, /Date\.now\(\)\.toString\(36\)/);
   assert.match(bridge, /localIdCounter/);
 });
+
+test('browser bridge redirects only the transient test request and does not require a saved proxy endpoint', async () => {
+  const bridge = await text('bridge/index.js');
+  assert.match(bridge, /generateData\.custom_url\s*=\s*PROXY_BASE/);
+  assert.doesNotMatch(bridge, /Set the Custom endpoint/);
+  assert.doesNotMatch(bridge, /oai_settings\.custom_url\s*=/);
+  assert.match(bridge, /saved SillyTavern endpoint\/profile remains untouched/);
+});
