@@ -88,9 +88,10 @@ export function createJobStore({ dbPath = ':memory:', id = randomUUID } = {}) {
   function dispatch(c) {
     const source = sourceEnvelope(c.source);
     if (c.campaignAnchor !== c.campaignHead) throw new JobProblem('binding_mismatch', 'Campaign Anchor is stale.', ['follow', 'branch']);
-    s.insertJob.run(c.jobId ?? id(), c.campaignId, c.bindingId, json(source), source.fingerprint, source.endPrefixHash,
+    const jobId = c.jobId ?? id();
+    s.insertJob.run(jobId, c.campaignId, c.bindingId, json(source), source.fingerprint, source.endPrefixHash,
       c.campaignAnchor, c.bindingRevision, c.syncFacetRevision);
-    return get(c.jobId);
+    return get(jobId);
   }
   function start(jobId) {
     return tx(() => { const job = get(jobId); if (job.status !== 'queued') throw new JobProblem('job_not_queued', job.status);
