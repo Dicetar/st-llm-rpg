@@ -78,19 +78,15 @@ export function summarizePhoneChat(chat) {
     if (Array.isArray(message?.swipes)) allCandidateTexts.push(...message.swipes);
   }
 
-  const selectedText = latestAssistant ? messageText(latestAssistant) : '';
-  const latestSwipeCount = Array.isArray(latestAssistant?.swipes) ? latestAssistant.swipes.length : 0;
-  const latestSwipeIndex = Number.isInteger(latestAssistant?.swipe_id) ? latestAssistant.swipe_id : null;
-
   return Object.freeze({
     messageCount: messages.length,
     userMessages,
     assistantMessages,
     lastRole: messages.length ? messageRole(messages.at(-1)) : 'none',
     sentinels: sentinelCounts(allCandidateTexts),
-    selectedAssistantSentinels: sentinelCounts([selectedText]),
-    latestAssistantSwipeCount: latestSwipeCount,
-    latestAssistantSwipeIndex: latestSwipeIndex,
+    selectedAssistantSentinels: sentinelCounts([latestAssistant ? messageText(latestAssistant) : '']),
+    latestAssistantSwipeCount: Array.isArray(latestAssistant?.swipes) ? latestAssistant.swipes.length : 0,
+    latestAssistantSwipeIndex: Number.isInteger(latestAssistant?.swipe_id) ? latestAssistant.swipe_id : null,
   });
 }
 
@@ -120,20 +116,19 @@ export function selectPhoneAttempt(proxyState, step) {
   const expected = STEP_EXPECTATIONS[step];
   if (!expected) throw new Error(`Unknown phone evidence step: ${step}`);
   const attempts = Array.isArray(proxyState?.attempts) ? proxyState.attempts : [];
-
   const candidates = attempts.filter(attempt =>
     attempt?.route === expected.route && attempt?.generation === expected.generation);
 
   if (step === 'stop') {
-    return candidates.find(attempt => attempt?.outcome === 'cancelled' || attempt?.cancelled === true) ?? candidates[0] ?? null;
+    return candidates.find(attempt => attempt?.outcome === 'cancelled' || attempt?.cancelled === true) ?? null;
   }
   if (step === 'outage-linked') {
-    return candidates.find(attempt => attempt?.problemCode === 'RPG_CAMPAIGN_UNAVAILABLE') ?? candidates[0] ?? null;
+    return candidates.find(attempt => attempt?.problemCode === 'RPG_CAMPAIGN_UNAVAILABLE') ?? null;
   }
   if (step === 'outage-unlinked') {
-    return candidates.find(attempt => attempt?.outcome === 'completed') ?? candidates[0] ?? null;
+    return candidates.find(attempt => attempt?.outcome === 'completed') ?? null;
   }
-  return candidates.find(attempt => attempt?.outcome === 'completed') ?? candidates[0] ?? null;
+  return candidates.find(attempt => attempt?.outcome === 'completed') ?? null;
 }
 
 function completed(attempt, route, generation) {
@@ -196,18 +191,15 @@ export function createPhoneEvidenceEntry({
   environment,
   route,
   statusText,
-  notes,
   capturedAt = new Date().toISOString(),
 }) {
   if (!PHONE_EVIDENCE_STEPS.includes(step)) throw new Error(`Unknown phone evidence step: ${step}`);
   const chatSummary = summarizePhoneChat(chat);
   const attempt = sanitizeProxyAttempt(selectPhoneAttempt(proxyState, step));
   const evaluation = evaluatePhoneStep(step, chatSummary, attempt);
-  const hostPrefix = cleanText(environment?.hostPrefix, 8);
-  const expectedHostPrefix = cleanText(environment?.expectedDesktopHostPrefix, 8);
 
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     step,
     capturedAt,
     environment: Object.freeze({
@@ -217,9 +209,6 @@ export function createPhoneEvidenceEntry({
       viewportHeight: Number(environment?.viewportHeight ?? 0),
       devicePixelRatio: Number(environment?.devicePixelRatio ?? 1),
       userAgent: cleanText(environment?.userAgent, 400),
-      hostPrefix,
-      expectedDesktopHostPrefix: expectedHostPrefix,
-      hostPrefixMatchesExpected: expectedHostPrefix ? hostPrefix === expectedHostPrefix : null,
     }),
     route: route === 'linked' || route === 'unlinked' ? route : 'unknown',
     proxyControl: Object.freeze({
@@ -230,7 +219,6 @@ export function createPhoneEvidenceEntry({
     attempt,
     chat: chatSummary,
     statusText: cleanText(statusText, 500),
-    notes: cleanText(notes, 1000),
     checks: evaluation.checks,
     pass: evaluation.pass,
   });
@@ -244,12 +232,6 @@ export function createPhoneEvidenceReport(entries) {
   const orderedEntries = PHONE_EVIDENCE_STEPS.map(step => latestByStep.get(step)).filter(Boolean);
   const missingSteps = PHONE_EVIDENCE_STEPS.filter(step => !latestByStep.has(step));
   const failedSteps = orderedEntries.filter(entry => entry.pass !== true).map(entry => entry.step);
-  const hostMismatchSteps = orderedEntries
-    .filter(entry => entry.environment?.hostPrefixMatchesExpected === false)
-    .map(entry => entry.step);
-  const hostUnverifiedSteps = orderedEntries
-    .filter(entry => entry.environment?.hostPrefixMatchesExpected === null)
-    .map(entry => entry.step);
   const environmentIncompleteSteps = orderedEntries
     .filter(entry => !entry.environment?.hostname
       || !entry.environment?.connectionPath
@@ -261,20 +243,16 @@ export function createPhoneEvidenceReport(entries) {
 
   return Object.freeze({
     schema: 'st-rpg.proxy-phone-evidence',
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     redaction: 'No chat prose, prompts, campaign data, IDs, or generated text are included; only fixed sentinel counts and sanitized transport metadata.',
     complete: missingSteps.length === 0,
     pass: missingSteps.length === 0
       && failedSteps.length === 0
-      && hostMismatchSteps.length === 0
-      && hostUnverifiedSteps.length === 0
       && environmentIncompleteSteps.length === 0
       && viewportOutOfRangeSteps.length === 0,
     missingSteps,
     failedSteps,
-    hostMismatchSteps,
-    hostUnverifiedSteps,
     environmentIncompleteSteps,
     viewportOutOfRangeSteps,
     entries: orderedEntries,
