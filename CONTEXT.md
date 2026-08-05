@@ -144,6 +144,30 @@ _Avoid_: Lorebook, prompt dump, generated memory
 The ephemeral detailed Record selection within a Context Capsule. It combines automatic retrieval with persistent manual pins from one Chat Binding, exposes selection and omission reasons, and expires or changes without creating a Campaign Revision.
 _Avoid_: Retrieval memory, automatic mutation, model tool call
 
+**Narrator View**:
+A deterministic, versioned projection of one Record and its relevant live entries for narration. It contains curated fields and human-reviewed summaries rather than raw Record JSON.
+_Avoid_: Prompt dump, serialized Record, generated summary
+
+**Context Plan**:
+An immutable ephemeral result of one preflight or enrichment planning phase. It pins authority revisions, budget accounting, rendered blocks, selections, omissions, ambiguity sets, and model-profile decisions without becoming Campaign or Binding history.
+_Avoid_: Context Capsule, Campaign Event, saved prompt
+
+**Context Selection**:
+One required block or Record included by a Context Plan, together with its retrieval tier, reason, visibility, source evidence, and token estimate.
+_Avoid_: Search result, accepted change, automatic pin
+
+**Context Omission**:
+One considered subject excluded from a Context Plan with a closed reason such as visibility, ambiguity, threshold, duplicate, record limit, or token budget.
+_Avoid_: Deleted Record, hidden error, ignored result
+
+**Ambiguity Set**:
+Two or more Records that match one textual reference without unique structural evidence. Context reports the candidates and selects none until a person supplies a canonical choice or changes the data.
+_Avoid_: Best guess, low-confidence match, duplicate Record
+
+**Narrator Model Profile**:
+A reviewed compatibility record for one LM Studio connection and exact model ID, including context capacity, visible-output readiness, prompt format and placement, token estimation, and optional embedding thresholds.
+_Avoid_: SillyTavern preset, model alias, global prompt format
+
 **Narrator Visibility**:
 The policy controlling whether Campaign material may be sent to the narrator and whether the narrator may reveal it: **Known** may be used and revealed, **Narrator Secret** may be used but must not be revealed directly, and **Campaign Private** is never sent.
 _Avoid_: Public/private flag, lore visibility
