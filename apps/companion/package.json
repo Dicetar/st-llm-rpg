@@ -1,0 +1,18 @@
+{
+  "name": "@st-llm-rpg/companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node --enable-source-maps dist/main.js",
+    "dev": "tsx src/main.ts",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@st-llm-rpg/wire": "0.1.0",
+    "fastify": "5.10.0"
+  }
+}
