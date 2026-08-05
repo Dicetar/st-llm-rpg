@@ -1,4 +1,5 @@
-#st-rpg-proxy-spike-settings .inline-drawer-content {
+#st-rpg-proxy-spike-settings .inline-drawer-content,
+#st-rpg-proxy-phone-evidence .inline-drawer-content {
   padding: 0.75rem;
 }
 
@@ -8,15 +9,52 @@
   gap: 0.5rem;
 }
 
-#st-rpg-proxy-spike-status {
+.st-rpg-proxy-phone-evidence__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+
+.st-rpg-proxy-phone-evidence__fields label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.st-rpg-proxy-phone-evidence__fields input,
+.st-rpg-proxy-phone-evidence__fields select,
+.st-rpg-proxy-phone-evidence__fields textarea {
+  width: 100%;
+  min-height: 2.75rem;
+}
+
+.st-rpg-proxy-phone-evidence__steps {
+  margin: 0.5rem 0;
+  padding-left: 1.4rem;
+}
+
+#st-rpg-proxy-spike-status,
+#st-rpg-proxy-phone-evidence [data-phone-evidence-status] {
   margin: 0.65rem 0 0;
   overflow-wrap: anywhere;
 }
 
-#st-rpg-proxy-spike-status[data-kind="ok"] {
+#st-rpg-proxy-spike-status[data-kind="ok"],
+#st-rpg-proxy-phone-evidence [data-kind="ok"] {
   color: var(--SmartThemeQuoteColor);
 }
 
-#st-rpg-proxy-spike-status[data-kind="error"] {
+#st-rpg-proxy-spike-status[data-kind="error"],
+#st-rpg-proxy-phone-evidence [data-kind="error"] {
   color: var(--fullred);
+}
+
+@media (max-width: 430px) {
+  .st-rpg-proxy-phone-evidence__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .st-rpg-proxy-spike__actions .menu_button {
+    min-height: 2.875rem;
+  }
 }
