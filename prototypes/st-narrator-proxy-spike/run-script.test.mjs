@@ -38,3 +38,11 @@ test('launcher reuses the healthy spike and diagnoses foreign port owners withou
   assert.match(script, /launcher did not stop it/);
   assert.doesNotMatch(script, /Stop-Process/);
 });
+
+test('browser bridge uses simple local labels and no Web Crypto API', async () => {
+  const bridge = await text('bridge/index.js');
+  assert.doesNotMatch(bridge, /crypto\./);
+  assert.doesNotMatch(bridge, /randomUUID/);
+  assert.match(bridge, /Date\.now\(\)\.toString\(36\)/);
+  assert.match(bridge, /localIdCounter/);
+});
