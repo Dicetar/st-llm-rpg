@@ -7,7 +7,7 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 There are two deliberately separate product paths in this repository:
 
 - **Working fallback:** `extension/st-rpg-campaign` is implemented, tested, and usable inside SillyTavern today.
-- **Companion rebuild:** the campaign-independent Node/SQLite companion is specified and prototyped, but production implementation has only now begun at GitHub issue #32.
+- **Companion rebuild:** tracer #32 now contains the production-shaped host, wire contracts, Campaign Book status shell, and non-owning SillyTavern launcher. It does not own Campaign truth yet and is not accepted until the Windows and physical-phone gates pass.
 
 Everything under `prototypes/` is throwaway decision evidence. Prototype success does not mean the production companion feature exists.
 
@@ -18,6 +18,42 @@ Normative companion sources:
 - `docs/spec/implementation-tracer-plan.md`
 
 V1 companion narration uses one deterministic preflight Context Plan and one narrator model call. Hidden narration drafts, enrichment rewrites, vectors, narrator tools, automatic narrator retries, and automatic model management are not part of v1.
+
+## Tracer #32 companion skeleton
+
+The first production slice adds:
+
+- `apps/companion` — strict TypeScript/Fastify host at port `8002`;
+- `apps/workspace` — React/Vite Campaign Book status shell;
+- `packages/wire` — versioned runtime schemas and derived TypeScript types;
+- `extension/st-rpg-bridge` — a launcher only; it does not intercept generation;
+- `/health` — process-alive state independent from external dependencies;
+- `/ready` — Workspace, SQLite runtime, SillyTavern, and LM Studio observations;
+- actionable startup failures for invalid configuration, missing Workspace assets, and occupied port `8002`.
+
+Install dependencies and build from the repository root:
+
+```powershell
+npm install
+npm run typecheck
+npm test
+```
+
+Start the companion:
+
+```powershell
+npm run start:companion
+```
+
+Open Campaign Book locally at `http://127.0.0.1:8002/`. From Android on the trusted LAN/VPN, use `http://<PC-IP>:8002/`.
+
+Install the launcher into the project-local SillyTavern instance:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File extension/st-rpg-bridge/install.ps1
+```
+
+This tracer deliberately does not introduce Campaign tables, migration, Context retrieval, Story Sync jobs, or narrator proxy routing.
 
 ## Working fallback extension
 
@@ -70,7 +106,7 @@ Runtime baseline:
 node tools/check-node-version.mjs
 ```
 
-Fallback and repository-authority tests:
+Full current suite:
 
 ```powershell
 npm test
@@ -87,18 +123,3 @@ Native Popup architecture guard:
 ```powershell
 node prototypes/st-worker-routing-spike/check-native-popup-surface.mjs
 ```
-
-## Next implementation step
-
-Issue #32 builds the smallest production companion slice beside the untouched fallback:
-
-- `apps/companion`;
-- `apps/workspace`;
-- `packages/wire`;
-- `extension/st-rpg-bridge`;
-- `/health` and `/ready`;
-- a static Campaign Book shell;
-- explicit degraded dependency state;
-- bounded runtime-validated Problem documents.
-
-It does not introduce Campaign authority, migration, retrieval, Story Sync jobs, or narrator proxy behavior yet.
