@@ -63,10 +63,6 @@ function assertConnection() {
   if (main_api !== 'openai' || oai_settings.chat_completion_source !== chat_completion_sources.CUSTOM) {
     throw new Error('Select Custom Chat Completions before using the RPG proxy spike.');
   }
-  const actual = String(oai_settings.custom_url ?? '').replace(/\/$/, '');
-  if (actual !== PROXY_BASE) {
-    throw new Error(`Set the Custom endpoint to ${PROXY_BASE}; current value is ${actual || 'empty'}.`);
-  }
 }
 
 function encodeEnvelope(envelope) {
@@ -148,7 +144,7 @@ async function generationInterceptor(_chat, _contextSize, abort, type) {
       route: requestRoute,
       generation,
       locator: locator(),
-      bridge: { version: '0.1.4', sillyTavernRevision: ST_REVISION },
+      bridge: { version: '0.1.6', sillyTavernRevision: ST_REVISION },
     };
     setStatus(`${requestRoute.kind} ${generation} · request ${pendingExchange.requestId.slice(0, 8)} prepared`, 'ok');
   } catch (error) {
@@ -166,8 +162,10 @@ async function applyExchangeHeader(generateData) {
   if (generateData?.chat_completion_source !== chat_completion_sources.CUSTOM) {
     throw new Error('RPG proxy request changed away from Custom after interception.');
   }
-  const actual = String(generateData?.custom_url ?? '').replace(/\/$/, '');
-  if (actual !== PROXY_BASE) throw new Error('RPG proxy Custom URL changed after interception.');
+
+  // Redirect this one generated request through the local proxy. The user's
+  // saved SillyTavern endpoint/profile remains untouched.
+  generateData.custom_url = PROXY_BASE;
   generateData.custom_include_headers = mergeHeaderYaml(
     generateData.custom_include_headers,
     encodeEnvelope(current),
@@ -185,7 +183,7 @@ function mountControls() {
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <p class="notes">Throwaway compatibility bridge. Custom endpoint must be <code>${PROXY_BASE}</code>.</p>
+      <p class="notes">Throwaway compatibility bridge. Test requests use the local proxy automatically; your saved Custom endpoint is not changed.</p>
       <div class="st-rpg-proxy-spike__actions">
         <button type="button" class="menu_button" data-proxy-action="link">Link this chat</button>
         <button type="button" class="menu_button" data-proxy-action="unlink">Make this chat unlinked</button>
