@@ -16,15 +16,15 @@ From the repository root:
 npm run prototype:proxy
 ```
 
-The command installs the throwaway bridge into the project-local SillyTavern runtime and starts the proxy on `0.0.0.0:8002`. Reload SillyTavern after the first install and enable **RPG Narrator Proxy Spike** if it is not already enabled.
+The command installs the throwaway bridge into the project-local SillyTavern runtime and starts the proxy on `0.0.0.0:8002`. Close and reopen SillyTavern after installation and enable **RPG Narrator Proxy Spike** if it is not already enabled.
 
-Configure SillyTavern's ordinary Custom Chat Completions URL as:
+Keep your ordinary SillyTavern Custom Chat Completions profile unchanged. For each test generation, the bridge redirects only that transient request to:
 
 ```text
 http://127.0.0.1:8002/v1
 ```
 
-The bridge refuses any linked or unlinked generation if Custom Chat Completions is not selected or the URL differs. It never silently rewrites the profile.
+The saved Custom endpoint is neither rejected nor modified. Custom Chat Completions still needs to be the selected backend so SillyTavern builds the expected request shape.
 
 The proxy forwards live requests to:
 
@@ -46,7 +46,7 @@ The proxy terminal always redraws its complete bounded state.
 
 The extension adds a small **RPG Narrator Proxy Spike** section to SillyTavern's Extensions settings. Use **Link this chat** or **Make this chat unlinked**. A linked marker contains only a throwaway Binding ID. The current character avatar/group ID and chat ID are presented separately as mutable locator evidence.
 
-The same section exposes phone-test controls for deterministic Fixture mode, a 10-second linked Stop delay, Campaign outage, and live LM Studio. Fixture text may contain `{generation}`; the proxy replaces it with `NORMAL`, `REGENERATE`, `CONTINUE`, or `SWIPE` so saved behavior is obvious on a physical phone.
+The **Phone proxy test** panel prepares fixture mode, the Stop delay, Campaign outage, and linked/unlinked state automatically. Fixture text contains the generation mode so saved behavior is obvious on a physical phone.
 
 Machine-readable state is available on the trusted LAN at:
 
