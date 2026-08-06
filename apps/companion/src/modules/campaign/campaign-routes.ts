@@ -5,6 +5,7 @@ import {
   CampaignDocumentSchema,
   CampaignHistoryEntrySchema,
   CampaignSummarySchema,
+  CampaignVerificationResultSchema,
   CreateCampaignRequestSchema,
   ExecuteCampaignRequestSchema,
   ProblemSchema,
@@ -22,6 +23,10 @@ export function registerCampaignRoutes(app: FastifyInstance, engine: CampaignEng
   app.get('/api/campaign-authority/performance', {
     schema: { response: { 200: CampaignCommitPerformanceSchema, 503: ProblemSchema } },
   }, async (request, reply) => sendOutcome(reply, await engine.performance(String(request.id))));
+
+  app.post('/api/campaign-authority/verify', {
+    schema: { response: { 200: CampaignVerificationResultSchema, 503: ProblemSchema } },
+  }, async (request, reply) => sendOutcome(reply, await engine.verify(String(request.id))));
 
   app.get('/api/campaigns', {
     schema: { response: { 200: { type: 'array', items: CampaignSummarySchema }, 503: ProblemSchema } },
