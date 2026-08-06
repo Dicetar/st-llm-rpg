@@ -48,6 +48,48 @@ function Invoke-Json([string]$Method, [string]$Path, $Body = $null) {
     return Invoke-RestMethod @parameters
 }
 
+function Read-ProblemFromError($ErrorRecord) {
+    $raw = [string]$ErrorRecord.ErrorDetails.Message
+    if ([string]::IsNullOrWhiteSpace($raw) -and $null -ne $ErrorRecord.Exception.Response) {
+        try {
+            $stream = $ErrorRecord.Exception.Response.GetResponseStream()
+            if ($null -ne $stream) {
+                $reader = New-Object System.IO.StreamReader($stream)
+                try { $raw = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            }
+        }
+        catch {
+            $raw = ''
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+    try { return $raw | ConvertFrom-Json } catch { return $null }
+}
+
+function Invoke-ExpectedProblem(
+    [string]$Method,
+    [string]$Path,
+    $Body,
+    [int]$ExpectedStatus,
+    [string]$ExpectedCode
+) {
+    try {
+        $null = Invoke-Json $Method $Path $Body
+        throw "Expected HTTP $ExpectedStatus / $ExpectedCode, but the request succeeded."
+    }
+    catch {
+        $status = 0
+        if ($null -ne $_.Exception.Response -and $null -ne $_.Exception.Response.StatusCode) {
+            $status = [int]$_.Exception.Response.StatusCode
+        }
+        $problem = Read-ProblemFromError $_
+        if ($status -ne $ExpectedStatus -or $null -eq $problem -or [string]$problem.code -ne $ExpectedCode) {
+            throw "Expected HTTP $ExpectedStatus / $ExpectedCode, received HTTP $status / $([string]$problem.code)."
+        }
+        return $problem
+    }
+}
+
 function Start-CompanionProcess {
     $node = (Get-Command node -ErrorAction Stop).Source
     $env:RPG_COMPANION_HOST = '127.0.0.1'
@@ -147,7 +189,30 @@ try {
         $revision = [int]$commit.revision
     }
 
+    $staleProblem = Invoke-ExpectedProblem 'POST' "/api/campaigns/$($created.campaignId)/operations" @{
+        requestId = "milestone-stale-$runId"
+        expectedRevision = ($revision - 1)
+        operation = @{
+            kind = 'rename_actor'
+            actorId = $actorId
+            name = 'Stale Overwrite'
+        }
+    } 409 'CAMPAIGN_REVISION_CONFLICT'
+
+    $afterStale = Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)"
+    $staleProtected = (
+        [int]$afterStale.campaign.revision -eq $revision -and
+        [string]$afterStale.actors[0].name -eq $finalName
+    )
+
+    $revisionOne = Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)?revision=1"
+    $revisionOneReconstructed = (
+        [int]$revisionOne.campaign.revision -eq 1 -and
+        @($revisionOne.actors).Count -eq 0
+    )
+
     $history = @(Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)/history")
+    $historyComplete = ($history.Count -eq $revision)
     $performance = Invoke-Json 'GET' '/api/campaign-authority/performance'
     $verification = Invoke-Json 'POST' '/api/campaign-authority/verify'
     Start-Sleep -Milliseconds 500
@@ -158,6 +223,7 @@ try {
     $process = Start-CompanionProcess
     $null = Wait-Companion $process
     $reloaded = Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)"
+    $verificationAfterRestart = Invoke-Json 'POST' '/api/campaign-authority/verify'
     $persisted = (
         [int]$reloaded.campaign.revision -eq $revision -and
         [string]$reloaded.actors[0].name -eq $finalName
@@ -173,7 +239,11 @@ try {
     $fallbackPreserved = if ($fallbackBefore) { $fallbackAfter } else { $true }
     $passed = (
         $persisted -and
+        $staleProtected -and
+        $revisionOneReconstructed -and
+        $historyComplete -and
         [bool]$verification.verified -and
+        [bool]$verificationAfterRestart.verified -and
         $latencyTargetMet -and
         -not $memoryInvestigationRequired -and
         $fallbackPreserved
@@ -189,10 +259,20 @@ try {
         campaignId = [string]$created.campaignId
         finalRevision = $revision
         historyEntries = $history.Count
+        expectedHistoryEntries = $revision
+        historyComplete = $historyComplete
         actorId = $actorId
+        actorNameAfterStaleAttempt = [string]$afterStale.actors[0].name
+        staleProblemCode = [string]$staleProblem.code
+        staleExpectedRevision = [int]$staleProblem.details.expectedRevision
+        staleActualRevision = [int]$staleProblem.details.actualRevision
+        staleProtected = $staleProtected
+        revisionOneActorCount = @($revisionOne.actors).Count
+        revisionOneReconstructed = $revisionOneReconstructed
         actorNameAfterRestart = [string]$reloaded.actors[0].name
         persistedAfterRestart = $persisted
         verification = $verification
+        verificationAfterRestart = $verificationAfterRestart
         performance = $performance
         latencyTargetMet = $latencyTargetMet
         workingSetMiB = $workingSetMiB
