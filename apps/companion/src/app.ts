@@ -77,6 +77,11 @@ function readinessStatus(components: readonly ComponentObservation[]): Pick<Read
   return { ready: true, status: degraded ? 'degraded' : 'ready' };
 }
 
+function validationDetails(error: unknown): unknown | undefined {
+  if (typeof error !== 'object' || error === null || !('validation' in error)) return undefined;
+  return (error as { validation?: unknown }).validation;
+}
+
 export async function buildCompanion(options: BuildCompanionOptions): Promise<FastifyInstance> {
   await assertWorkspaceBuild(options.config);
   const startedAt = options.startedAt ?? new Date();
@@ -165,12 +170,13 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   });
 
   app.setErrorHandler((error, request, reply) => {
-    if ('validation' in error && error.validation) {
+    const validation = validationDetails(error);
+    if (validation !== undefined) {
       void reply.code(400).send(makeProblem({
         code: 'CAMPAIGN_VALIDATION_FAILED',
         message: 'The request did not match the Campaign operation contract.',
         requestId: String(request.id),
-        details: error.validation,
+        details: validation,
       }));
       return;
     }
