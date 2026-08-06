@@ -130,6 +130,14 @@ export const CampaignCommitPerformanceSchema = Type.Object({
 }, { additionalProperties: false });
 export type CampaignCommitPerformance = Static<typeof CampaignCommitPerformanceSchema>;
 
+export const CampaignVerificationResultSchema = Type.Object({
+  verified: Type.Literal(true),
+  verifiedAt: Timestamp,
+  durationMs: Type.Number({ minimum: 0 }),
+  campaignCount: Type.Integer({ minimum: 0 }),
+}, { additionalProperties: false });
+export type CampaignVerificationResult = Static<typeof CampaignVerificationResultSchema>;
+
 export function isCampaignDocument(value: unknown): value is CampaignDocument {
   return Value.Check(CampaignDocumentSchema, value);
 }
@@ -140,4 +148,8 @@ export function isCampaignCommit(value: unknown): value is CampaignCommit {
 
 export function isCampaignCommitPerformance(value: unknown): value is CampaignCommitPerformance {
   return Value.Check(CampaignCommitPerformanceSchema, value);
+}
+
+export function isCampaignVerificationResult(value: unknown): value is CampaignVerificationResult {
+  return Value.Check(CampaignVerificationResultSchema, value);
 }
