@@ -4,6 +4,7 @@ import type {
   CampaignDocument,
   CampaignHistoryEntry,
   CampaignSummary,
+  CampaignVerificationResult,
   CreateCampaignRequest,
   ExecuteCampaignRequest,
   Problem,
@@ -11,6 +12,10 @@ import type {
 } from '@st-llm-rpg/wire';
 import type { ComponentObservation } from '@st-llm-rpg/wire';
 import { SqliteCampaignJournal } from '../../adapters/sqlite/campaign-journal.js';
+import {
+  readCampaignRevisionInWorker,
+  verifyCampaignAuthorityInWorker,
+} from '../../adapters/sqlite/campaign-maintenance.js';
 import { makeProblem } from '../../problem.js';
 import { CampaignExpectedError } from './campaign-error.js';
 
@@ -67,7 +72,9 @@ export class CampaignEngine {
   }
 
   async read(campaignId: string, requestId: string, revision?: number): Promise<Outcome<CampaignDocument>> {
-    return this.capture(requestId, () => this.journal.readCampaign(campaignId, revision));
+    return this.capture(requestId, () => revision === undefined
+      ? this.journal.readCampaign(campaignId)
+      : readCampaignRevisionInWorker(this.journal.databasePath, campaignId, revision));
   }
 
   async history(campaignId: string, requestId: string): Promise<Outcome<CampaignHistoryEntry[]>> {
@@ -80,6 +87,10 @@ export class CampaignEngine {
 
   async performance(requestId: string): Promise<Outcome<CampaignCommitPerformance>> {
     return this.capture(requestId, () => this.journal.performance());
+  }
+
+  async verify(requestId: string): Promise<Outcome<CampaignVerificationResult>> {
+    return this.capture(requestId, () => verifyCampaignAuthorityInWorker(this.journal.databasePath));
   }
 
   private async capture<T>(requestId: string, work: () => T | Promise<T>): Promise<Outcome<T>> {
