@@ -214,7 +214,7 @@ try {
     $history = @(Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)/history")
     $historyComplete = ($history.Count -eq $revision)
     $performance = Invoke-Json 'GET' '/api/campaign-authority/performance'
-    $verification = Invoke-Json 'POST' '/api/campaign-authority/verify'
+    $verification = Invoke-Json 'GET' '/api/campaign-authority/verify'
     Start-Sleep -Milliseconds 500
     $process.Refresh()
     $workingSetMiB = [Math]::Round($process.WorkingSet64 / 1MB, 2)
@@ -223,7 +223,7 @@ try {
     $process = Start-CompanionProcess
     $null = Wait-Companion $process
     $reloaded = Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)"
-    $verificationAfterRestart = Invoke-Json 'POST' '/api/campaign-authority/verify'
+    $verificationAfterRestart = Invoke-Json 'GET' '/api/campaign-authority/verify'
     $persisted = (
         [int]$reloaded.campaign.revision -eq $revision -and
         [string]$reloaded.actors[0].name -eq $finalName
