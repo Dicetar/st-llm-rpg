@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "npm@11.12.1",
   "engines": {
-    "node": "24.15.0",
+    "node": ">=24.15.0 <25",
     "npm": ">=11 <12"
   },
   "workspaces": [
@@ -25,6 +25,7 @@
     "prototype:worker-jobs": "node prototypes/story-sync-job-spike/run.mjs",
     "prototype:cutover": "node prototypes/migration-cutover-spike/run.mjs",
     "prototype:enrichment": "node prototypes/hidden-draft-enrichment-spike/run.mjs",
+    "test:runtime": "node --test tests/node-version-policy.test.mjs",
     "test:authority": "node --test tests/repository-authority.test.mjs tests/bridge-boundary.test.mjs",
     "test:wire": "npm run build -w @st-llm-rpg/wire && npm run test -w @st-llm-rpg/wire",
     "test:companion": "npm run build -w @st-llm-rpg/wire && npm run test -w @st-llm-rpg/companion",
@@ -35,7 +36,7 @@
     "test:proxy-phone-evidence": "node --test prototypes/st-narrator-proxy-spike/run-script.test.mjs prototypes/st-narrator-proxy-spike/bridge/phone-evidence.test.mjs",
     "test:enrichment-prototype": "node --test prototypes/hidden-draft-enrichment-spike/prototype.test.mjs",
     "pretest": "npm run check:runtime",
-    "test": "npm run build && node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs tests/repository-authority.test.mjs tests/bridge-boundary.test.mjs && npm run test -w @st-llm-rpg/wire && npm run test -w @st-llm-rpg/companion && npm run test -w @st-llm-rpg/workspace"
+    "test": "npm run build && node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs tests/node-version-policy.test.mjs tests/repository-authority.test.mjs tests/bridge-boundary.test.mjs && npm run test -w @st-llm-rpg/wire && npm run test -w @st-llm-rpg/companion && npm run test -w @st-llm-rpg/workspace"
   },
   "devDependencies": {
     "@types/node": "24.13.3",

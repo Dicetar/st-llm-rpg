@@ -1,5 +1,7 @@
 import { resolve } from 'node:path';
 
+export type CompanionLogLevel = 'silent' | 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
+
 export type CompanionConfig = Readonly<{
   host: string;
   port: number;
@@ -8,6 +10,7 @@ export type CompanionConfig = Readonly<{
   probeTimeoutMs: number;
   workspaceRoot: string;
   serviceVersion: string;
+  logLevel: CompanionLogLevel;
 }>;
 
 export class ConfigurationError extends Error {
@@ -17,6 +20,16 @@ export class ConfigurationError extends Error {
     this.name = 'ConfigurationError';
   }
 }
+
+const LOG_LEVELS = new Set<CompanionLogLevel>([
+  'silent',
+  'fatal',
+  'error',
+  'warn',
+  'info',
+  'debug',
+  'trace',
+]);
 
 function parsePort(value: string | undefined, fallback: number, name: string): number {
   const parsed = value === undefined ? fallback : Number(value);
@@ -47,6 +60,14 @@ function baseUrl(value: string | undefined, fallback: string, name: string): str
   return parsed.href.replace(/\/$/, '');
 }
 
+function logLevel(value: string | undefined): CompanionLogLevel {
+  const parsed = String(value ?? 'info').trim().toLowerCase() as CompanionLogLevel;
+  if (!LOG_LEVELS.has(parsed)) {
+    throw new ConfigurationError('RPG_LOG_LEVEL must be one of silent, fatal, error, warn, info, debug, or trace.');
+  }
+  return parsed;
+}
+
 export function readCompanionConfig(env: NodeJS.ProcessEnv = process.env): CompanionConfig {
   const host = String(env.RPG_COMPANION_HOST ?? '0.0.0.0').trim();
   if (!host) throw new ConfigurationError('RPG_COMPANION_HOST cannot be empty.');
@@ -58,5 +79,6 @@ export function readCompanionConfig(env: NodeJS.ProcessEnv = process.env): Compa
     probeTimeoutMs: parsePositiveInteger(env.RPG_PROBE_TIMEOUT_MS, 800, 'RPG_PROBE_TIMEOUT_MS'),
     workspaceRoot: resolve(env.RPG_WORKSPACE_DIST ?? 'apps/workspace/dist'),
     serviceVersion: String(env.RPG_COMPANION_VERSION ?? '0.1.0'),
+    logLevel: logLevel(env.RPG_LOG_LEVEL),
   });
 }

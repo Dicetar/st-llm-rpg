@@ -79,7 +79,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   const startedAt = options.startedAt ?? new Date();
   const probeDependencies = options.probeDependencies ?? createDefaultDependencyProbe(options.config);
   const app = Fastify({
-    logger: false,
+    logger: { level: options.config.logLevel },
     genReqId: () => randomUUID(),
     disableRequestLogging: true,
   });
@@ -158,7 +158,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
       requestId: String(request.id),
       actions: [{ id: 'inspect-terminal', label: 'Inspect the companion terminal', kind: 'inspect' }],
     });
-    request.log.error(error);
+    request.log.error({ err: error }, 'Unhandled companion request failure');
     void reply.code(500).send(problem);
   });
 

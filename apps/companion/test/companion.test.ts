@@ -23,6 +23,7 @@ function config(workspaceRoot: string) {
     RPG_SILLYTAVERN_URL: 'http://127.0.0.1:8001',
     RPG_LM_STUDIO_URL: 'http://127.0.0.1:1234/v1',
     RPG_PROBE_TIMEOUT_MS: '100',
+    RPG_LOG_LEVEL: 'silent',
   });
 }
 
@@ -98,4 +99,5 @@ test('occupied port message is explicit and never claims to kill its owner', () 
 test('invalid configuration throws before server construction', () => {
   assert.throws(() => readCompanionConfig({ RPG_COMPANION_PORT: 'not-a-port' }), /must be an integer/);
   assert.throws(() => readCompanionConfig({ RPG_LM_STUDIO_URL: 'file:\/\/bad' }), /must use http or https/);
+  assert.throws(() => readCompanionConfig({ RPG_LOG_LEVEL: 'verbose' }), /must be one of/);
 });
