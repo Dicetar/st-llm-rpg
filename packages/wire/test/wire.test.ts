@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   COMPANION_SERVICE,
   WIRE_VERSION,
+  isCampaignCommit,
+  isCampaignDocument,
   isHealthDocument,
   isProblem,
   isReadinessDocument,
@@ -44,4 +46,23 @@ test('Problem is bounded and carries explicit recovery actions', () => {
   assert.equal(isProblem(value), true);
   assert.equal(isProblem({ ...value, code: 'UNKNOWN' }), false);
   assert.equal(isProblem({ ...value, actions: [{ label: 'missing id', kind: 'retry' }] }), false);
+});
+
+test('Campaign documents and commits reject unbounded or malformed authority payloads', () => {
+  const document = {
+    campaign: {
+      id: 'campaign-1', title: 'Campaign', status: 'active', revision: 1,
+      createdAt: now, updatedAt: now,
+    },
+    actors: [], items: [], currentScene: null,
+  };
+  const commit = {
+    campaignId: 'campaign-1', revision: 1, eventId: 'event-1', requestId: 'request-4',
+    operationKind: 'create_campaign', affectedIds: ['campaign-1'], committedAt: now,
+    idempotent: false, document,
+  };
+  assert.equal(isCampaignDocument(document), true);
+  assert.equal(isCampaignCommit(commit), true);
+  assert.equal(isCampaignDocument({ ...document, arbitraryTable: [] }), false);
+  assert.equal(isCampaignCommit({ ...commit, document: { ...document, actors: [{ id: '', name: '', summary: '', archived: false }] } }), false);
 });

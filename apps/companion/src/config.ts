@@ -9,6 +9,8 @@ export type CompanionConfig = Readonly<{
   lmStudioBaseUrl: string;
   probeTimeoutMs: number;
   workspaceRoot: string;
+  databasePath: string;
+  snapshotInterval: number;
   serviceVersion: string;
   logLevel: CompanionLogLevel;
 }>;
@@ -39,10 +41,15 @@ function parsePort(value: string | undefined, fallback: number, name: string): n
   return parsed;
 }
 
-function parsePositiveInteger(value: string | undefined, fallback: number, name: string): number {
+function parsePositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+  maximum = 60_000,
+): number {
   const parsed = value === undefined ? fallback : Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 60_000) {
-    throw new ConfigurationError(`${name} must be an integer from 1 through 60000.`);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new ConfigurationError(`${name} must be an integer from 1 through ${maximum}.`);
   }
   return parsed;
 }
@@ -78,7 +85,9 @@ export function readCompanionConfig(env: NodeJS.ProcessEnv = process.env): Compa
     lmStudioBaseUrl: baseUrl(env.RPG_LM_STUDIO_URL, 'http://127.0.0.1:1234/v1', 'RPG_LM_STUDIO_URL'),
     probeTimeoutMs: parsePositiveInteger(env.RPG_PROBE_TIMEOUT_MS, 800, 'RPG_PROBE_TIMEOUT_MS'),
     workspaceRoot: resolve(env.RPG_WORKSPACE_DIST ?? 'apps/workspace/dist'),
-    serviceVersion: String(env.RPG_COMPANION_VERSION ?? '0.1.0'),
+    databasePath: resolve(env.RPG_DATABASE_PATH ?? '.runtime/companion/campaigns.sqlite'),
+    snapshotInterval: parsePositiveInteger(env.RPG_SNAPSHOT_INTERVAL, 25, 'RPG_SNAPSHOT_INTERVAL', 10_000),
+    serviceVersion: String(env.RPG_COMPANION_VERSION ?? '0.2.0'),
     logLevel: logLevel(env.RPG_LOG_LEVEL),
   });
 }

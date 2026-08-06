@@ -11,7 +11,7 @@ export type StatusCard = Readonly<{
 
 const TITLES: Readonly<Record<ComponentId, string>> = Object.freeze({
   workspace: 'Campaign Book',
-  'sqlite-runtime': 'SQLite capability',
+  'sqlite-runtime': 'Campaign authority',
   sillytavern: 'SillyTavern',
   'lm-studio': 'LM Studio',
 });
@@ -23,22 +23,20 @@ function toneFor(component: ComponentObservation): StatusTone {
 }
 
 export function buildStatusCards(readiness: ReadinessDocument | null): readonly StatusCard[] {
-  const authority: StatusCard = {
-    id: 'campaign-authority',
-    title: 'Campaign authority',
-    state: 'Not enabled',
-    message: 'Tracer #32 does not own Campaign truth. The existing SillyTavern extension remains the working fallback.',
-    tone: 'neutral',
-  };
-  if (!readiness) return [authority];
-  return [
-    ...readiness.components.map(component => ({
-      id: component.id,
-      title: TITLES[component.id],
-      state: component.status.replace('-', ' '),
-      message: component.message,
-      tone: toneFor(component),
-    })),
-    authority,
-  ];
+  if (!readiness) {
+    return [{
+      id: 'campaign-authority',
+      title: 'Campaign authority',
+      state: 'Checking',
+      message: 'Waiting for the companion-owned SQLite Campaign store.',
+      tone: 'neutral',
+    }];
+  }
+  return readiness.components.map(component => ({
+    id: component.id,
+    title: TITLES[component.id],
+    state: component.status.replace('-', ' '),
+    message: component.message,
+    tone: toneFor(component),
+  }));
 }

@@ -2,6 +2,7 @@ import type { ComponentObservation } from '@st-llm-rpg/wire';
 import type { CompanionConfig } from './config.js';
 
 export type DependencyProbe = () => Promise<readonly ComponentObservation[]>;
+export type CampaignAuthorityProbe = () => ComponentObservation;
 
 function observedAt(): string {
   return new Date().toISOString();
@@ -57,38 +58,10 @@ async function probeHttp(input: {
   }
 }
 
-async function probeSqliteRuntime(): Promise<ComponentObservation> {
-  const started = performance.now();
-  try {
-    const { DatabaseSync } = await import('node:sqlite');
-    const database = new DatabaseSync(':memory:');
-    try {
-      const row = database.prepare('select sqlite_version() as version').get() as { version?: string } | undefined;
-      database.exec('create virtual table context_probe using fts5(content)');
-      return {
-        id: 'sqlite-runtime',
-        status: 'ready',
-        blocking: true,
-        message: `node:sqlite and FTS5 are available${row?.version ? ` (SQLite ${row.version})` : ''}. No Campaign database is owned in tracer #32.`,
-        observedAt: observedAt(),
-        latencyMs: Math.max(0, performance.now() - started),
-      };
-    } finally {
-      database.close();
-    }
-  } catch (error) {
-    return {
-      id: 'sqlite-runtime',
-      status: 'unavailable',
-      blocking: true,
-      message: `node:sqlite runtime capability failed: ${error instanceof Error ? error.message : String(error)}`,
-      observedAt: observedAt(),
-      latencyMs: Math.max(0, performance.now() - started),
-    };
-  }
-}
-
-export function createDefaultDependencyProbe(config: CompanionConfig): DependencyProbe {
+export function createDefaultDependencyProbe(
+  config: CompanionConfig,
+  campaignAuthority: CampaignAuthorityProbe,
+): DependencyProbe {
   return async () => Promise.all([
     Promise.resolve<ComponentObservation>({
       id: 'workspace',
@@ -97,7 +70,7 @@ export function createDefaultDependencyProbe(config: CompanionConfig): Dependenc
       message: 'Campaign Book production assets are available.',
       observedAt: observedAt(),
     }),
-    probeSqliteRuntime(),
+    Promise.resolve(campaignAuthority()),
     probeHttp({
       id: 'sillytavern',
       url: config.sillyTavernBaseUrl,

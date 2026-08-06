@@ -1,6 +1,8 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
+export * from './campaign.js';
+
 export const WIRE_VERSION = '1.0' as const;
 export const COMPANION_SERVICE = 'st-rpg-companion' as const;
 
@@ -14,6 +16,14 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('WORKSPACE_BUILD_MISSING'),
   Type.Literal('SQLITE_RUNTIME_UNAVAILABLE'),
   Type.Literal('DEPENDENCY_UNAVAILABLE'),
+  Type.Literal('CAMPAIGN_NOT_FOUND'),
+  Type.Literal('CAMPAIGN_RECORD_NOT_FOUND'),
+  Type.Literal('CAMPAIGN_REVISION_NOT_FOUND'),
+  Type.Literal('CAMPAIGN_VALIDATION_FAILED'),
+  Type.Literal('CAMPAIGN_REVISION_CONFLICT'),
+  Type.Literal('CAMPAIGN_REQUEST_CONFLICT'),
+  Type.Literal('CAMPAIGN_HISTORY_CORRUPT'),
+  Type.Literal('CAMPAIGN_STORE_UNAVAILABLE'),
   Type.Literal('NOT_FOUND'),
   Type.Literal('INTERNAL_ERROR'),
 ]);

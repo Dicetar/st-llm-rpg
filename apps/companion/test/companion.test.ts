@@ -20,6 +20,8 @@ function config(workspaceRoot: string) {
     RPG_COMPANION_HOST: '127.0.0.1',
     RPG_COMPANION_PORT: '8002',
     RPG_WORKSPACE_DIST: workspaceRoot,
+    RPG_DATABASE_PATH: join(workspaceRoot, 'campaigns.sqlite'),
+    RPG_SNAPSHOT_INTERVAL: '2',
     RPG_SILLYTAVERN_URL: 'http://127.0.0.1:8001',
     RPG_LM_STUDIO_URL: 'http://127.0.0.1:1234/v1',
     RPG_PROBE_TIMEOUT_MS: '100',
@@ -77,6 +79,49 @@ test('workspace shell and built assets are served without a second server', asyn
   assert.match(asset.headers['content-type'] ?? '', /javascript/);
 });
 
+test('Campaign API persists revisions and returns an explicit stale conflict', async t => {
+  const workspaceRoot = await workspaceFixture();
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });
+  t.after(() => app.close());
+
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/campaigns',
+    payload: { requestId: 'http-create', title: 'HTTP Campaign' },
+  });
+  assert.equal(create.statusCode, 201);
+  const created = create.json();
+
+  const actor = await app.inject({
+    method: 'POST',
+    url: `/api/campaigns/${created.campaignId}/operations`,
+    payload: {
+      requestId: 'http-actor',
+      expectedRevision: 1,
+      operation: { kind: 'create_actor', actor: { name: 'HTTP Actor' } },
+    },
+  });
+  assert.equal(actor.statusCode, 200);
+  assert.equal(actor.json().revision, 2);
+
+  const stale = await app.inject({
+    method: 'POST',
+    url: `/api/campaigns/${created.campaignId}/operations`,
+    payload: {
+      requestId: 'http-stale',
+      expectedRevision: 1,
+      operation: { kind: 'rename_actor', actorId: actor.json().affectedIds[0], name: 'Lost Update' },
+    },
+  });
+  assert.equal(stale.statusCode, 409);
+  assert.equal(stale.json().code, 'CAMPAIGN_REVISION_CONFLICT');
+
+  const revisionOne = await app.inject({ method: 'GET', url: `/api/campaigns/${created.campaignId}?revision=1` });
+  assert.equal(revisionOne.statusCode, 200);
+  assert.equal(revisionOne.json().actors.length, 0);
+});
+
 test('missing Workspace build fails before listening with an actionable Problem', async () => {
   const root = await mkdtemp(join(tmpdir(), 'st-rpg-missing-'));
   try {
@@ -99,5 +144,6 @@ test('occupied port message is explicit and never claims to kill its owner', () 
 test('invalid configuration throws before server construction', () => {
   assert.throws(() => readCompanionConfig({ RPG_COMPANION_PORT: 'not-a-port' }), /must be an integer/);
   assert.throws(() => readCompanionConfig({ RPG_LM_STUDIO_URL: 'file:\/\/bad' }), /must use http or https/);
+  assert.throws(() => readCompanionConfig({ RPG_SNAPSHOT_INTERVAL: '0' }), /must be an integer/);
   assert.throws(() => readCompanionConfig({ RPG_LOG_LEVEL: 'verbose' }), /must be one of/);
 });

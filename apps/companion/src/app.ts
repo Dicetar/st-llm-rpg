@@ -15,6 +15,8 @@ import {
 import type { CompanionConfig } from './config.js';
 import { createDefaultDependencyProbe, type DependencyProbe } from './observations.js';
 import { makeProblem, ProblemError } from './problem.js';
+import { CampaignEngine } from './modules/campaign/campaign-engine.js';
+import { registerCampaignRoutes } from './modules/campaign/campaign-routes.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -31,6 +33,7 @@ const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
 export type BuildCompanionOptions = Readonly<{
   config: CompanionConfig;
   probeDependencies?: DependencyProbe;
+  campaignEngine?: CampaignEngine;
   startedAt?: Date;
 }>;
 
@@ -77,12 +80,24 @@ function readinessStatus(components: readonly ComponentObservation[]): Pick<Read
 export async function buildCompanion(options: BuildCompanionOptions): Promise<FastifyInstance> {
   await assertWorkspaceBuild(options.config);
   const startedAt = options.startedAt ?? new Date();
-  const probeDependencies = options.probeDependencies ?? createDefaultDependencyProbe(options.config);
+  const ownsCampaignEngine = options.campaignEngine === undefined;
+  const campaignEngine = options.campaignEngine ?? await CampaignEngine.open(
+    options.config.databasePath,
+    options.config.snapshotInterval,
+  );
+  const probeDependencies = options.probeDependencies
+    ?? createDefaultDependencyProbe(options.config, () => campaignEngine.observation());
   const app = Fastify({
     logger: { level: options.config.logLevel },
     genReqId: () => randomUUID(),
     disableRequestLogging: true,
   });
+
+  if (ownsCampaignEngine) {
+    app.addHook('onClose', async () => {
+      campaignEngine.close();
+    });
+  }
 
   app.get('/health', {
     schema: { response: { 200: HealthDocumentSchema } },
@@ -116,6 +131,8 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
     return result;
   });
 
+  registerCampaignRoutes(app, campaignEngine);
+
   app.get('/assets/*', async (request, reply) => {
     const relative = (request.params as { '*': string })['*'];
     const path = safeAssetPath(resolve(options.config.workspaceRoot, 'assets'), relative);
@@ -148,6 +165,15 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   });
 
   app.setErrorHandler((error, request, reply) => {
+    if ('validation' in error && error.validation) {
+      void reply.code(400).send(makeProblem({
+        code: 'CAMPAIGN_VALIDATION_FAILED',
+        message: 'The request did not match the Campaign operation contract.',
+        requestId: String(request.id),
+        details: error.validation,
+      }));
+      return;
+    }
     if (error instanceof ProblemError) {
       void reply.code(error.statusCode).send(error.problem);
       return;
