@@ -36,12 +36,14 @@ test('superseded ADRs cannot present hidden drafts or vectors as active v1 behav
   assert.match(contextAdr, /Vector indexes, embeddings, vector result tiers, and embedding thresholds are disabled/);
 });
 
-test('README distinguishes the working fallback from the unimplemented companion', async () => {
+test('README distinguishes the working fallback from the incomplete companion tracer', async () => {
   const readme = await read('README.md');
 
   assert.match(readme, /\*\*Working fallback:\*\*/);
   assert.match(readme, /\*\*Companion rebuild:\*\*/);
-  assert.match(readme, /production implementation has only now begun at GitHub issue #32/);
+  assert.match(readme, /tracer #32 now contains the production-shaped host/);
+  assert.match(readme, /It does not own Campaign truth yet/);
+  assert.match(readme, /not accepted until the Windows and physical-phone gates pass/);
   assert.match(readme, /Everything under `prototypes\/` is throwaway decision evidence/);
 });
 
