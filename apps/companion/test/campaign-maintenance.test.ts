@@ -11,10 +11,12 @@ import {
 
 test('maintenance worker verifies history and reconstructs a numbered revision off the main thread', async t => {
   const root = await mkdtemp(join(tmpdir(), 'st-rpg-maintenance-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
   const databasePath = join(root, 'campaigns.sqlite');
   const journal = await SqliteCampaignJournal.open(databasePath, 2);
-  t.after(() => journal.close());
+  t.after(async () => {
+    journal.close();
+    await rm(root, { recursive: true, force: true });
+  });
 
   const created = await journal.createCampaign({ requestId: 'worker-create', title: 'Worker Campaign' });
   await journal.execute(created.campaignId, {
