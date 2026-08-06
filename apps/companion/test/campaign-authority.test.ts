@@ -21,8 +21,11 @@ async function fixture() {
 
 test('Campaign history is durable, idempotent, revisioned, and reconstructable', async t => {
   const files = await fixture();
-  t.after(() => rm(files.root, { recursive: true, force: true }));
   let journal = await SqliteCampaignJournal.open(files.databasePath, 2);
+  t.after(async () => {
+    journal.close();
+    await rm(files.root, { recursive: true, force: true });
+  });
 
   const created = await journal.createCampaign({ requestId: 'create-1', title: 'Ashes of Harcourt' });
   assert.equal(created.revision, 1);
@@ -63,12 +66,10 @@ test('Campaign history is durable, idempotent, revisioned, and reconstructable',
   journal = await SqliteCampaignJournal.open(files.databasePath, 2);
   assert.equal(journal.readCampaign(created.campaignId).actors[0]?.name, 'Lavitz');
   journal.verifyOrThrow();
-  journal.close();
 });
 
 test('injected transaction failure rolls back Event, projection, snapshot, and request receipt', async t => {
   const files = await fixture();
-  t.after(() => rm(files.root, { recursive: true, force: true }));
   let activeFault: CampaignJournalFaultPoint | null = null;
   const journal = await SqliteCampaignJournal.open(files.databasePath, {
     snapshotInterval: 2,
@@ -76,7 +77,10 @@ test('injected transaction failure rolls back Event, projection, snapshot, and r
       if (point === activeFault) throw new Error(`Injected fault at ${point}`);
     },
   });
-  t.after(() => journal.close());
+  t.after(async () => {
+    journal.close();
+    await rm(files.root, { recursive: true, force: true });
+  });
 
   const created = await journal.createCampaign({ requestId: 'fault-create', title: 'Atomic Campaign' });
   activeFault = 'execute.after-event';
@@ -101,9 +105,11 @@ test('injected transaction failure rolls back Event, projection, snapshot, and r
 
 test('verified backup and restore return the authoritative Campaign to the backed-up revision', async t => {
   const files = await fixture();
-  t.after(() => rm(files.root, { recursive: true, force: true }));
   const journal = await SqliteCampaignJournal.open(files.databasePath, 25);
-  t.after(() => journal.close());
+  t.after(async () => {
+    journal.close();
+    await rm(files.root, { recursive: true, force: true });
+  });
 
   const created = await journal.createCampaign({ requestId: 'create-backup', title: 'Backup Campaign' });
   const actor = await journal.execute(created.campaignId, {
@@ -126,14 +132,16 @@ test('verified backup and restore return the authoritative Campaign to the backe
 
 test('restore interruption recovers and verifies the previous authority before returning failure', async t => {
   const files = await fixture();
-  t.after(() => rm(files.root, { recursive: true, force: true }));
   let activeFault: CampaignJournalFaultPoint | null = null;
   const journal = await SqliteCampaignJournal.open(files.databasePath, {
     faultInjector(point) {
       if (point === activeFault) throw new Error(`Injected fault at ${point}`);
     },
   });
-  t.after(() => journal.close());
+  t.after(async () => {
+    journal.close();
+    await rm(files.root, { recursive: true, force: true });
+  });
 
   const created = await journal.createCampaign({ requestId: 'restore-create', title: 'Restore Campaign' });
   const actor = await journal.execute(created.campaignId, {
