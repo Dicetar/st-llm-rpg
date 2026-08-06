@@ -19,6 +19,7 @@
     "dev:companion": "npm run dev -w @st-llm-rpg/companion",
     "dev:workspace": "npm run dev -w @st-llm-rpg/workspace",
     "install:bridge": "powershell -NoProfile -ExecutionPolicy Bypass -File extension/st-rpg-bridge/install.ps1",
+    "verify:campaign-milestone": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-campaign-authority.ps1 -RunFullSuite",
     "prototype:persistence": "node prototypes/campaign-authority-sqlite-spike/run.mjs",
     "prototype:proxy": "powershell -NoProfile -ExecutionPolicy Bypass -File prototypes/st-narrator-proxy-spike/run.ps1",
     "prototype:workspace": "node prototypes/workspace-shells/server.mjs",
