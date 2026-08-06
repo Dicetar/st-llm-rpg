@@ -59,7 +59,7 @@ export class SqliteCampaignJournal {
   #databaseOpen = true;
   #writeTail: Promise<void> = Promise.resolve();
   #commitDurations: number[] = [];
-  #faultInjector?: (point: CampaignJournalFaultPoint) => void;
+  #faultInjector: ((point: CampaignJournalFaultPoint) => void) | undefined;
 
   private constructor(databasePath: string, options: Required<Pick<CampaignJournalOptions, 'snapshotInterval' | 'timingSampleLimit'>> & Pick<CampaignJournalOptions, 'faultInjector'>, database: DatabaseSync) {
     this.databasePath = databasePath;
