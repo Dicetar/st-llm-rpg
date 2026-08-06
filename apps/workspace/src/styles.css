@@ -65,17 +65,26 @@ input:focus-visible { outline: 3px solid #e9bd72; outline-offset: 2px; }
 .record-list { display: grid; gap: 0.75rem; margin-top: 1rem; }
 .record-row { grid-template-columns: minmax(0, 1fr) auto; align-items: end; padding: 0.8rem; border: 1px solid #4c4032; border-radius: 0.8rem; }
 .revision-badge { border: 1px solid #47755a; border-radius: 999px; padding: 0.35rem 0.7rem; color: #cce7d4; white-space: nowrap; }
+.revision-badge--historical { border-color: #98713b; color: #f0d6ad; }
 .success-banner { border: 1px solid #47755a; border-radius: 0.8rem; padding: 0.9rem; background: rgba(40, 92, 59, 0.24); color: #d9f4e0; }
 .empty-state { color: #a99c89; line-height: 1.5; }
+.conflict-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; border: 1px solid #a9554e; border-radius: 0.8rem; padding: 0.9rem; background: rgba(114, 40, 34, 0.28); color: #ffd7d2; }
+.conflict-banner p { margin: 0.35rem 0 0; line-height: 1.5; }
+.conflict-banner button { flex: 0 0 auto; }
+.historical-note { border-left: 3px solid #98713b; padding: 0.75rem 1rem; background: rgba(89, 61, 29, 0.25); color: #e7d2b0; }
 .history-panel { margin-top: 1rem; border-top: 1px solid #4c4032; padding-top: 1rem; }
 .history-panel summary { cursor: pointer; color: #e9bd72; }
-.history-panel ol { margin-bottom: 0; padding-left: 1.4rem; color: #c9bca8; }
+.historical-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.8rem; border: 1px solid #98713b; border-radius: 0.75rem; padding: 0.75rem; background: rgba(89, 61, 29, 0.2); color: #e7d2b0; }
+.history-list { display: grid; gap: 0.5rem; margin-bottom: 0; padding: 0; list-style: none; }
+.history-entry { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; text-align: left; background: #211c16; border-color: #4c4032; }
+.history-entry span { color: #c9bca8; overflow-wrap: anywhere; }
+.history-entry--active { border-color: #e9bd72; background: #4b371f; }
 
 @media (max-width: 760px) {
   .authority-layout { grid-template-columns: 1fr; }
-  .campaign-title-row { flex-direction: column; align-items: stretch; }
+  .campaign-title-row, .conflict-banner, .historical-banner { flex-direction: column; align-items: stretch; }
   .record-row { grid-template-columns: 1fr; }
-  .record-row button { width: 100%; }
+  .record-row button, .conflict-banner button, .historical-banner button { width: 100%; }
 }
 
 @media (max-width: 600px) {
