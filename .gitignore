@@ -3,8 +3,13 @@ _old/
 # Isolated local SillyTavern runtime (contains copied settings and secrets)
 .runtime/
 
-# Generated environments and caches
+# Generated Node dependencies, builds, and caches
 node_modules/
+**/dist/
+*.tsbuildinfo
+coverage/
+
+# Generated Python environments and caches
 .venv/
 **/.venv/
 __pycache__/
