@@ -101,7 +101,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   const app = Fastify({
     logger: { level: options.config.logLevel },
     genReqId: () => randomUUID(),
-    logController: { disableRequestLogging: true },
+    disableRequestLogging: true,
   });
 
   if (ownsCampaignEngine) {
