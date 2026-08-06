@@ -24,7 +24,7 @@ export function registerCampaignRoutes(app: FastifyInstance, engine: CampaignEng
     schema: { response: { 200: CampaignCommitPerformanceSchema, 503: ProblemSchema } },
   }, async (request, reply) => sendOutcome(reply, await engine.performance(String(request.id))));
 
-  app.post('/api/campaign-authority/verify', {
+  app.get('/api/campaign-authority/verify', {
     schema: { response: { 200: CampaignVerificationResultSchema, 503: ProblemSchema } },
   }, async (request, reply) => sendOutcome(reply, await engine.verify(String(request.id))));
 
