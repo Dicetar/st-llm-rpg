@@ -43,16 +43,35 @@ V1 does **not** use hidden narration drafts, enrichment rewrites, narrator tools
 
 The fallback already exposes a Campaign Session boundary through `open`, `query`, `preview`, `execute`, and `subscribe`. Use that seam before introducing another abstraction. Extract one record-kind workflow only when an active companion tracer needs it; do not begin a broad cleanup refactor independently of product delivery.
 
+## Testing cadence
+
+Do not run the full build, typecheck, and test matrix after every edit or small commit.
+
+During active implementation:
+
+- continue through a coherent slice without interrupting it for routine full-suite runs;
+- use a narrow syntax check, focused test, or smoke check only when a risky boundary would otherwise let unknown failures accumulate;
+- do not ask the user to rerun the full suite for intermediate cleanup commits;
+- treat background CI as a safety signal, not as a reason to stop an unfinished coherent slice.
+
+Run verification in bulk at a real milestone boundary, such as:
+
+- completing and closing a tracer;
+- finishing the first end-to-end SQLite Campaign workflow;
+- completing a migration, backup/restore, narrator-routing, or cutover slice;
+- preparing a release or destructive authority transition.
+
+Milestone verification should include the relevant typecheck, production build, full behavioral suite, runtime smoke checks, and any required Windows or physical-phone evidence.
+
 ## Evidence rules
 
 - Throw or return a clear actionable error when a requirement fails.
-- Run the smallest focused test first, then the full relevant suite.
-- GitHub Actions must run the supported Windows baseline on every push and pull request.
+- Preserve enough focused checks during risky implementation to avoid stacking silent corruption or irreversible state defects.
 - Mobile acceptance requires the physical Android client near 360 CSS pixels.
 - LM Studio/model claims require the actual target machine and named model IDs.
 - Prototype results are evidence, not production completion.
-- Close an implementation ticket only after its user-visible demo and every acceptance criterion pass.
+- Close an implementation ticket only after its user-visible demo and milestone verification pass.
 
 ## Delivery rule
 
-Each implementation session must end in a runnable behavior, an executable regression test, or removal of a concrete blocker. Do not create planning artifacts merely to restate accepted decisions. Keep operator documentation proportional to shipped behavior; scaffolding is not a product milestone.
+Each implementation session must end in runnable behavior, an executable regression test, or removal of a concrete blocker. Do not create planning artifacts merely to restate accepted decisions. Keep operator documentation proportional to shipped behavior; scaffolding is not a product milestone.
