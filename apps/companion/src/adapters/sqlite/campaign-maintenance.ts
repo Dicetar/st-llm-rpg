@@ -18,9 +18,12 @@ type WorkerResponse<T> =
 
 function runWorker<T>(request: WorkerRequest): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const worker = new Worker(new URL('./campaign-maintenance-worker.js', import.meta.url), {
-      workerData: request,
-    });
+    const sourceMode = import.meta.url.endsWith('.ts');
+    const workerUrl = new URL(
+      sourceMode ? './campaign-maintenance-worker.ts' : './campaign-maintenance-worker.js',
+      import.meta.url,
+    );
+    const worker = new Worker(workerUrl, { workerData: request });
     let settled = false;
     const settle = (work: () => void) => {
       if (settled) return;
