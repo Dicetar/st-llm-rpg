@@ -82,6 +82,12 @@ function validationDetails(error: unknown): unknown | undefined {
   return (error as { validation?: unknown }).validation;
 }
 
+function httpStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null || !('statusCode' in error)) return undefined;
+  const value = Number((error as { statusCode?: unknown }).statusCode);
+  return Number.isInteger(value) && value >= 400 && value < 500 ? value : undefined;
+}
+
 export async function buildCompanion(options: BuildCompanionOptions): Promise<FastifyInstance> {
   await assertWorkspaceBuild(options.config);
   const startedAt = options.startedAt ?? new Date();
@@ -95,7 +101,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   const app = Fastify({
     logger: { level: options.config.logLevel },
     genReqId: () => randomUUID(),
-    disableRequestLogging: true,
+    logController: { disableRequestLogging: true },
   });
 
   if (ownsCampaignEngine) {
@@ -182,6 +188,15 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
     }
     if (error instanceof ProblemError) {
       void reply.code(error.statusCode).send(error.problem);
+      return;
+    }
+    const statusCode = httpStatus(error);
+    if (statusCode !== undefined) {
+      void reply.code(statusCode).send(makeProblem({
+        code: 'CAMPAIGN_VALIDATION_FAILED',
+        message: error instanceof Error ? error.message : 'The request could not be accepted.',
+        requestId: String(request.id),
+      }));
       return;
     }
     const problem = makeProblem({
