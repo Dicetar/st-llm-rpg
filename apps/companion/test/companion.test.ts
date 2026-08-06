@@ -39,9 +39,11 @@ const observations: readonly ComponentObservation[] = [
 
 test('health stays alive while external readiness is degraded', async t => {
   const workspaceRoot = await workspaceFixture();
-  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
   const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });
-  t.after(() => app.close());
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
 
   const health = await app.inject({ method: 'GET', url: '/health' });
   assert.equal(health.statusCode, 200);
@@ -56,12 +58,14 @@ test('health stays alive while external readiness is degraded', async t => {
 
 test('blocking internal failure makes readiness not-ready', async t => {
   const workspaceRoot = await workspaceFixture();
-  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
   const failed = observations.map(value => value.id === 'sqlite-runtime'
     ? { ...value, status: 'unavailable' as const }
     : value);
   const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => failed });
-  t.after(() => app.close());
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
   const ready = await app.inject({ method: 'GET', url: '/ready' });
   assert.equal(ready.json().ready, false);
   assert.equal(ready.json().status, 'not-ready');
@@ -69,9 +73,11 @@ test('blocking internal failure makes readiness not-ready', async t => {
 
 test('workspace shell and built assets are served without a second server', async t => {
   const workspaceRoot = await workspaceFixture();
-  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
   const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });
-  t.after(() => app.close());
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
   const root = await app.inject({ method: 'GET', url: '/' });
   assert.match(root.body, /Campaign Book/);
   const asset = await app.inject({ method: 'GET', url: '/assets/app.js' });
@@ -81,9 +87,11 @@ test('workspace shell and built assets are served without a second server', asyn
 
 test('Campaign API persists revisions and returns an explicit stale conflict', async t => {
   const workspaceRoot = await workspaceFixture();
-  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
   const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });
-  t.after(() => app.close());
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
 
   const create = await app.inject({ method: 'POST', url: '/api/campaigns', payload: { requestId: 'http-create', title: 'HTTP Campaign' } });
   assert.equal(create.statusCode, 201);
@@ -116,10 +124,13 @@ test('Campaign API persists revisions and returns an explicit stale conflict', a
 
 test('Campaign survives a full companion close and reopen through the HTTP boundary', async t => {
   const workspaceRoot = await workspaceFixture();
-  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
   const companionConfig = config(workspaceRoot);
 
   let app = await buildCompanion({ config: companionConfig, probeDependencies: async () => observations });
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
   const create = await app.inject({ method: 'POST', url: '/api/campaigns', payload: { requestId: 'restart-create', title: 'Restart Campaign' } });
   const created = create.json();
   const actor = await app.inject({
@@ -131,7 +142,6 @@ test('Campaign survives a full companion close and reopen through the HTTP bound
   await app.close();
 
   app = await buildCompanion({ config: companionConfig, probeDependencies: async () => observations });
-  t.after(() => app.close());
   const reopened = await app.inject({ method: 'GET', url: `/api/campaigns/${created.campaignId}` });
   assert.equal(reopened.statusCode, 200);
   assert.equal(reopened.json().campaign.revision, 2);
