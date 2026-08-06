@@ -2,7 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { copyFile, mkdir, rename, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
-import type { CampaignCommit, CampaignDocument, CampaignHistoryEntry, CampaignSummary, CreateCampaignRequest, ExecuteCampaignRequest } from '@st-llm-rpg/wire';
+import type {
+  CampaignCommit,
+  CampaignCommitPerformance,
+  CampaignDocument,
+  CampaignHistoryEntry,
+  CampaignSummary,
+  CreateCampaignRequest,
+  ExecuteCampaignRequest,
+} from '@st-llm-rpg/wire';
 import { CAMPAIGN_AUTHORITY_MIGRATION, campaignMigrationChecksum } from '../../migrations/001-campaign-authority.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
@@ -23,26 +31,59 @@ import { verifyCampaignDatabase } from './campaign-verifier.js';
 const APPLICATION_ID = 0x52504733;
 const EVENT_SCHEMA_VERSION = 1;
 const STATE_SCHEMA_VERSION = 1;
+const DEFAULT_SNAPSHOT_INTERVAL = 25;
+const DEFAULT_TIMING_SAMPLE_LIMIT = 500;
 
 export type CampaignAuthorityObservation = Readonly<{ ready: boolean; message: string; latencyMs: number }>;
+
+export type CampaignJournalFaultPoint =
+  | 'create.after-event'
+  | 'create.after-snapshot'
+  | 'execute.after-event'
+  | 'execute.after-projection'
+  | 'restore.after-safety-backup'
+  | 'restore.after-target-remove'
+  | 'restore.after-swap';
+
+export type CampaignJournalOptions = Readonly<{
+  snapshotInterval?: number;
+  timingSampleLimit?: number;
+  faultInjector?: (point: CampaignJournalFaultPoint) => void;
+}>;
 
 export class SqliteCampaignJournal {
   readonly databasePath: string;
   readonly snapshotInterval: number;
+  readonly timingSampleLimit: number;
   #database: DatabaseSync;
+  #databaseOpen = true;
   #writeTail: Promise<void> = Promise.resolve();
+  #commitDurations: number[] = [];
+  #faultInjector?: (point: CampaignJournalFaultPoint) => void;
 
-  private constructor(databasePath: string, snapshotInterval: number, database: DatabaseSync) {
+  private constructor(databasePath: string, options: Required<Pick<CampaignJournalOptions, 'snapshotInterval' | 'timingSampleLimit'>> & Pick<CampaignJournalOptions, 'faultInjector'>, database: DatabaseSync) {
     this.databasePath = databasePath;
-    this.snapshotInterval = snapshotInterval;
+    this.snapshotInterval = options.snapshotInterval;
+    this.timingSampleLimit = options.timingSampleLimit;
+    this.#faultInjector = options.faultInjector;
     this.#database = database;
   }
 
-  static async open(databasePath: string, snapshotInterval = 25): Promise<SqliteCampaignJournal> {
+  static async open(databasePath: string, options: number | CampaignJournalOptions = DEFAULT_SNAPSHOT_INTERVAL): Promise<SqliteCampaignJournal> {
+    const normalized: CampaignJournalOptions = typeof options === 'number' ? { snapshotInterval: options } : options;
+    const snapshotInterval = normalized.snapshotInterval ?? DEFAULT_SNAPSHOT_INTERVAL;
+    const timingSampleLimit = normalized.timingSampleLimit ?? DEFAULT_TIMING_SAMPLE_LIMIT;
+    if (!Number.isInteger(snapshotInterval) || snapshotInterval < 1) throw new Error('Snapshot interval must be a positive integer.');
+    if (!Number.isInteger(timingSampleLimit) || timingSampleLimit < 1) throw new Error('Timing sample limit must be a positive integer.');
+
     const resolved = resolve(databasePath);
     await mkdir(dirname(resolved), { recursive: true });
     const database = new DatabaseSync(resolved);
-    const journal = new SqliteCampaignJournal(resolved, snapshotInterval, database);
+    const journal = new SqliteCampaignJournal(resolved, {
+      snapshotInterval,
+      timingSampleLimit,
+      ...(normalized.faultInjector ? { faultInjector: normalized.faultInjector } : {}),
+    }, database);
     try {
       journal.configure();
       journal.assertStoreIdentity();
@@ -50,22 +91,28 @@ export class SqliteCampaignJournal {
       journal.verifyOrThrow();
       return journal;
     } catch (error) {
-      database.close();
+      journal.close();
       throw error;
     }
   }
 
   close(): void {
+    if (!this.#databaseOpen) return;
     this.#database.close();
+    this.#databaseOpen = false;
   }
 
   observation(): CampaignAuthorityObservation {
     const started = performance.now();
     try {
       const row = this.#database.prepare('SELECT COUNT(*) AS count FROM campaigns').get() as { count: number | bigint };
+      const performanceSummary = this.performance();
+      const timing = performanceSummary.sampleCount > 0
+        ? ` Commit p95 ${performanceSummary.p95Ms.toFixed(2)} ms, max ${performanceSummary.maxMs.toFixed(2)} ms.`
+        : '';
       return {
         ready: true,
-        message: `SQLite Campaign authority is ready at ${this.databasePath} (${Number(row.count)} Campaigns).`,
+        message: `SQLite Campaign authority is ready at ${this.databasePath} (${Number(row.count)} Campaigns).${timing}`,
         latencyMs: Math.max(0, performance.now() - started),
       };
     } catch (error) {
@@ -75,6 +122,22 @@ export class SqliteCampaignJournal {
         latencyMs: Math.max(0, performance.now() - started),
       };
     }
+  }
+
+  performance(): CampaignCommitPerformance {
+    if (this.#commitDurations.length === 0) {
+      return { sampleCount: 0, p95Ms: 0, maxMs: 0, latestMs: 0, targetMs: 50, investigationMs: 200 };
+    }
+    const sorted = [...this.#commitDurations].sort((left, right) => left - right);
+    const p95Index = Math.max(0, Math.ceil(sorted.length * 0.95) - 1);
+    return {
+      sampleCount: sorted.length,
+      p95Ms: sorted[p95Index]!,
+      maxMs: sorted.at(-1)!,
+      latestMs: this.#commitDurations.at(-1)!,
+      targetMs: 50,
+      investigationMs: 200,
+    };
   }
 
   listCampaigns(): CampaignSummary[] {
@@ -123,6 +186,7 @@ export class SqliteCampaignJournal {
     return this.serializeWrite(() => {
       const receipt = this.readReceipt(requestId);
       if (receipt) return this.acceptReceipt(receipt, requestDigest);
+      const started = performance.now();
       const campaignId = randomUUID();
       const eventId = randomUUID();
       const committedAt = new Date().toISOString();
@@ -140,9 +204,12 @@ export class SqliteCampaignJournal {
           VALUES (?, ?, 'active', 1, ?, ?, ?, ?)
         `).run(campaignId, title, canonicalJson(state), hash, committedAt, committedAt);
         this.insertEvent({ campaignId, revision: 1, eventId, requestId, operationKind: operation.kind, operation, beforeState: null, afterState: state, acceptedAt: committedAt, previousEventHash: null, eventHash: hash });
+        this.inject('create.after-event');
         this.insertSnapshot(campaignId, 1, state, hash, committedAt);
+        this.inject('create.after-snapshot');
         this.insertReceipt(requestId, requestDigest, campaignId, commit, committedAt);
       });
+      this.recordCommitDuration(started);
       return commit;
     });
   }
@@ -163,6 +230,7 @@ export class SqliteCampaignJournal {
           { campaignId: id, expectedRevision: request.expectedRevision, actualRevision: Number(campaign.current_revision) },
         );
       }
+      const started = performance.now();
       const beforeState = parseJson<CampaignState>(campaign.current_state_json);
       const afterState = structuredClone(beforeState);
       const affectedIds = applyOperation(afterState, request.operation);
@@ -177,13 +245,16 @@ export class SqliteCampaignJournal {
       };
       this.transaction(() => {
         this.insertEvent({ campaignId: id, revision, eventId, requestId, operationKind: request.operation.kind, operation: request.operation, beforeState, afterState, acceptedAt: committedAt, previousEventHash: campaign.head_event_hash, eventHash: hash });
+        this.inject('execute.after-event');
         this.#database.prepare(`
           UPDATE campaigns SET title = ?, status = ?, current_revision = ?, current_state_json = ?, head_event_hash = ?, updated_at = ?
           WHERE campaign_id = ?
         `).run(afterState.campaign.title, afterState.campaign.status, revision, canonicalJson(afterState), hash, committedAt, id);
+        this.inject('execute.after-projection');
         if (revision % this.snapshotInterval === 0) this.insertSnapshot(id, revision, afterState, hash, committedAt);
         this.insertReceipt(requestId, requestDigest, id, commit, committedAt);
       });
+      this.recordCommitDuration(started);
       return commit;
     });
   }
@@ -193,38 +264,69 @@ export class SqliteCampaignJournal {
   }
 
   async backupTo(destinationPath: string): Promise<string> {
-    const destination = resolve(destinationPath);
-    await mkdir(dirname(destination), { recursive: true });
-    await rm(destination, { force: true });
-    await backup(this.#database, destination);
-    const copy = new DatabaseSync(destination, { readOnly: true });
-    try { verifyCampaignDatabase(copy); } finally { copy.close(); }
-    return destination;
+    return this.serializeWrite(async () => {
+      const destination = resolve(destinationPath);
+      if (destination === this.databasePath) throw new Error('Campaign backup destination must differ from the active database.');
+      await mkdir(dirname(destination), { recursive: true });
+      await this.removeDatabaseArtifacts(destination);
+      await backup(this.#database, destination);
+      const copy = new DatabaseSync(destination, { readOnly: true });
+      try { verifyCampaignDatabase(copy); } finally { copy.close(); }
+      return destination;
+    });
   }
 
   async restoreFrom(sourcePath: string): Promise<void> {
-    const source = resolve(sourcePath);
-    const sourceDatabase = new DatabaseSync(source, { readOnly: true });
-    try { verifyCampaignDatabase(sourceDatabase); } finally { sourceDatabase.close(); }
-    const safety = `${this.databasePath}.before-restore`;
-    await rm(safety, { force: true });
-    this.#database.close();
-    try {
-      await copyFile(this.databasePath, safety);
+    return this.serializeWrite(async () => {
+      const source = resolve(sourcePath);
+      if (source === this.databasePath) throw new Error('Campaign restore source must differ from the active database.');
+      const safety = `${this.databasePath}.before-restore`;
       const staged = `${this.databasePath}.restore`;
-      await copyFile(source, staged);
-      await rename(staged, this.databasePath);
-      this.#database = new DatabaseSync(this.databasePath);
-      this.configure();
-      this.verifyOrThrow();
-    } catch (error) {
-      await copyFile(safety, this.databasePath).catch(() => undefined);
-      this.#database = new DatabaseSync(this.databasePath);
-      this.configure();
-      throw error;
-    } finally {
-      await rm(safety, { force: true });
-    }
+      await this.removeDatabaseArtifacts(safety);
+      await this.removeDatabaseArtifacts(staged);
+
+      try {
+        const sourceDatabase = new DatabaseSync(source, { readOnly: true });
+        try {
+          verifyCampaignDatabase(sourceDatabase);
+          await backup(sourceDatabase, staged);
+        } finally {
+          sourceDatabase.close();
+        }
+        const stagedDatabase = new DatabaseSync(staged, { readOnly: true });
+        try { verifyCampaignDatabase(stagedDatabase); } finally { stagedDatabase.close(); }
+
+        await backup(this.#database, safety);
+        try {
+          this.inject('restore.after-safety-backup');
+          this.closeDatabase();
+          await this.removeDatabaseArtifacts(this.databasePath);
+          this.inject('restore.after-target-remove');
+          await rename(staged, this.databasePath);
+          this.inject('restore.after-swap');
+          this.openDatabase();
+          this.verifyOrThrow();
+        } catch (error) {
+          let recoveryError: unknown;
+          try {
+            this.closeDatabase();
+            await this.removeDatabaseArtifacts(this.databasePath);
+            await copyFile(safety, this.databasePath);
+            this.openDatabase();
+            this.verifyOrThrow();
+          } catch (caught) {
+            recoveryError = caught;
+          }
+          if (recoveryError !== undefined) {
+            throw new AggregateError([error, recoveryError], 'Campaign restore failed and the previous authority could not be recovered safely.');
+          }
+          throw error;
+        }
+      } finally {
+        await this.removeDatabaseArtifacts(staged);
+        await this.removeDatabaseArtifacts(safety);
+      }
+    });
   }
 
   private configure(): void {
@@ -273,7 +375,7 @@ export class SqliteCampaignJournal {
     if (!Number.isInteger(revision) || revision < 1 || revision > Number(campaign.current_revision)) {
       throw new CampaignExpectedError('CAMPAIGN_REVISION_NOT_FOUND', `Campaign revision ${revision} was not found.`, 404, { campaignId, revision, currentRevision: Number(campaign.current_revision) });
     }
-    const event = this.#database.prepare(`SELECT after_state_json FROM campaign_events WHERE campaign_id = ? AND revision = ?`).get(campaignId, revision) as { after_state_json: string } | undefined;
+    const event = this.#database.prepare('SELECT after_state_json FROM campaign_events WHERE campaign_id = ? AND revision = ?').get(campaignId, revision) as { after_state_json: string } | undefined;
     if (!event) throw new Error(`Campaign ${campaignId} is missing immutable revision ${revision}.`);
     verifyCampaignDatabase(this.#database);
     return parseJson<CampaignState>(event.after_state_json);
@@ -333,5 +435,36 @@ export class SqliteCampaignJournal {
     const run = this.#writeTail.then(work, work);
     this.#writeTail = run.then(() => undefined, () => undefined);
     return run;
+  }
+
+  private inject(point: CampaignJournalFaultPoint): void {
+    this.#faultInjector?.(point);
+  }
+
+  private recordCommitDuration(started: number): void {
+    this.#commitDurations.push(Math.max(0, performance.now() - started));
+    if (this.#commitDurations.length > this.timingSampleLimit) {
+      this.#commitDurations.splice(0, this.#commitDurations.length - this.timingSampleLimit);
+    }
+  }
+
+  private closeDatabase(): void {
+    if (!this.#databaseOpen) return;
+    this.#database.close();
+    this.#databaseOpen = false;
+  }
+
+  private openDatabase(): void {
+    this.#database = new DatabaseSync(this.databasePath);
+    this.#databaseOpen = true;
+    this.configure();
+  }
+
+  private async removeDatabaseArtifacts(path: string): Promise<void> {
+    await Promise.all([
+      rm(path, { force: true }),
+      rm(`${path}-wal`, { force: true }),
+      rm(`${path}-shm`, { force: true }),
+    ]);
   }
 }

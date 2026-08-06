@@ -1,5 +1,6 @@
 import type {
   CampaignCommit,
+  CampaignCommitPerformance,
   CampaignDocument,
   CampaignHistoryEntry,
   CampaignSummary,
@@ -75,6 +76,10 @@ export class CampaignEngine {
 
   async execute(campaignId: string, request: ExecuteCampaignRequest): Promise<Outcome<CampaignCommit>> {
     return this.capture(request.requestId, () => this.journal.execute(campaignId, request));
+  }
+
+  async performance(requestId: string): Promise<Outcome<CampaignCommitPerformance>> {
+    return this.capture(requestId, () => this.journal.performance());
   }
 
   private async capture<T>(requestId: string, work: () => T | Promise<T>): Promise<Outcome<T>> {

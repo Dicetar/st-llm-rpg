@@ -4,7 +4,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { SqliteCampaignJournal } from '../src/adapters/sqlite/campaign-journal.js';
+import {
+  SqliteCampaignJournal,
+  type CampaignJournalFaultPoint,
+} from '../src/adapters/sqlite/campaign-journal.js';
 import { CampaignExpectedError } from '../src/modules/campaign/campaign-error.js';
 
 async function fixture() {
@@ -50,11 +53,50 @@ test('Campaign history is durable, idempotent, revisioned, and reconstructable',
   assert.equal(journal.readCampaign(created.campaignId, 1).actors.length, 0);
   assert.equal(journal.readCampaign(created.campaignId, 2).actors[0]?.name, 'Lavitz');
 
+  const performance = journal.performance();
+  assert.equal(performance.sampleCount, 2);
+  assert.ok(performance.latestMs >= 0);
+  assert.equal(performance.targetMs, 50);
+  assert.equal(performance.investigationMs, 200);
+
   journal.close();
   journal = await SqliteCampaignJournal.open(files.databasePath, 2);
   assert.equal(journal.readCampaign(created.campaignId).actors[0]?.name, 'Lavitz');
   journal.verifyOrThrow();
   journal.close();
+});
+
+test('injected transaction failure rolls back Event, projection, snapshot, and request receipt', async t => {
+  const files = await fixture();
+  t.after(() => rm(files.root, { recursive: true, force: true }));
+  let activeFault: CampaignJournalFaultPoint | null = null;
+  const journal = await SqliteCampaignJournal.open(files.databasePath, {
+    snapshotInterval: 2,
+    faultInjector(point) {
+      if (point === activeFault) throw new Error(`Injected fault at ${point}`);
+    },
+  });
+  t.after(() => journal.close());
+
+  const created = await journal.createCampaign({ requestId: 'fault-create', title: 'Atomic Campaign' });
+  activeFault = 'execute.after-event';
+  const request = {
+    requestId: 'fault-operation',
+    expectedRevision: 1,
+    operation: { kind: 'create_actor' as const, actor: { name: 'Should Roll Back' } },
+  };
+  await assert.rejects(journal.execute(created.campaignId, request), /Injected fault/);
+
+  assert.equal(journal.readCampaign(created.campaignId).campaign.revision, 1);
+  assert.equal(journal.readCampaign(created.campaignId).actors.length, 0);
+  assert.equal(journal.history(created.campaignId).length, 1);
+  assert.equal(journal.performance().sampleCount, 1);
+
+  activeFault = null;
+  const accepted = await journal.execute(created.campaignId, request);
+  assert.equal(accepted.revision, 2);
+  assert.equal(accepted.document.actors[0]?.name, 'Should Roll Back');
+  assert.equal(journal.history(created.campaignId).length, 2);
 });
 
 test('verified backup and restore return the authoritative Campaign to the backed-up revision', async t => {
@@ -80,6 +122,42 @@ test('verified backup and restore return the authoritative Campaign to the backe
   await journal.restoreFrom(files.backupPath);
   assert.equal(journal.readCampaign(created.campaignId).campaign.revision, 2);
   assert.equal(journal.readCampaign(created.campaignId).actors[0]?.name, 'Before Backup');
+});
+
+test('restore interruption recovers and verifies the previous authority before returning failure', async t => {
+  const files = await fixture();
+  t.after(() => rm(files.root, { recursive: true, force: true }));
+  let activeFault: CampaignJournalFaultPoint | null = null;
+  const journal = await SqliteCampaignJournal.open(files.databasePath, {
+    faultInjector(point) {
+      if (point === activeFault) throw new Error(`Injected fault at ${point}`);
+    },
+  });
+  t.after(() => journal.close());
+
+  const created = await journal.createCampaign({ requestId: 'restore-create', title: 'Restore Campaign' });
+  const actor = await journal.execute(created.campaignId, {
+    requestId: 'restore-actor',
+    expectedRevision: 1,
+    operation: { kind: 'create_actor', actor: { name: 'Backup Name' } },
+  });
+  await journal.backupTo(files.backupPath);
+  await journal.execute(created.campaignId, {
+    requestId: 'restore-current',
+    expectedRevision: 2,
+    operation: { kind: 'rename_actor', actorId: actor.affectedIds[0]!, name: 'Current Name' },
+  });
+
+  activeFault = 'restore.after-target-remove';
+  await assert.rejects(journal.restoreFrom(files.backupPath), /Injected fault/);
+  assert.equal(journal.readCampaign(created.campaignId).campaign.revision, 3);
+  assert.equal(journal.readCampaign(created.campaignId).actors[0]?.name, 'Current Name');
+  journal.verifyOrThrow();
+
+  activeFault = null;
+  await journal.restoreFrom(files.backupPath);
+  assert.equal(journal.readCampaign(created.campaignId).campaign.revision, 2);
+  assert.equal(journal.readCampaign(created.campaignId).actors[0]?.name, 'Backup Name');
 });
 
 test('corrupt immutable Event history fails closed on restart', async t => {

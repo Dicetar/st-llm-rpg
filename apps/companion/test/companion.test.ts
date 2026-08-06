@@ -85,22 +85,13 @@ test('Campaign API persists revisions and returns an explicit stale conflict', a
   const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });
   t.after(() => app.close());
 
-  const create = await app.inject({
-    method: 'POST',
-    url: '/api/campaigns',
-    payload: { requestId: 'http-create', title: 'HTTP Campaign' },
-  });
+  const create = await app.inject({ method: 'POST', url: '/api/campaigns', payload: { requestId: 'http-create', title: 'HTTP Campaign' } });
   assert.equal(create.statusCode, 201);
   const created = create.json();
-
   const actor = await app.inject({
     method: 'POST',
     url: `/api/campaigns/${created.campaignId}/operations`,
-    payload: {
-      requestId: 'http-actor',
-      expectedRevision: 1,
-      operation: { kind: 'create_actor', actor: { name: 'HTTP Actor' } },
-    },
+    payload: { requestId: 'http-actor', expectedRevision: 1, operation: { kind: 'create_actor', actor: { name: 'HTTP Actor' } } },
   });
   assert.equal(actor.statusCode, 200);
   assert.equal(actor.json().revision, 2);
@@ -108,11 +99,7 @@ test('Campaign API persists revisions and returns an explicit stale conflict', a
   const stale = await app.inject({
     method: 'POST',
     url: `/api/campaigns/${created.campaignId}/operations`,
-    payload: {
-      requestId: 'http-stale',
-      expectedRevision: 1,
-      operation: { kind: 'rename_actor', actorId: actor.json().affectedIds[0], name: 'Lost Update' },
-    },
+    payload: { requestId: 'http-stale', expectedRevision: 1, operation: { kind: 'rename_actor', actorId: actor.json().affectedIds[0], name: 'Lost Update' } },
   });
   assert.equal(stale.statusCode, 409);
   assert.equal(stale.json().code, 'CAMPAIGN_REVISION_CONFLICT');
@@ -120,6 +107,35 @@ test('Campaign API persists revisions and returns an explicit stale conflict', a
   const revisionOne = await app.inject({ method: 'GET', url: `/api/campaigns/${created.campaignId}?revision=1` });
   assert.equal(revisionOne.statusCode, 200);
   assert.equal(revisionOne.json().actors.length, 0);
+
+  const performance = await app.inject({ method: 'GET', url: '/api/campaign-authority/performance' });
+  assert.equal(performance.statusCode, 200);
+  assert.equal(performance.json().sampleCount, 2);
+  assert.equal(performance.json().targetMs, 50);
+});
+
+test('Campaign survives a full companion close and reopen through the HTTP boundary', async t => {
+  const workspaceRoot = await workspaceFixture();
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  const companionConfig = config(workspaceRoot);
+
+  let app = await buildCompanion({ config: companionConfig, probeDependencies: async () => observations });
+  const create = await app.inject({ method: 'POST', url: '/api/campaigns', payload: { requestId: 'restart-create', title: 'Restart Campaign' } });
+  const created = create.json();
+  const actor = await app.inject({
+    method: 'POST',
+    url: `/api/campaigns/${created.campaignId}/operations`,
+    payload: { requestId: 'restart-actor', expectedRevision: 1, operation: { kind: 'create_actor', actor: { name: 'Persisted Actor' } } },
+  });
+  assert.equal(actor.statusCode, 200);
+  await app.close();
+
+  app = await buildCompanion({ config: companionConfig, probeDependencies: async () => observations });
+  t.after(() => app.close());
+  const reopened = await app.inject({ method: 'GET', url: `/api/campaigns/${created.campaignId}` });
+  assert.equal(reopened.statusCode, 200);
+  assert.equal(reopened.json().campaign.revision, 2);
+  assert.equal(reopened.json().actors[0]?.name, 'Persisted Actor');
 });
 
 test('missing Workspace build fails before listening with an actionable Problem', async () => {

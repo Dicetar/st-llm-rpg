@@ -120,10 +120,24 @@ export const CampaignHistoryEntrySchema = Type.Object({
 }, { additionalProperties: false });
 export type CampaignHistoryEntry = Static<typeof CampaignHistoryEntrySchema>;
 
+export const CampaignCommitPerformanceSchema = Type.Object({
+  sampleCount: Type.Integer({ minimum: 0 }),
+  p95Ms: Type.Number({ minimum: 0 }),
+  maxMs: Type.Number({ minimum: 0 }),
+  latestMs: Type.Number({ minimum: 0 }),
+  targetMs: Type.Literal(50),
+  investigationMs: Type.Literal(200),
+}, { additionalProperties: false });
+export type CampaignCommitPerformance = Static<typeof CampaignCommitPerformanceSchema>;
+
 export function isCampaignDocument(value: unknown): value is CampaignDocument {
   return Value.Check(CampaignDocumentSchema, value);
 }
 
 export function isCampaignCommit(value: unknown): value is CampaignCommit {
   return Value.Check(CampaignCommitSchema, value);
+}
+
+export function isCampaignCommitPerformance(value: unknown): value is CampaignCommitPerformance {
+  return Value.Check(CampaignCommitPerformanceSchema, value);
 }

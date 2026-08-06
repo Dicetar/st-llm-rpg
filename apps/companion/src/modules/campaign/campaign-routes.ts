@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
+  CampaignCommitPerformanceSchema,
   CampaignCommitSchema,
   CampaignDocumentSchema,
   CampaignHistoryEntrySchema,
@@ -18,6 +19,10 @@ function sendOutcome<T>(reply: FastifyReply, outcome: Outcome<T>, successStatus 
 }
 
 export function registerCampaignRoutes(app: FastifyInstance, engine: CampaignEngine): void {
+  app.get('/api/campaign-authority/performance', {
+    schema: { response: { 200: CampaignCommitPerformanceSchema, 503: ProblemSchema } },
+  }, async (request, reply) => sendOutcome(reply, await engine.performance(String(request.id))));
+
   app.get('/api/campaigns', {
     schema: { response: { 200: { type: 'array', items: CampaignSummarySchema }, 503: ProblemSchema } },
   }, async (request, reply) => sendOutcome(reply, await engine.list(String(request.id))));
