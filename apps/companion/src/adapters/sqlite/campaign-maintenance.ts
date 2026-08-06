@@ -16,6 +16,19 @@ type WorkerResponse<T> =
       details?: unknown;
     }>;
 
+function resolveWorkerResponse<T>(message: WorkerResponse<T>): T {
+  if (message.ok) return message.value;
+  if (message.code && message.statusCode) {
+    throw new CampaignExpectedError(
+      message.code,
+      message.message,
+      message.statusCode,
+      message.details,
+    );
+  }
+  throw new Error(message.message);
+}
+
 function runWorker<T>(request: WorkerRequest): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const sourceMode = import.meta.url.endsWith('.ts');
@@ -24,34 +37,33 @@ function runWorker<T>(request: WorkerRequest): Promise<T> {
       import.meta.url,
     );
     const worker = new Worker(workerUrl, { workerData: request });
-    let settled = false;
-    const settle = (work: () => void) => {
-      if (settled) return;
-      settled = true;
-      work();
-    };
+    let response: WorkerResponse<T> | undefined;
+    let workerError: Error | undefined;
 
     worker.once('message', (message: WorkerResponse<T>) => {
-      settle(() => {
-        if (message.ok) {
-          resolve(message.value);
-          return;
-        }
-        if (message.code && message.statusCode) {
-          reject(new CampaignExpectedError(
-            message.code,
-            message.message,
-            message.statusCode,
-            message.details,
-          ));
-          return;
-        }
-        reject(new Error(message.message));
-      });
+      response = message;
     });
-    worker.once('error', error => settle(() => reject(error)));
+    worker.once('error', error => {
+      workerError = error;
+    });
     worker.once('exit', code => {
-      if (code !== 0) settle(() => reject(new Error(`Campaign maintenance worker exited with code ${code}.`)));
+      if (workerError) {
+        reject(workerError);
+        return;
+      }
+      if (code !== 0) {
+        reject(new Error(`Campaign maintenance worker exited with code ${code}.`));
+        return;
+      }
+      if (!response) {
+        reject(new Error('Campaign maintenance worker exited without a response.'));
+        return;
+      }
+      try {
+        resolve(resolveWorkerResponse(response));
+      } catch (error) {
+        reject(error);
+      }
     });
   });
 }
