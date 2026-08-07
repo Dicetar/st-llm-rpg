@@ -9,6 +9,7 @@ import {
   CreateCampaignRequestSchema,
   ExecuteCampaignRequestSchema,
   ProblemSchema,
+  type CampaignInvalidation,
   type CreateCampaignRequest,
   type ExecuteCampaignRequest,
 } from '@st-llm-rpg/wire';
@@ -61,6 +62,81 @@ export function registerCampaignRoutes(app: FastifyInstance, engine: CampaignEng
     const { campaignId } = request.params as { campaignId: string };
     const { revision } = request.query as { revision?: number };
     return sendOutcome(reply, await engine.read(campaignId, String(request.id), revision));
+  });
+
+  app.get('/api/campaigns/:campaignId/changes', {
+    schema: {
+      params: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['campaignId'],
+        properties: { campaignId: { type: 'string', minLength: 1, maxLength: 128 } },
+      },
+      querystring: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { afterRevision: { type: 'integer', minimum: 0 } },
+      },
+      response: { 404: ProblemSchema, 503: ProblemSchema },
+    },
+  }, async (request, reply) => {
+    const { campaignId } = request.params as { campaignId: string };
+    const { afterRevision = 0 } = request.query as { afterRevision?: number };
+    let connected = false;
+    let queuedRevision = 0;
+    let lastRevision = afterRevision;
+
+    const writeInvalidation = (revision: number) => {
+      if (!connected || revision <= lastRevision) return;
+      lastRevision = revision;
+      const event: CampaignInvalidation = {
+        schema: 'st-rpg.campaign-invalidation',
+        version: '1.0',
+        campaignId,
+        revision,
+        observedAt: new Date().toISOString(),
+      };
+      reply.raw.write(`event: campaign-revision\ndata: ${JSON.stringify(event)}\n\n`);
+    };
+
+    const unsubscribe = engine.subscribe(campaignId, revision => {
+      if (!connected) {
+        queuedRevision = Math.max(queuedRevision, revision);
+        return;
+      }
+      writeInvalidation(revision);
+    });
+
+    const current = await engine.read(campaignId, String(request.id));
+    if (!current.ok) {
+      unsubscribe();
+      return sendOutcome(reply, current);
+    }
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    reply.raw.flushHeaders();
+    connected = true;
+    writeInvalidation(Math.max(current.value.campaign.revision, queuedRevision));
+
+    const heartbeat = setInterval(() => {
+      reply.raw.write(': keep-alive\n\n');
+    }, 25_000);
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+    reply.raw.once('close', cleanup);
+    reply.raw.once('error', cleanup);
+    return reply;
   });
 
   app.get('/api/campaigns/:campaignId/history', {
