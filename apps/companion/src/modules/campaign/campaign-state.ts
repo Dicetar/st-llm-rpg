@@ -4,6 +4,8 @@ import type {
   CampaignDocument,
   CampaignItem,
   CampaignOperation,
+  CampaignPlace,
+  CampaignQuest,
   CampaignScene,
   CampaignSummary,
 } from '@st-llm-rpg/wire';
@@ -13,6 +15,8 @@ export type CampaignState = {
   campaign: CampaignSummary;
   actors: Record<string, CampaignActor>;
   items: Record<string, CampaignItem>;
+  quests?: Record<string, CampaignQuest>;
+  places?: Record<string, CampaignPlace>;
   currentScene: CampaignScene | null;
 };
 
@@ -96,7 +100,21 @@ export function asDocument(state: CampaignState): CampaignDocument {
     campaign: structuredClone(state.campaign),
     actors: Object.values(state.actors).sort(byName),
     items: Object.values(state.items).sort(byName),
+    quests: Object.values(state.quests ?? {}).sort(byName),
+    places: Object.values(state.places ?? {}).sort(byName),
     currentScene: state.currentScene ? structuredClone(state.currentScene) : null,
+  };
+}
+
+export function normalizeCampaignDocument(document: CampaignDocument): CampaignDocument {
+  const legacy = document as CampaignDocument & {
+    quests?: CampaignQuest[];
+    places?: CampaignPlace[];
+  };
+  return {
+    ...document,
+    quests: legacy.quests ?? [],
+    places: legacy.places ?? [],
   };
 }
 
@@ -116,7 +134,13 @@ export function eventHash(input: {
 }
 
 function recordIdExists(state: CampaignState, id: string): boolean {
-  return Boolean(state.actors[id] || state.items[id] || state.currentScene?.id === id);
+  return Boolean(
+    state.actors[id]
+    || state.items[id]
+    || state.quests?.[id]
+    || state.places?.[id]
+    || state.currentScene?.id === id,
+  );
 }
 
 function requireUnusedId(state: CampaignState, value: string | undefined, field: string): string {
@@ -154,6 +178,20 @@ function requireItem(state: CampaignState, itemId: string): CampaignItem {
   return item;
 }
 
+function requireQuest(state: CampaignState, questId: string): CampaignQuest {
+  const id = cleanIdentifier(questId, 'Quest ID');
+  const quest = state.quests?.[id];
+  if (!quest) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Quest ${id} was not found.`, 404, { questId: id });
+  return quest;
+}
+
+function requirePlace(state: CampaignState, placeId: string): CampaignPlace {
+  const id = cleanIdentifier(placeId, 'Place ID');
+  const place = state.places?.[id];
+  if (!place) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Place ${id} was not found.`, 404, { placeId: id });
+  return place;
+}
+
 export function applyOperation(state: CampaignState, operation: CampaignOperation): string[] {
   if (operation.kind === 'create_actor') {
     const id = requireUnusedId(state, operation.actor.id, 'Actor ID');
@@ -176,21 +214,19 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
         { actorId, itemId },
       );
     }
-    const actor: CampaignActor = {
+    state.actors[actorId] = {
       id: actorId,
       name: cleanText(operation.actor.name, 'Actor name', 160),
       summary: cleanOptionalText(operation.actor.summary, 'Actor summary', 4000),
       archived: false,
     };
-    const item: CampaignItem = {
+    state.items[itemId] = {
       id: itemId,
       name: cleanText(operation.item.name, 'Item name', 160),
       summary: cleanOptionalText(operation.item.summary, 'Item summary', 4000),
       archived: false,
       ownerActorId: actorId,
     };
-    state.actors[actorId] = actor;
-    state.items[itemId] = item;
     return [actorId, itemId];
   }
   if (operation.kind === 'rename_actor') {
@@ -253,11 +289,71 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     state.items[item.id] = { ...item, archived: operation.archived };
     return [item.id];
   }
-  const id = operation.scene.id ? cleanIdentifier(operation.scene.id, 'Scene ID') : state.currentScene?.id ?? randomUUID();
-  state.currentScene = {
-    id,
-    name: cleanText(operation.scene.name, 'Scene name', 160),
-    summary: cleanOptionalText(operation.scene.summary, 'Scene summary', 4000),
-  };
-  return [id];
+  if (operation.kind === 'create_quest') {
+    const id = requireUnusedId(state, operation.quest.id, 'Quest ID');
+    state.quests ??= {};
+    state.quests[id] = {
+      id,
+      name: cleanText(operation.quest.name, 'Quest name', 160),
+      summary: cleanOptionalText(operation.quest.summary, 'Quest summary', 4000),
+      status: operation.quest.status ?? 'active',
+      archived: false,
+    };
+    return [id];
+  }
+  if (operation.kind === 'update_quest') {
+    const quest = requireQuest(state, operation.questId);
+    state.quests ??= {};
+    state.quests[quest.id] = {
+      ...quest,
+      name: cleanText(operation.name, 'Quest name', 160),
+      summary: cleanOptionalText(operation.summary, 'Quest summary', 4000),
+      status: operation.status,
+    };
+    return [quest.id];
+  }
+  if (operation.kind === 'set_quest_archived') {
+    const quest = requireQuest(state, operation.questId);
+    state.quests ??= {};
+    state.quests[quest.id] = { ...quest, archived: operation.archived };
+    return [quest.id];
+  }
+  if (operation.kind === 'create_place') {
+    const id = requireUnusedId(state, operation.place.id, 'Place ID');
+    state.places ??= {};
+    state.places[id] = {
+      id,
+      name: cleanText(operation.place.name, 'Place name', 160),
+      summary: cleanOptionalText(operation.place.summary, 'Place summary', 4000),
+      archived: false,
+    };
+    return [id];
+  }
+  if (operation.kind === 'update_place') {
+    const place = requirePlace(state, operation.placeId);
+    state.places ??= {};
+    state.places[place.id] = {
+      ...place,
+      name: cleanText(operation.name, 'Place name', 160),
+      summary: cleanOptionalText(operation.summary, 'Place summary', 4000),
+    };
+    return [place.id];
+  }
+  if (operation.kind === 'set_place_archived') {
+    const place = requirePlace(state, operation.placeId);
+    state.places ??= {};
+    state.places[place.id] = { ...place, archived: operation.archived };
+    return [place.id];
+  }
+  if (operation.kind === 'set_current_scene') {
+    const id = operation.scene.id ? cleanIdentifier(operation.scene.id, 'Scene ID') : state.currentScene?.id ?? randomUUID();
+    state.currentScene = {
+      id,
+      name: cleanText(operation.scene.name, 'Scene name', 160),
+      summary: cleanOptionalText(operation.scene.summary, 'Scene summary', 4000),
+    };
+    return [id];
+  }
+  const unsupported: never = operation;
+  throw new Error(`Unsupported Campaign operation: ${JSON.stringify(unsupported)}`);
 }
