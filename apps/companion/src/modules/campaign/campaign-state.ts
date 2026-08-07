@@ -115,10 +115,35 @@ export function eventHash(input: {
   return sha256(input);
 }
 
+function recordIdExists(state: CampaignState, id: string): boolean {
+  return Boolean(state.actors[id] || state.items[id] || state.currentScene?.id === id);
+}
+
+function requireUnusedId(state: CampaignState, value: string | undefined, field: string): string {
+  const id = value ? cleanIdentifier(value, field) : randomUUID();
+  if (recordIdExists(state, id)) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Record ID ${id} already exists.`, 400, { id });
+  }
+  return id;
+}
+
 function requireActor(state: CampaignState, actorId: string): CampaignActor {
   const id = cleanIdentifier(actorId, 'Actor ID');
   const actor = state.actors[id];
   if (!actor) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Actor ${id} was not found.`, 404, { actorId: id });
+  return actor;
+}
+
+function requireAttachableActor(state: CampaignState, actorId: string): CampaignActor {
+  const actor = requireActor(state, actorId);
+  if (actor.archived) {
+    throw new CampaignExpectedError(
+      'CAMPAIGN_VALIDATION_FAILED',
+      `Item cannot be attached to archived Actor ${actor.id}.`,
+      400,
+      { actorId: actor.id },
+    );
+  }
   return actor;
 }
 
@@ -131,10 +156,7 @@ function requireItem(state: CampaignState, itemId: string): CampaignItem {
 
 export function applyOperation(state: CampaignState, operation: CampaignOperation): string[] {
   if (operation.kind === 'create_actor') {
-    const id = operation.actor.id ? cleanIdentifier(operation.actor.id, 'Actor ID') : randomUUID();
-    if (state.actors[id] || state.items[id] || state.currentScene?.id === id) {
-      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Record ID ${id} already exists.`, 400, { id });
-    }
+    const id = requireUnusedId(state, operation.actor.id, 'Actor ID');
     state.actors[id] = {
       id,
       name: cleanText(operation.actor.name, 'Actor name', 160),
@@ -142,6 +164,34 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       archived: false,
     };
     return [id];
+  }
+  if (operation.kind === 'create_actor_with_item') {
+    const actorId = requireUnusedId(state, operation.actor.id, 'Actor ID');
+    const itemId = requireUnusedId(state, operation.item.id, 'Item ID');
+    if (actorId === itemId) {
+      throw new CampaignExpectedError(
+        'CAMPAIGN_VALIDATION_FAILED',
+        'Actor and Item IDs must be different.',
+        400,
+        { actorId, itemId },
+      );
+    }
+    const actor: CampaignActor = {
+      id: actorId,
+      name: cleanText(operation.actor.name, 'Actor name', 160),
+      summary: cleanOptionalText(operation.actor.summary, 'Actor summary', 4000),
+      archived: false,
+    };
+    const item: CampaignItem = {
+      id: itemId,
+      name: cleanText(operation.item.name, 'Item name', 160),
+      summary: cleanOptionalText(operation.item.summary, 'Item summary', 4000),
+      archived: false,
+      ownerActorId: actorId,
+    };
+    state.actors[actorId] = actor;
+    state.items[itemId] = item;
+    return [actorId, itemId];
   }
   if (operation.kind === 'rename_actor') {
     const actor = requireActor(state, operation.actorId);
@@ -163,25 +213,35 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     return [actor.id];
   }
   if (operation.kind === 'create_item') {
-    const id = operation.item.id ? cleanIdentifier(operation.item.id, 'Item ID') : randomUUID();
-    if (state.actors[id] || state.items[id] || state.currentScene?.id === id) {
-      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Record ID ${id} already exists.`, 400, { id });
-    }
+    const id = requireUnusedId(state, operation.item.id, 'Item ID');
+    const owner = operation.item.ownerActorId === undefined
+      ? undefined
+      : requireAttachableActor(state, operation.item.ownerActorId).id;
     state.items[id] = {
       id,
       name: cleanText(operation.item.name, 'Item name', 160),
       summary: cleanOptionalText(operation.item.summary, 'Item summary', 4000),
       archived: false,
+      ...(owner === undefined ? {} : { ownerActorId: owner }),
     };
     return [id];
   }
   if (operation.kind === 'update_item') {
     const item = requireItem(state, operation.itemId);
-    state.items[item.id] = {
+    let updated: CampaignItem = {
       ...item,
       name: cleanText(operation.name, 'Item name', 160),
       summary: cleanOptionalText(operation.summary, 'Item summary', 4000),
     };
+    if ('ownerActorId' in operation) {
+      if (operation.ownerActorId === null || operation.ownerActorId === undefined) {
+        const { ownerActorId: _removed, ...detached } = updated;
+        updated = detached;
+      } else {
+        updated = { ...updated, ownerActorId: requireAttachableActor(state, operation.ownerActorId).id };
+      }
+    }
+    state.items[item.id] = updated;
     return [item.id];
   }
   if (operation.kind === 'set_item_archived') {
