@@ -23,6 +23,8 @@ export type Outcome<T> =
   | { ok: true; value: T }
   | { ok: false; problem: Problem; statusCode: number };
 
+export type CampaignRevisionListener = (revision: number) => void;
+
 function actionsFor(error: CampaignExpectedError): readonly RecoveryAction[] {
   if (error.code === 'CAMPAIGN_REVISION_CONFLICT') {
     return [{ id: 'reload', label: 'Reload the Campaign and review your edit', kind: 'retry' }];
@@ -38,6 +40,7 @@ function actionsFor(error: CampaignExpectedError): readonly RecoveryAction[] {
 
 export class CampaignEngine {
   readonly journal: SqliteCampaignJournal;
+  readonly #revisionListeners = new Map<string, Set<CampaignRevisionListener>>();
 
   private constructor(journal: SqliteCampaignJournal) {
     this.journal = journal;
@@ -48,7 +51,18 @@ export class CampaignEngine {
   }
 
   close(): void {
+    this.#revisionListeners.clear();
     this.journal.close();
+  }
+
+  subscribe(campaignId: string, listener: CampaignRevisionListener): () => void {
+    const listeners = this.#revisionListeners.get(campaignId) ?? new Set<CampaignRevisionListener>();
+    listeners.add(listener);
+    this.#revisionListeners.set(campaignId, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.#revisionListeners.delete(campaignId);
+    };
   }
 
   observation(): ComponentObservation {
@@ -68,7 +82,9 @@ export class CampaignEngine {
   }
 
   async create(request: CreateCampaignRequest): Promise<Outcome<CampaignCommit>> {
-    return this.capture(request.requestId, () => this.journal.createCampaign(request));
+    const outcome = await this.capture(request.requestId, () => this.journal.createCampaign(request));
+    this.publishCommit(outcome);
+    return outcome;
   }
 
   async read(campaignId: string, requestId: string, revision?: number): Promise<Outcome<CampaignDocument>> {
@@ -82,7 +98,9 @@ export class CampaignEngine {
   }
 
   async execute(campaignId: string, request: ExecuteCampaignRequest): Promise<Outcome<CampaignCommit>> {
-    return this.capture(request.requestId, () => this.journal.execute(campaignId, request));
+    const outcome = await this.capture(request.requestId, () => this.journal.execute(campaignId, request));
+    this.publishCommit(outcome);
+    return outcome;
   }
 
   async performance(requestId: string): Promise<Outcome<CampaignCommitPerformance>> {
@@ -91,6 +109,13 @@ export class CampaignEngine {
 
   async verify(requestId: string): Promise<Outcome<CampaignVerificationResult>> {
     return this.capture(requestId, () => verifyCampaignAuthorityInWorker(this.journal.databasePath));
+  }
+
+  private publishCommit(outcome: Outcome<CampaignCommit>): void {
+    if (!outcome.ok || outcome.value.idempotent) return;
+    const listeners = this.#revisionListeners.get(outcome.value.campaignId);
+    if (!listeners) return;
+    for (const listener of [...listeners]) listener(outcome.value.revision);
   }
 
   private async capture<T>(requestId: string, work: () => T | Promise<T>): Promise<Outcome<T>> {
