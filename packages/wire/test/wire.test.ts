@@ -73,6 +73,9 @@ test('Campaign documents and commits validate routed record collections', () => 
   assert.equal(isCampaignDocument(document), true);
   assert.equal(isCampaignCommit(commit), true);
   assert.equal(isCampaignDocument({ ...document, arbitraryTable: [] }), false);
-  assert.equal(isCampaignDocument({ ...document, quests: [{ ...document.quests[0], status: 'unknown' }] }), false);
+  assert.equal(isCampaignDocument({
+    ...document,
+    quests: [{ ...document.quests[0]!, status: 'unknown' }],
+  }), false);
   assert.equal(isCampaignCommit({ ...commit, document: { ...document, actors: [{ id: '', name: '', summary: '', archived: false }] } }), false);
 });
