@@ -235,9 +235,13 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     };
     if ('ownerActorId' in operation) {
       if (operation.ownerActorId === null || operation.ownerActorId === undefined) {
-        const { ownerActorId: _removed, ...detached } = updated;
-        updated = detached;
-      } else {
+        updated = {
+          id: updated.id,
+          name: updated.name,
+          summary: updated.summary,
+          archived: updated.archived,
+        };
+      } else if (operation.ownerActorId !== item.ownerActorId) {
         updated = { ...updated, ownerActorId: requireAttachableActor(state, operation.ownerActorId).id };
       }
     }
