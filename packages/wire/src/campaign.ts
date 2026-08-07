@@ -73,12 +73,34 @@ export const CampaignOperationSchema = Type.Union([
     name: Title,
   }, { additionalProperties: false }),
   Type.Object({
+    kind: Type.Literal('update_actor'),
+    actorId: Identifier,
+    name: Title,
+    summary: Summary,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('set_actor_archived'),
+    actorId: Identifier,
+    archived: Type.Boolean(),
+  }, { additionalProperties: false }),
+  Type.Object({
     kind: Type.Literal('create_item'),
     item: Type.Object({
       id: Type.Optional(Identifier),
       name: Title,
       summary: Type.Optional(Summary),
     }, { additionalProperties: false }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('update_item'),
+    itemId: Identifier,
+    name: Title,
+    summary: Summary,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('set_item_archived'),
+    itemId: Identifier,
+    archived: Type.Boolean(),
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('set_current_scene'),
