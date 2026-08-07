@@ -142,6 +142,15 @@ export const CampaignHistoryEntrySchema = Type.Object({
 }, { additionalProperties: false });
 export type CampaignHistoryEntry = Static<typeof CampaignHistoryEntrySchema>;
 
+export const CampaignInvalidationSchema = Type.Object({
+  schema: Type.Literal('st-rpg.campaign-invalidation'),
+  version: Type.Literal('1.0'),
+  campaignId: Identifier,
+  revision: Type.Integer({ minimum: 1 }),
+  observedAt: Timestamp,
+}, { additionalProperties: false });
+export type CampaignInvalidation = Static<typeof CampaignInvalidationSchema>;
+
 export const CampaignCommitPerformanceSchema = Type.Object({
   sampleCount: Type.Integer({ minimum: 0 }),
   p95Ms: Type.Number({ minimum: 0 }),
@@ -166,6 +175,10 @@ export function isCampaignDocument(value: unknown): value is CampaignDocument {
 
 export function isCampaignCommit(value: unknown): value is CampaignCommit {
   return Value.Check(CampaignCommitSchema, value);
+}
+
+export function isCampaignInvalidation(value: unknown): value is CampaignInvalidation {
+  return Value.Check(CampaignInvalidationSchema, value);
 }
 
 export function isCampaignCommitPerformance(value: unknown): value is CampaignCommitPerformance {
