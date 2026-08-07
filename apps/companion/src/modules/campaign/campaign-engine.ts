@@ -18,6 +18,7 @@ import {
 } from '../../adapters/sqlite/campaign-maintenance.js';
 import { makeProblem } from '../../problem.js';
 import { CampaignExpectedError } from './campaign-error.js';
+import { normalizeCampaignDocument } from './campaign-state.js';
 
 export type Outcome<T> =
   | { ok: true; value: T }
@@ -36,6 +37,17 @@ function actionsFor(error: CampaignExpectedError): readonly RecoveryAction[] {
     return [{ id: 'inspect-terminal', label: 'Inspect the companion terminal and restore a verified backup', kind: 'inspect' }];
   }
   return [];
+}
+
+function normalizeCommitOutcome(outcome: Outcome<CampaignCommit>): Outcome<CampaignCommit> {
+  if (!outcome.ok) return outcome;
+  return {
+    ok: true,
+    value: {
+      ...outcome.value,
+      document: normalizeCampaignDocument(outcome.value.document),
+    },
+  };
 }
 
 export class CampaignEngine {
@@ -82,7 +94,9 @@ export class CampaignEngine {
   }
 
   async create(request: CreateCampaignRequest): Promise<Outcome<CampaignCommit>> {
-    const outcome = await this.capture(request.requestId, () => this.journal.createCampaign(request));
+    const outcome = normalizeCommitOutcome(
+      await this.capture(request.requestId, () => this.journal.createCampaign(request)),
+    );
     this.publishCommit(outcome);
     return outcome;
   }
@@ -98,7 +112,9 @@ export class CampaignEngine {
   }
 
   async execute(campaignId: string, request: ExecuteCampaignRequest): Promise<Outcome<CampaignCommit>> {
-    const outcome = await this.capture(request.requestId, () => this.journal.execute(campaignId, request));
+    const outcome = normalizeCommitOutcome(
+      await this.capture(request.requestId, () => this.journal.execute(campaignId, request)),
+    );
     this.publishCommit(outcome);
     return outcome;
   }
