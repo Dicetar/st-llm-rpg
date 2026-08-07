@@ -24,6 +24,7 @@ export const CampaignItemSchema = Type.Object({
   name: Title,
   summary: Summary,
   archived: Type.Boolean(),
+  ownerActorId: Type.Optional(Identifier),
 }, { additionalProperties: false });
 export type CampaignItem = Static<typeof CampaignItemSchema>;
 
@@ -58,10 +59,28 @@ export const CreateCampaignRequestSchema = Type.Object({
 }, { additionalProperties: false });
 export type CreateCampaignRequest = Static<typeof CreateCampaignRequestSchema>;
 
+const NewActorSchema = Type.Object({
+  id: Type.Optional(Identifier),
+  name: Title,
+  summary: Type.Optional(Summary),
+}, { additionalProperties: false });
+
+const NewItemSchema = Type.Object({
+  id: Type.Optional(Identifier),
+  name: Title,
+  summary: Type.Optional(Summary),
+  ownerActorId: Type.Optional(Identifier),
+}, { additionalProperties: false });
+
 export const CampaignOperationSchema = Type.Union([
   Type.Object({
     kind: Type.Literal('create_actor'),
-    actor: Type.Object({
+    actor: NewActorSchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('create_actor_with_item'),
+    actor: NewActorSchema,
+    item: Type.Object({
       id: Type.Optional(Identifier),
       name: Title,
       summary: Type.Optional(Summary),
@@ -85,17 +104,14 @@ export const CampaignOperationSchema = Type.Union([
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('create_item'),
-    item: Type.Object({
-      id: Type.Optional(Identifier),
-      name: Title,
-      summary: Type.Optional(Summary),
-    }, { additionalProperties: false }),
+    item: NewItemSchema,
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('update_item'),
     itemId: Identifier,
     name: Title,
     summary: Summary,
+    ownerActorId: Type.Optional(Type.Union([Identifier, Type.Null()])),
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('set_item_archived'),
