@@ -1,16 +1,17 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from 'react';
-import type {
-  CampaignActor,
-  CampaignCommit,
-  CampaignDocument,
-  CampaignHistoryEntry,
-  CampaignItem,
-  CampaignOperation,
-  CampaignScene,
-  CampaignSummary,
-  HealthDocument,
-  Problem,
-  ReadinessDocument,
+import {
+  isCampaignInvalidation,
+  type CampaignActor,
+  type CampaignCommit,
+  type CampaignDocument,
+  type CampaignHistoryEntry,
+  type CampaignItem,
+  type CampaignOperation,
+  type CampaignScene,
+  type CampaignSummary,
+  type HealthDocument,
+  type Problem,
+  type ReadinessDocument,
 } from '@st-llm-rpg/wire';
 import { buildStatusCards } from './status-model.js';
 
@@ -28,6 +29,11 @@ type RevisionConflict = Readonly<{
 }>;
 
 type CollectionKey = 'actors' | 'items' | 'scene' | 'history';
+type SyncState = 'idle' | 'live' | 'reconnecting' | 'update-ready';
+type CanonicalUpdate = Readonly<{
+  document: CampaignDocument;
+  history: CampaignHistoryEntry[];
+}>;
 
 class ApiProblem extends Error {
   readonly problem: Problem | null;
@@ -69,6 +75,13 @@ function conflictFrom(problem: Problem | null, campaignId: string, expectedRevis
     : null;
   const actual = details && typeof details.actualRevision === 'number' ? details.actualRevision : null;
   return { campaignId, expectedRevision, actualRevision: actual };
+}
+
+function syncLabel(state: SyncState): string {
+  if (state === 'live') return 'Live updates';
+  if (state === 'reconnecting') return 'Reconnecting';
+  if (state === 'update-ready') return 'Update available';
+  return 'Not connected';
 }
 
 export function CampaignBookView(props: {
@@ -129,7 +142,7 @@ export function RevisionConflictBanner(props: {
         <strong>This tab is stale.</strong>
         <p>Your edit expected revision {props.conflict.expectedRevision}, but the Campaign is now at {actual}. Nothing was written.</p>
       </div>
-      <button type="button" onClick={props.onReload} disabled={props.busy}>Reload latest Campaign</button>
+      <button type="button" onClick={props.onReload} disabled={props.busy}>Load canonical Campaign</button>
     </div>
   );
 }
@@ -209,11 +222,12 @@ function ActorEditor(props: {
 }) {
   const [name, setName] = useState(props.actor.name);
   const [summary, setSummary] = useState(props.actor.summary);
+  const dirty = name.trim() !== props.actor.name || summary.trim() !== props.actor.summary;
   useEffect(() => {
+    if (dirty) return;
     setName(props.actor.name);
     setSummary(props.actor.summary);
-  }, [props.actor.name, props.actor.summary]);
-  const dirty = name.trim() !== props.actor.name || summary.trim() !== props.actor.summary;
+  }, [dirty, props.actor.name, props.actor.summary]);
   return (
     <form className={props.actor.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
       event.preventDefault();
@@ -248,22 +262,28 @@ function ActorEditor(props: {
 
 function ItemEditor(props: {
   item: CampaignItem;
+  actors: readonly CampaignActor[];
   busy: boolean;
   readOnly: boolean;
-  onSave: (itemId: string, name: string, summary: string) => Promise<void>;
+  onSave: (itemId: string, name: string, summary: string, ownerActorId: string | null) => Promise<void>;
   onArchive: (itemId: string, archived: boolean) => Promise<void>;
 }) {
   const [name, setName] = useState(props.item.name);
   const [summary, setSummary] = useState(props.item.summary);
+  const [ownerActorId, setOwnerActorId] = useState(props.item.ownerActorId ?? '');
+  const dirty = name.trim() !== props.item.name
+    || summary.trim() !== props.item.summary
+    || ownerActorId !== (props.item.ownerActorId ?? '');
   useEffect(() => {
+    if (dirty) return;
     setName(props.item.name);
     setSummary(props.item.summary);
-  }, [props.item.name, props.item.summary]);
-  const dirty = name.trim() !== props.item.name || summary.trim() !== props.item.summary;
+    setOwnerActorId(props.item.ownerActorId ?? '');
+  }, [dirty, props.item.name, props.item.ownerActorId, props.item.summary]);
   return (
     <form className={props.item.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
       event.preventDefault();
-      void props.onSave(props.item.id, name, summary);
+      void props.onSave(props.item.id, name, summary, ownerActorId || null);
     }}>
       <div className="record-card__heading">
         <strong>{props.item.archived ? 'Archived Item' : 'Item'}</strong>
@@ -276,6 +296,17 @@ function ItemEditor(props: {
       <label>
         <span>Summary</span>
         <textarea rows={4} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy || props.readOnly} />
+      </label>
+      <label>
+        <span>Attached Actor</span>
+        <select value={ownerActorId} onChange={event => setOwnerActorId(event.target.value)} disabled={props.busy || props.readOnly}>
+          <option value="">Unattached</option>
+          {props.actors.map(actor => (
+            <option key={actor.id} value={actor.id} disabled={actor.archived && actor.id !== props.item.ownerActorId}>
+              {actor.name}{actor.archived ? ' · archived' : ''}
+            </option>
+          ))}
+        </select>
       </label>
       <div className="record-actions">
         <button type="submit" disabled={props.busy || props.readOnly || !name.trim() || !dirty}>Save Item</button>
@@ -300,11 +331,12 @@ function SceneEditor(props: {
 }) {
   const [name, setName] = useState(props.scene?.name ?? '');
   const [summary, setSummary] = useState(props.scene?.summary ?? '');
+  const dirty = name.trim() !== (props.scene?.name ?? '') || summary.trim() !== (props.scene?.summary ?? '');
   useEffect(() => {
+    if (dirty) return;
     setName(props.scene?.name ?? '');
     setSummary(props.scene?.summary ?? '');
-  }, [props.scene?.id, props.scene?.name, props.scene?.summary]);
-  const dirty = name.trim() !== (props.scene?.name ?? '') || summary.trim() !== (props.scene?.summary ?? '');
+  }, [dirty, props.scene?.id, props.scene?.name, props.scene?.summary]);
   return (
     <form className="record-card" onSubmit={event => {
       event.preventDefault();
@@ -336,12 +368,19 @@ function CampaignAuthorityPanel() {
   const [selected, setSelected] = useState<CampaignDocument | null>(null);
   const [historical, setHistorical] = useState<CampaignDocument | null>(null);
   const [history, setHistory] = useState<CampaignHistoryEntry[]>([]);
+  const [pendingCanonical, setPendingCanonical] = useState<CanonicalUpdate | null>(null);
+  const [syncState, setSyncState] = useState<SyncState>('idle');
   const [activeCollection, setActiveCollection] = useState<CollectionKey>('actors');
   const [campaignTitle, setCampaignTitle] = useState('');
   const [actorName, setActorName] = useState('');
   const [actorSummary, setActorSummary] = useState('');
   const [itemName, setItemName] = useState('');
   const [itemSummary, setItemSummary] = useState('');
+  const [itemOwnerActorId, setItemOwnerActorId] = useState('');
+  const [joinedActorName, setJoinedActorName] = useState('');
+  const [joinedActorSummary, setJoinedActorSummary] = useState('');
+  const [joinedItemName, setJoinedItemName] = useState('');
+  const [joinedItemSummary, setJoinedItemSummary] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -356,16 +395,22 @@ function CampaignAuthorityPanel() {
     return result;
   }, []);
 
-  const openCampaign = useCallback(async (campaignId: string) => {
+  const fetchCampaignSnapshot = useCallback(async (campaignId: string): Promise<CanonicalUpdate> => {
     const [document, entries] = await Promise.all([
       fetchJson<CampaignDocument>(`/api/campaigns/${encodeURIComponent(campaignId)}`),
       fetchJson<CampaignHistoryEntry[]>(`/api/campaigns/${encodeURIComponent(campaignId)}/history`),
     ]);
-    setSelected(document);
-    setHistorical(null);
-    setHistory(entries);
-    setConflict(null);
+    return { document, history: entries };
   }, []);
+
+  const openCampaign = useCallback(async (campaignId: string) => {
+    const canonical = await fetchCampaignSnapshot(campaignId);
+    setSelected(canonical.document);
+    setHistorical(null);
+    setHistory(canonical.history);
+    setPendingCanonical(null);
+    setConflict(null);
+  }, [fetchCampaignSnapshot]);
 
   const openRevision = useCallback(async (campaignId: string, revision: number) => {
     const document = await fetchJson<CampaignDocument>(
@@ -378,6 +423,59 @@ function CampaignAuthorityPanel() {
   useEffect(() => {
     loadCampaigns().catch(value => setError(value instanceof Error ? value.message : String(value)));
   }, [loadCampaigns]);
+
+  useEffect(() => {
+    if (!selected) {
+      setSyncState('idle');
+      return undefined;
+    }
+    const campaignId = selected.campaign.id;
+    const afterRevision = selected.campaign.revision;
+    const source = new EventSource(
+      `/api/campaigns/${encodeURIComponent(campaignId)}/changes?afterRevision=${afterRevision}`,
+    );
+    let closed = false;
+    let latestRevision = afterRevision;
+    let debounce: number | undefined;
+
+    source.onopen = () => {
+      if (!closed && !pendingCanonical) setSyncState('live');
+    };
+    source.onerror = () => {
+      if (!closed && !pendingCanonical) setSyncState('reconnecting');
+    };
+    const receiveInvalidation = (event: Event) => {
+      const messageEvent = event as MessageEvent<string>;
+      let value: unknown;
+      try {
+        value = JSON.parse(messageEvent.data);
+      } catch {
+        return;
+      }
+      if (!isCampaignInvalidation(value) || value.campaignId !== campaignId || value.revision <= afterRevision) return;
+      latestRevision = Math.max(latestRevision, value.revision);
+      if (debounce !== undefined) return;
+      debounce = window.setTimeout(() => {
+        debounce = undefined;
+        void fetchCampaignSnapshot(campaignId).then(canonical => {
+          if (closed || canonical.document.campaign.revision <= afterRevision) return;
+          setPendingCanonical(canonical);
+          setSyncState('update-ready');
+          setMessage(`Canonical revision ${latestRevision} is available from another view. Local drafts were not overwritten.`);
+        }).catch(() => {
+          if (!closed) setSyncState('reconnecting');
+        });
+      }, 80);
+    };
+    source.addEventListener('campaign-revision', receiveInvalidation);
+
+    return () => {
+      closed = true;
+      if (debounce !== undefined) window.clearTimeout(debounce);
+      source.removeEventListener('campaign-revision', receiveInvalidation);
+      source.close();
+    };
+  }, [fetchCampaignSnapshot, pendingCanonical, selected?.campaign.id, selected?.campaign.revision]);
 
   async function run(work: () => Promise<void>) {
     setBusy(true);
@@ -394,6 +492,18 @@ function CampaignAuthorityPanel() {
     }
   }
 
+  function acceptCanonicalUpdate() {
+    if (!pendingCanonical) return;
+    setSelected(pendingCanonical.document);
+    setHistory(pendingCanonical.history);
+    setHistorical(null);
+    setConflict(null);
+    setPendingCanonical(null);
+    setSyncState('live');
+    setError('');
+    setMessage(`Loaded canonical revision ${pendingCanonical.document.campaign.revision}.`);
+  }
+
   async function createCampaign(event: FormEvent) {
     event.preventDefault();
     await run(async () => {
@@ -401,14 +511,20 @@ function CampaignAuthorityPanel() {
         method: 'POST',
         body: JSON.stringify({ requestId: newRequestId(), title: campaignTitle }),
       });
+      const entries = await fetchJson<CampaignHistoryEntry[]>(`/api/campaigns/${encodeURIComponent(commit.campaignId)}/history`);
       setCampaignTitle('');
       setActiveCollection('actors');
-      await Promise.all([loadCampaigns(), openCampaign(commit.campaignId)]);
+      setSelected(commit.document);
+      setHistorical(null);
+      setHistory(entries);
+      setPendingCanonical(null);
+      setConflict(null);
+      await loadCampaigns();
       setMessage(`Campaign persisted at revision ${commit.revision}.`);
     });
   }
 
-  async function executeOperation(operation: CampaignOperation) {
+  async function executeOperation(operation: CampaignOperation): Promise<void> {
     if (!selected || historical) return;
     const campaignId = selected.campaign.id;
     const expectedRevision = selected.campaign.revision;
@@ -421,9 +537,16 @@ function CampaignAuthorityPanel() {
           operation,
         }),
       });
+      const [campaignList, entries] = await Promise.all([
+        fetchJson<CampaignSummary[]>('/api/campaigns'),
+        fetchJson<CampaignHistoryEntry[]>(`/api/campaigns/${encodeURIComponent(campaignId)}/history`),
+      ]);
       setSelected(commit.document);
+      setCampaigns(campaignList);
+      setHistory(entries);
+      setHistorical(null);
+      setPendingCanonical(null);
       setConflict(null);
-      await Promise.all([loadCampaigns(), openCampaign(campaignId)]);
       setMessage(`Saved ${commit.operationKind} as revision ${commit.revision}.`);
     } catch (value) {
       const apiError = value instanceof ApiProblem ? value : null;
@@ -448,9 +571,33 @@ function CampaignAuthorityPanel() {
   async function createItem(event: FormEvent) {
     event.preventDefault();
     await run(async () => {
-      await executeOperation({ kind: 'create_item', item: { name: itemName, summary: itemSummary } });
+      await executeOperation({
+        kind: 'create_item',
+        item: {
+          name: itemName,
+          summary: itemSummary,
+          ...(itemOwnerActorId ? { ownerActorId: itemOwnerActorId } : {}),
+        },
+      });
       setItemName('');
       setItemSummary('');
+      setItemOwnerActorId('');
+    });
+  }
+
+  async function createJoinedActorItem(event: FormEvent) {
+    event.preventDefault();
+    await run(async () => {
+      await executeOperation({
+        kind: 'create_actor_with_item',
+        actor: { name: joinedActorName, summary: joinedActorSummary },
+        item: { name: joinedItemName, summary: joinedItemSummary },
+      });
+      setJoinedActorName('');
+      setJoinedActorSummary('');
+      setJoinedItemName('');
+      setJoinedItemSummary('');
+      setActiveCollection('items');
     });
   }
 
@@ -471,16 +618,32 @@ function CampaignAuthorityPanel() {
             <span className={historical ? 'revision-badge revision-badge--historical' : 'revision-badge'}>
               {historical ? 'Historical' : 'Current'} revision {displayed.campaign.revision}
             </span>
+            <span className={`sync-state sync-state--${syncState}`} role="status">{syncLabel(syncState)}</span>
             <span className="pending-state" role="status">{busy ? 'Saving…' : historical ? 'Read-only' : 'Ready'}</span>
           </div>
         ) : null}
       </div>
 
+      {pendingCanonical && selected ? (
+        <div className="canonical-update-banner" role="status">
+          <div>
+            <strong>Canonical revision {pendingCanonical.document.campaign.revision} is ready.</strong>
+            <p>The companion refetched current truth after another view committed. Your visible draft was left untouched.</p>
+          </div>
+          <button type="button" onClick={acceptCanonicalUpdate} disabled={busy}>Review canonical update</button>
+        </div>
+      ) : null}
       {conflict && selected ? (
         <RevisionConflictBanner
           conflict={conflict}
           busy={busy}
-          onReload={() => { void run(() => openCampaign(selected.campaign.id)); }}
+          onReload={() => {
+            if (pendingCanonical) {
+              acceptCanonicalUpdate();
+              return;
+            }
+            void run(() => openCampaign(selected.campaign.id));
+          }}
         />
       ) : null}
       {error ? <p className="error-banner" role="alert">{error}</p> : null}
@@ -541,17 +704,50 @@ function CampaignAuthorityPanel() {
                     </div>
                   </div>
                   {!historical ? (
-                    <form className="create-record-form" onSubmit={createActor}>
-                      <label>
-                        <span>Actor name</span>
-                        <input value={actorName} onChange={event => setActorName(event.target.value)} disabled={busy} />
-                      </label>
-                      <label>
-                        <span>Summary</span>
-                        <textarea rows={3} value={actorSummary} onChange={event => setActorSummary(event.target.value)} disabled={busy} />
-                      </label>
-                      <button type="submit" disabled={busy || !actorName.trim()}>Create Actor</button>
-                    </form>
+                    <>
+                      <form className="create-record-form" onSubmit={createActor}>
+                        <label>
+                          <span>Actor name</span>
+                          <input value={actorName} onChange={event => setActorName(event.target.value)} disabled={busy} />
+                        </label>
+                        <label>
+                          <span>Summary</span>
+                          <textarea rows={3} value={actorSummary} onChange={event => setActorSummary(event.target.value)} disabled={busy} />
+                        </label>
+                        <button type="submit" disabled={busy || !actorName.trim()}>Create Actor</button>
+                      </form>
+
+                      <details className="joined-create-panel">
+                        <summary>Create Actor with attached Item</summary>
+                        <form className="joined-create-form" onSubmit={createJoinedActorItem}>
+                          <fieldset>
+                            <legend>Actor</legend>
+                            <label>
+                              <span>Name</span>
+                              <input value={joinedActorName} onChange={event => setJoinedActorName(event.target.value)} disabled={busy} />
+                            </label>
+                            <label>
+                              <span>Summary</span>
+                              <textarea rows={3} value={joinedActorSummary} onChange={event => setJoinedActorSummary(event.target.value)} disabled={busy} />
+                            </label>
+                          </fieldset>
+                          <fieldset>
+                            <legend>Attached Item</legend>
+                            <label>
+                              <span>Name</span>
+                              <input value={joinedItemName} onChange={event => setJoinedItemName(event.target.value)} disabled={busy} />
+                            </label>
+                            <label>
+                              <span>Summary</span>
+                              <textarea rows={3} value={joinedItemSummary} onChange={event => setJoinedItemSummary(event.target.value)} disabled={busy} />
+                            </label>
+                          </fieldset>
+                          <button type="submit" disabled={busy || !joinedActorName.trim() || !joinedItemName.trim()}>
+                            Create both in one revision
+                          </button>
+                        </form>
+                      </details>
+                    </>
                   ) : null}
                   <div className="record-list">
                     {activeActors.map(actor => (
@@ -591,7 +787,7 @@ function CampaignAuthorityPanel() {
                   <div className="collection-heading">
                     <div>
                       <h4 id="items-heading">Items</h4>
-                      <p>Durable objects and concise descriptions.</p>
+                      <p>Durable objects, concise descriptions, and optional Actor attachment.</p>
                     </div>
                   </div>
                   {!historical ? (
@@ -604,6 +800,13 @@ function CampaignAuthorityPanel() {
                         <span>Summary</span>
                         <textarea rows={3} value={itemSummary} onChange={event => setItemSummary(event.target.value)} disabled={busy} />
                       </label>
+                      <label>
+                        <span>Attach to Actor</span>
+                        <select value={itemOwnerActorId} onChange={event => setItemOwnerActorId(event.target.value)} disabled={busy}>
+                          <option value="">Unattached</option>
+                          {activeActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}
+                        </select>
+                      </label>
                       <button type="submit" disabled={busy || !itemName.trim()}>Create Item</button>
                     </form>
                   ) : null}
@@ -611,9 +814,12 @@ function CampaignAuthorityPanel() {
                     {activeItems.map(item => (
                       <ItemEditor
                         item={item}
+                        actors={displayed.actors}
                         busy={busy}
                         readOnly={historical !== null}
-                        onSave={(itemId, name, summary) => run(() => executeOperation({ kind: 'update_item', itemId, name, summary }))}
+                        onSave={(itemId, name, summary, ownerActorId) => run(() => executeOperation({
+                          kind: 'update_item', itemId, name, summary, ownerActorId,
+                        }))}
                         onArchive={(itemId, archived) => run(() => executeOperation({ kind: 'set_item_archived', itemId, archived }))}
                         key={item.id}
                       />
@@ -627,9 +833,12 @@ function CampaignAuthorityPanel() {
                         {archivedItems.map(item => (
                           <ItemEditor
                             item={item}
+                            actors={displayed.actors}
                             busy={busy}
                             readOnly={historical !== null}
-                            onSave={(itemId, name, summary) => run(() => executeOperation({ kind: 'update_item', itemId, name, summary }))}
+                            onSave={(itemId, name, summary, ownerActorId) => run(() => executeOperation({
+                              kind: 'update_item', itemId, name, summary, ownerActorId,
+                            }))}
                             onArchive={(itemId, archived) => run(() => executeOperation({ kind: 'set_item_archived', itemId, archived }))}
                             key={item.id}
                           />
