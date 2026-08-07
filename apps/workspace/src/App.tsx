@@ -4,6 +4,9 @@ import type {
   CampaignCommit,
   CampaignDocument,
   CampaignHistoryEntry,
+  CampaignItem,
+  CampaignOperation,
+  CampaignScene,
   CampaignSummary,
   HealthDocument,
   Problem,
@@ -23,6 +26,8 @@ type RevisionConflict = Readonly<{
   expectedRevision: number;
   actualRevision: number | null;
 }>;
+
+type CollectionKey = 'actors' | 'items' | 'scene' | 'history';
 
 class ApiProblem extends Error {
   readonly problem: Problem | null;
@@ -76,9 +81,9 @@ export function CampaignBookView(props: {
     <main className="book-shell">
       <header className="book-header">
         <div>
-          <p className="eyebrow">Local companion · durable Campaign milestone</p>
+          <p className="eyebrow">Local companion · Campaign Workspace</p>
           <h1>Campaign Book</h1>
-          <p className="lede">Campaign truth now lives in the companion-owned SQLite journal. The existing SillyTavern extension remains available as the fallback.</p>
+          <p className="lede">Edit durable Campaign truth through task-oriented collections. SillyTavern remains available as the independent fallback.</p>
         </div>
         <button type="button" onClick={props.onRefresh} disabled={props.snapshot.loading}>
           {props.snapshot.loading ? 'Checking…' : 'Refresh status'}
@@ -134,11 +139,12 @@ export function CampaignHistoryView(props: {
   currentRevision: number;
   viewingRevision: number | null;
   busy: boolean;
+  expanded?: boolean;
   onOpenRevision: (revision: number) => void;
   onReturnCurrent: () => void;
 }) {
   return (
-    <details className="history-panel" open={props.viewingRevision !== null}>
+    <details className="history-panel" open={props.expanded || props.viewingRevision !== null}>
       <summary>Immutable history ({props.entries.length})</summary>
       {props.viewingRevision !== null ? (
         <div className="historical-banner" role="status">
@@ -165,24 +171,162 @@ export function CampaignHistoryView(props: {
   );
 }
 
+function CollectionNavigation(props: {
+  active: CollectionKey;
+  document: CampaignDocument;
+  onSelect: (collection: CollectionKey) => void;
+}) {
+  const entries: ReadonlyArray<Readonly<{ key: CollectionKey; label: string; count?: number }>> = [
+    { key: 'actors', label: 'Actors', count: props.document.actors.filter(record => !record.archived).length },
+    { key: 'items', label: 'Items', count: props.document.items.filter(record => !record.archived).length },
+    { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
+    { key: 'history', label: 'History' },
+  ];
+  return (
+    <nav className="collection-nav" aria-label="Campaign collections">
+      {entries.map(entry => (
+        <button
+          type="button"
+          key={entry.key}
+          className={props.active === entry.key ? 'collection-tab collection-tab--active' : 'collection-tab'}
+          aria-current={props.active === entry.key ? 'page' : undefined}
+          onClick={() => props.onSelect(entry.key)}
+        >
+          <span>{entry.label}</span>
+          {entry.count === undefined ? null : <strong>{entry.count}</strong>}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 function ActorEditor(props: {
   actor: CampaignActor;
   busy: boolean;
   readOnly: boolean;
-  onRename: (actorId: string, name: string) => Promise<void>;
+  onSave: (actorId: string, name: string, summary: string) => Promise<void>;
+  onArchive: (actorId: string, archived: boolean) => Promise<void>;
 }) {
   const [name, setName] = useState(props.actor.name);
-  useEffect(() => setName(props.actor.name), [props.actor.name]);
+  const [summary, setSummary] = useState(props.actor.summary);
+  useEffect(() => {
+    setName(props.actor.name);
+    setSummary(props.actor.summary);
+  }, [props.actor.name, props.actor.summary]);
+  const dirty = name.trim() !== props.actor.name || summary.trim() !== props.actor.summary;
   return (
-    <form className="record-row" onSubmit={event => {
+    <form className={props.actor.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
       event.preventDefault();
-      void props.onRename(props.actor.id, name);
+      void props.onSave(props.actor.id, name, summary);
     }}>
+      <div className="record-card__heading">
+        <strong>{props.actor.archived ? 'Archived Actor' : 'Actor'}</strong>
+        <span>{props.actor.id}</span>
+      </div>
       <label>
-        <span>Actor name</span>
+        <span>Name</span>
         <input value={name} onChange={event => setName(event.target.value)} disabled={props.busy || props.readOnly} />
       </label>
-      <button type="submit" disabled={props.busy || props.readOnly || name.trim() === props.actor.name}>Save actor</button>
+      <label>
+        <span>Summary</span>
+        <textarea rows={4} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy || props.readOnly} />
+      </label>
+      <div className="record-actions">
+        <button type="submit" disabled={props.busy || props.readOnly || !name.trim() || !dirty}>Save Actor</button>
+        <button
+          type="button"
+          className="button-secondary"
+          disabled={props.busy || props.readOnly}
+          onClick={() => { void props.onArchive(props.actor.id, !props.actor.archived); }}
+        >
+          {props.actor.archived ? 'Restore Actor' : 'Archive Actor'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ItemEditor(props: {
+  item: CampaignItem;
+  busy: boolean;
+  readOnly: boolean;
+  onSave: (itemId: string, name: string, summary: string) => Promise<void>;
+  onArchive: (itemId: string, archived: boolean) => Promise<void>;
+}) {
+  const [name, setName] = useState(props.item.name);
+  const [summary, setSummary] = useState(props.item.summary);
+  useEffect(() => {
+    setName(props.item.name);
+    setSummary(props.item.summary);
+  }, [props.item.name, props.item.summary]);
+  const dirty = name.trim() !== props.item.name || summary.trim() !== props.item.summary;
+  return (
+    <form className={props.item.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
+      event.preventDefault();
+      void props.onSave(props.item.id, name, summary);
+    }}>
+      <div className="record-card__heading">
+        <strong>{props.item.archived ? 'Archived Item' : 'Item'}</strong>
+        <span>{props.item.id}</span>
+      </div>
+      <label>
+        <span>Name</span>
+        <input value={name} onChange={event => setName(event.target.value)} disabled={props.busy || props.readOnly} />
+      </label>
+      <label>
+        <span>Summary</span>
+        <textarea rows={4} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy || props.readOnly} />
+      </label>
+      <div className="record-actions">
+        <button type="submit" disabled={props.busy || props.readOnly || !name.trim() || !dirty}>Save Item</button>
+        <button
+          type="button"
+          className="button-secondary"
+          disabled={props.busy || props.readOnly}
+          onClick={() => { void props.onArchive(props.item.id, !props.item.archived); }}
+        >
+          {props.item.archived ? 'Restore Item' : 'Archive Item'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function SceneEditor(props: {
+  scene: CampaignScene | null;
+  busy: boolean;
+  readOnly: boolean;
+  onSave: (name: string, summary: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(props.scene?.name ?? '');
+  const [summary, setSummary] = useState(props.scene?.summary ?? '');
+  useEffect(() => {
+    setName(props.scene?.name ?? '');
+    setSummary(props.scene?.summary ?? '');
+  }, [props.scene?.id, props.scene?.name, props.scene?.summary]);
+  const dirty = name.trim() !== (props.scene?.name ?? '') || summary.trim() !== (props.scene?.summary ?? '');
+  return (
+    <form className="record-card" onSubmit={event => {
+      event.preventDefault();
+      void props.onSave(name, summary);
+    }}>
+      <div className="record-card__heading">
+        <strong>{props.scene ? 'Current Scene' : 'Start Current Scene'}</strong>
+        {props.scene ? <span>{props.scene.id}</span> : null}
+      </div>
+      <label>
+        <span>Name</span>
+        <input value={name} onChange={event => setName(event.target.value)} disabled={props.busy || props.readOnly} />
+      </label>
+      <label>
+        <span>Summary</span>
+        <textarea rows={7} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy || props.readOnly} />
+      </label>
+      <div className="record-actions">
+        <button type="submit" disabled={props.busy || props.readOnly || !name.trim() || !dirty}>
+          {props.scene ? 'Save Scene' : 'Start Scene'}
+        </button>
+      </div>
     </form>
   );
 }
@@ -192,8 +336,12 @@ function CampaignAuthorityPanel() {
   const [selected, setSelected] = useState<CampaignDocument | null>(null);
   const [historical, setHistorical] = useState<CampaignDocument | null>(null);
   const [history, setHistory] = useState<CampaignHistoryEntry[]>([]);
+  const [activeCollection, setActiveCollection] = useState<CollectionKey>('actors');
   const [campaignTitle, setCampaignTitle] = useState('');
   const [actorName, setActorName] = useState('');
+  const [actorSummary, setActorSummary] = useState('');
+  const [itemName, setItemName] = useState('');
+  const [itemSummary, setItemSummary] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -254,12 +402,13 @@ function CampaignAuthorityPanel() {
         body: JSON.stringify({ requestId: newRequestId(), title: campaignTitle }),
       });
       setCampaignTitle('');
+      setActiveCollection('actors');
       await Promise.all([loadCampaigns(), openCampaign(commit.campaignId)]);
       setMessage(`Campaign persisted at revision ${commit.revision}.`);
     });
   }
 
-  async function executeActor(operation: unknown) {
+  async function executeOperation(operation: CampaignOperation) {
     if (!selected || historical) return;
     const campaignId = selected.campaign.id;
     const expectedRevision = selected.campaign.revision;
@@ -275,7 +424,7 @@ function CampaignAuthorityPanel() {
       setSelected(commit.document);
       setConflict(null);
       await Promise.all([loadCampaigns(), openCampaign(campaignId)]);
-      setMessage(`Accepted ${commit.operationKind} as revision ${commit.revision}.`);
+      setMessage(`Saved ${commit.operationKind} as revision ${commit.revision}.`);
     } catch (value) {
       const apiError = value instanceof ApiProblem ? value : null;
       const revisionConflict = conflictFrom(apiError?.problem ?? null, campaignId, expectedRevision);
@@ -290,26 +439,40 @@ function CampaignAuthorityPanel() {
   async function createActor(event: FormEvent) {
     event.preventDefault();
     await run(async () => {
-      await executeActor({ kind: 'create_actor', actor: { name: actorName } });
+      await executeOperation({ kind: 'create_actor', actor: { name: actorName, summary: actorSummary } });
       setActorName('');
+      setActorSummary('');
     });
   }
 
-  async function renameActor(actorId: string, name: string) {
-    await run(() => executeActor({ kind: 'rename_actor', actorId, name }));
+  async function createItem(event: FormEvent) {
+    event.preventDefault();
+    await run(async () => {
+      await executeOperation({ kind: 'create_item', item: { name: itemName, summary: itemSummary } });
+      setItemName('');
+      setItemSummary('');
+    });
   }
+
+  const activeActors = displayed?.actors.filter(record => !record.archived) ?? [];
+  const archivedActors = displayed?.actors.filter(record => record.archived) ?? [];
+  const activeItems = displayed?.items.filter(record => !record.archived) ?? [];
+  const archivedItems = displayed?.items.filter(record => record.archived) ?? [];
 
   return (
     <section className="authority-panel" aria-labelledby="campaign-authority">
       <div className="section-heading">
         <div>
-          <h2 id="campaign-authority">Durable Campaign</h2>
-          <p>Create one Campaign, edit an Actor, open an old revision, and prove stale tabs cannot overwrite newer truth.</p>
+          <h2 id="campaign-authority">Campaign Workspace</h2>
+          <p>Edit Actors, Items, and the Current Scene without constructing Events or references manually.</p>
         </div>
         {displayed ? (
-          <span className={historical ? 'revision-badge revision-badge--historical' : 'revision-badge'}>
-            {historical ? 'Historical' : 'Current'} revision {displayed.campaign.revision}
-          </span>
+          <div className="workspace-state">
+            <span className={historical ? 'revision-badge revision-badge--historical' : 'revision-badge'}>
+              {historical ? 'Historical' : 'Current'} revision {displayed.campaign.revision}
+            </span>
+            <span className="pending-state" role="status">{busy ? 'Saving…' : historical ? 'Read-only' : 'Ready'}</span>
+          </div>
         ) : null}
       </div>
 
@@ -330,7 +493,7 @@ function CampaignAuthorityPanel() {
               <span>New Campaign title</span>
               <input value={campaignTitle} onChange={event => setCampaignTitle(event.target.value)} disabled={busy} />
             </label>
-            <button type="submit" disabled={busy || !campaignTitle.trim()}>Create durable Campaign</button>
+            <button type="submit" disabled={busy || !campaignTitle.trim()}>Create Campaign</button>
           </form>
 
           <div className="campaign-buttons">
@@ -363,36 +526,159 @@ function CampaignAuthorityPanel() {
                 </button>
               </div>
 
+              <CollectionNavigation active={activeCollection} document={displayed} onSelect={setActiveCollection} />
+
               {historical ? (
-                <p className="historical-note">Historical revisions are read-only. Return to the current revision before editing.</p>
-              ) : (
-                <form className="stack-form" onSubmit={createActor}>
-                  <label>
-                    <span>Add Actor</span>
-                    <input value={actorName} onChange={event => setActorName(event.target.value)} disabled={busy} />
-                  </label>
-                  <button type="submit" disabled={busy || !actorName.trim()}>Add Actor as one revision</button>
-                </form>
-              )}
+                <p className="historical-note">Historical revisions are read-only. Inspect any collection, then return to current truth before editing.</p>
+              ) : null}
 
-              <div className="record-list">
-                {displayed.actors.map(actor => (
-                  <ActorEditor actor={actor} busy={busy} readOnly={historical !== null} onRename={renameActor} key={actor.id} />
-                ))}
-                {displayed.actors.length === 0 ? <p className="empty-state">No Actors in this revision.</p> : null}
-              </div>
+              {activeCollection === 'actors' ? (
+                <section className="collection-view" aria-labelledby="actors-heading">
+                  <div className="collection-heading">
+                    <div>
+                      <h4 id="actors-heading">Actors</h4>
+                      <p>Identity and concise Campaign-facing context.</p>
+                    </div>
+                  </div>
+                  {!historical ? (
+                    <form className="create-record-form" onSubmit={createActor}>
+                      <label>
+                        <span>Actor name</span>
+                        <input value={actorName} onChange={event => setActorName(event.target.value)} disabled={busy} />
+                      </label>
+                      <label>
+                        <span>Summary</span>
+                        <textarea rows={3} value={actorSummary} onChange={event => setActorSummary(event.target.value)} disabled={busy} />
+                      </label>
+                      <button type="submit" disabled={busy || !actorName.trim()}>Create Actor</button>
+                    </form>
+                  ) : null}
+                  <div className="record-list">
+                    {activeActors.map(actor => (
+                      <ActorEditor
+                        actor={actor}
+                        busy={busy}
+                        readOnly={historical !== null}
+                        onSave={(actorId, name, summary) => run(() => executeOperation({ kind: 'update_actor', actorId, name, summary }))}
+                        onArchive={(actorId, archived) => run(() => executeOperation({ kind: 'set_actor_archived', actorId, archived }))}
+                        key={actor.id}
+                      />
+                    ))}
+                    {activeActors.length === 0 ? <p className="empty-state">No active Actors in this revision.</p> : null}
+                  </div>
+                  {archivedActors.length > 0 ? (
+                    <details className="archive-panel">
+                      <summary>Archived Actors ({archivedActors.length})</summary>
+                      <div className="record-list">
+                        {archivedActors.map(actor => (
+                          <ActorEditor
+                            actor={actor}
+                            busy={busy}
+                            readOnly={historical !== null}
+                            onSave={(actorId, name, summary) => run(() => executeOperation({ kind: 'update_actor', actorId, name, summary }))}
+                            onArchive={(actorId, archived) => run(() => executeOperation({ kind: 'set_actor_archived', actorId, archived }))}
+                            key={actor.id}
+                          />
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
+                </section>
+              ) : null}
 
-              <CampaignHistoryView
-                entries={history}
-                currentRevision={selected.campaign.revision}
-                viewingRevision={viewingRevision}
-                busy={busy}
-                onOpenRevision={revision => { void run(() => openRevision(selected.campaign.id, revision)); }}
-                onReturnCurrent={() => setHistorical(null)}
-              />
+              {activeCollection === 'items' ? (
+                <section className="collection-view" aria-labelledby="items-heading">
+                  <div className="collection-heading">
+                    <div>
+                      <h4 id="items-heading">Items</h4>
+                      <p>Durable objects and concise descriptions.</p>
+                    </div>
+                  </div>
+                  {!historical ? (
+                    <form className="create-record-form" onSubmit={createItem}>
+                      <label>
+                        <span>Item name</span>
+                        <input value={itemName} onChange={event => setItemName(event.target.value)} disabled={busy} />
+                      </label>
+                      <label>
+                        <span>Summary</span>
+                        <textarea rows={3} value={itemSummary} onChange={event => setItemSummary(event.target.value)} disabled={busy} />
+                      </label>
+                      <button type="submit" disabled={busy || !itemName.trim()}>Create Item</button>
+                    </form>
+                  ) : null}
+                  <div className="record-list">
+                    {activeItems.map(item => (
+                      <ItemEditor
+                        item={item}
+                        busy={busy}
+                        readOnly={historical !== null}
+                        onSave={(itemId, name, summary) => run(() => executeOperation({ kind: 'update_item', itemId, name, summary }))}
+                        onArchive={(itemId, archived) => run(() => executeOperation({ kind: 'set_item_archived', itemId, archived }))}
+                        key={item.id}
+                      />
+                    ))}
+                    {activeItems.length === 0 ? <p className="empty-state">No active Items in this revision.</p> : null}
+                  </div>
+                  {archivedItems.length > 0 ? (
+                    <details className="archive-panel">
+                      <summary>Archived Items ({archivedItems.length})</summary>
+                      <div className="record-list">
+                        {archivedItems.map(item => (
+                          <ItemEditor
+                            item={item}
+                            busy={busy}
+                            readOnly={historical !== null}
+                            onSave={(itemId, name, summary) => run(() => executeOperation({ kind: 'update_item', itemId, name, summary }))}
+                            onArchive={(itemId, archived) => run(() => executeOperation({ kind: 'set_item_archived', itemId, archived }))}
+                            key={item.id}
+                          />
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {activeCollection === 'scene' ? (
+                <section className="collection-view" aria-labelledby="scene-heading">
+                  <div className="collection-heading">
+                    <div>
+                      <h4 id="scene-heading">Current Scene</h4>
+                      <p>One canonical scene record for the Campaign’s present moment.</p>
+                    </div>
+                  </div>
+                  <SceneEditor
+                    scene={displayed.currentScene}
+                    busy={busy}
+                    readOnly={historical !== null}
+                    onSave={(name, summary) => run(() => executeOperation({ kind: 'set_current_scene', scene: { name, summary } }))}
+                  />
+                </section>
+              ) : null}
+
+              {activeCollection === 'history' ? (
+                <section className="collection-view" aria-labelledby="history-heading">
+                  <div className="collection-heading">
+                    <div>
+                      <h4 id="history-heading">Immutable History</h4>
+                      <p>Open any accepted revision as a read-only Campaign document.</p>
+                    </div>
+                  </div>
+                  <CampaignHistoryView
+                    entries={history}
+                    currentRevision={selected.campaign.revision}
+                    viewingRevision={viewingRevision}
+                    busy={busy}
+                    expanded
+                    onOpenRevision={revision => { void run(() => openRevision(selected.campaign.id, revision)); }}
+                    onReturnCurrent={() => setHistorical(null)}
+                  />
+                </section>
+              ) : null}
             </>
           ) : (
-            <p className="empty-state">Create or open a Campaign to start the durable persistence proof.</p>
+            <p className="empty-state">Create or open a Campaign to begin editing durable Campaign truth.</p>
           )}
         </div>
       </div>
