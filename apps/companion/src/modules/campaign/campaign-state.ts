@@ -115,6 +115,20 @@ export function eventHash(input: {
   return sha256(input);
 }
 
+function requireActor(state: CampaignState, actorId: string): CampaignActor {
+  const id = cleanIdentifier(actorId, 'Actor ID');
+  const actor = state.actors[id];
+  if (!actor) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Actor ${id} was not found.`, 404, { actorId: id });
+  return actor;
+}
+
+function requireItem(state: CampaignState, itemId: string): CampaignItem {
+  const id = cleanIdentifier(itemId, 'Item ID');
+  const item = state.items[id];
+  if (!item) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Item ${id} was not found.`, 404, { itemId: id });
+  return item;
+}
+
 export function applyOperation(state: CampaignState, operation: CampaignOperation): string[] {
   if (operation.kind === 'create_actor') {
     const id = operation.actor.id ? cleanIdentifier(operation.actor.id, 'Actor ID') : randomUUID();
@@ -130,11 +144,23 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     return [id];
   }
   if (operation.kind === 'rename_actor') {
-    const actorId = cleanIdentifier(operation.actorId, 'Actor ID');
-    const actor = state.actors[actorId];
-    if (!actor) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Actor ${actorId} was not found.`, 404, { actorId });
-    state.actors[actorId] = { ...actor, name: cleanText(operation.name, 'Actor name', 160) };
-    return [actorId];
+    const actor = requireActor(state, operation.actorId);
+    state.actors[actor.id] = { ...actor, name: cleanText(operation.name, 'Actor name', 160) };
+    return [actor.id];
+  }
+  if (operation.kind === 'update_actor') {
+    const actor = requireActor(state, operation.actorId);
+    state.actors[actor.id] = {
+      ...actor,
+      name: cleanText(operation.name, 'Actor name', 160),
+      summary: cleanOptionalText(operation.summary, 'Actor summary', 4000),
+    };
+    return [actor.id];
+  }
+  if (operation.kind === 'set_actor_archived') {
+    const actor = requireActor(state, operation.actorId);
+    state.actors[actor.id] = { ...actor, archived: operation.archived };
+    return [actor.id];
   }
   if (operation.kind === 'create_item') {
     const id = operation.item.id ? cleanIdentifier(operation.item.id, 'Item ID') : randomUUID();
@@ -148,6 +174,20 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       archived: false,
     };
     return [id];
+  }
+  if (operation.kind === 'update_item') {
+    const item = requireItem(state, operation.itemId);
+    state.items[item.id] = {
+      ...item,
+      name: cleanText(operation.name, 'Item name', 160),
+      summary: cleanOptionalText(operation.summary, 'Item summary', 4000),
+    };
+    return [item.id];
+  }
+  if (operation.kind === 'set_item_archived') {
+    const item = requireItem(state, operation.itemId);
+    state.items[item.id] = { ...item, archived: operation.archived };
+    return [item.id];
   }
   const id = operation.scene.id ? cleanIdentifier(operation.scene.id, 'Scene ID') : state.currentScene?.id ?? randomUUID();
   state.currentScene = {
