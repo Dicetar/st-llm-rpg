@@ -48,13 +48,22 @@ test('Problem is bounded and carries explicit recovery actions', () => {
   assert.equal(isProblem({ ...value, actions: [{ label: 'missing id', kind: 'retry' }] }), false);
 });
 
-test('Campaign documents and commits reject unbounded or malformed authority payloads', () => {
+test('Campaign documents and commits validate routed record collections', () => {
   const document = {
     campaign: {
       id: 'campaign-1', title: 'Campaign', status: 'active', revision: 1,
       createdAt: now, updatedAt: now,
     },
-    actors: [], items: [], currentScene: null,
+    actors: [],
+    items: [],
+    quests: [{
+      id: 'quest-1', name: 'Find the Gate', summary: 'Locate the sealed gate.',
+      status: 'active', archived: false,
+    }],
+    places: [{
+      id: 'place-1', name: 'Old Keep', summary: 'A ruined border fortress.', archived: false,
+    }],
+    currentScene: null,
   };
   const commit = {
     campaignId: 'campaign-1', revision: 1, eventId: 'event-1', requestId: 'request-4',
@@ -64,5 +73,6 @@ test('Campaign documents and commits reject unbounded or malformed authority pay
   assert.equal(isCampaignDocument(document), true);
   assert.equal(isCampaignCommit(commit), true);
   assert.equal(isCampaignDocument({ ...document, arbitraryTable: [] }), false);
+  assert.equal(isCampaignDocument({ ...document, quests: [{ ...document.quests[0], status: 'unknown' }] }), false);
   assert.equal(isCampaignCommit({ ...commit, document: { ...document, actors: [{ id: '', name: '', summary: '', archived: false }] } }), false);
 });
