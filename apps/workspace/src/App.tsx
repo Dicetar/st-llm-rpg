@@ -34,6 +34,7 @@ type CanonicalUpdate = Readonly<{
   document: CampaignDocument;
   history: CampaignHistoryEntry[];
 }>;
+type RecordDraft = Readonly<{ name: string; summary: string; ownerActorId: string }>;
 
 class ApiProblem extends Error {
   readonly problem: Problem | null;
@@ -82,6 +83,12 @@ function syncLabel(state: SyncState): string {
   if (state === 'reconnecting') return 'Reconnecting';
   if (state === 'update-ready') return 'Update available';
   return 'Not connected';
+}
+
+function sameDraft(left: RecordDraft, right: RecordDraft): boolean {
+  return left.name.trim() === right.name
+    && left.summary.trim() === right.summary
+    && left.ownerActorId === right.ownerActorId;
 }
 
 export function CampaignBookView(props: {
@@ -213,110 +220,104 @@ function CollectionNavigation(props: {
   );
 }
 
-function ActorEditor(props: {
-  actor: CampaignActor;
-  busy: boolean;
-  readOnly: boolean;
-  onSave: (actorId: string, name: string, summary: string) => Promise<void>;
-  onArchive: (actorId: string, archived: boolean) => Promise<void>;
-}) {
-  const [name, setName] = useState(props.actor.name);
-  const [summary, setSummary] = useState(props.actor.summary);
-  const dirty = name.trim() !== props.actor.name || summary.trim() !== props.actor.summary;
-  useEffect(() => {
-    if (dirty) return;
-    setName(props.actor.name);
-    setSummary(props.actor.summary);
-  }, [dirty, props.actor.name, props.actor.summary]);
-  return (
-    <form className={props.actor.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
-      event.preventDefault();
-      void props.onSave(props.actor.id, name, summary);
-    }}>
-      <div className="record-card__heading">
-        <strong>{props.actor.archived ? 'Archived Actor' : 'Actor'}</strong>
-        <span>{props.actor.id}</span>
-      </div>
-      <label>
-        <span>Name</span>
-        <input value={name} onChange={event => setName(event.target.value)} disabled={props.busy || props.readOnly} />
-      </label>
-      <label>
-        <span>Summary</span>
-        <textarea rows={4} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy || props.readOnly} />
-      </label>
-      <div className="record-actions">
-        <button type="submit" disabled={props.busy || props.readOnly || !name.trim() || !dirty}>Save Actor</button>
-        <button
-          type="button"
-          className="button-secondary"
-          disabled={props.busy || props.readOnly}
-          onClick={() => { void props.onArchive(props.actor.id, !props.actor.archived); }}
-        >
-          {props.actor.archived ? 'Restore Actor' : 'Archive Actor'}
-        </button>
-      </div>
-    </form>
-  );
+type RecordEditorProps =
+  | Readonly<{
+      kind: 'actor';
+      record: CampaignActor;
+      busy: boolean;
+      readOnly: boolean;
+      onSave: (id: string, name: string, summary: string) => Promise<void>;
+      onArchive: (id: string, archived: boolean) => Promise<void>;
+    }>
+  | Readonly<{
+      kind: 'item';
+      record: CampaignItem;
+      actors: readonly CampaignActor[];
+      busy: boolean;
+      readOnly: boolean;
+      onSave: (id: string, name: string, summary: string, ownerActorId: string | null) => Promise<void>;
+      onArchive: (id: string, archived: boolean) => Promise<void>;
+    }>;
+
+function canonicalDraft(props: RecordEditorProps): RecordDraft {
+  return {
+    name: props.record.name,
+    summary: props.record.summary,
+    ownerActorId: props.kind === 'item' ? props.record.ownerActorId ?? '' : '',
+  };
 }
 
-function ItemEditor(props: {
-  item: CampaignItem;
-  actors: readonly CampaignActor[];
-  busy: boolean;
-  readOnly: boolean;
-  onSave: (itemId: string, name: string, summary: string, ownerActorId: string | null) => Promise<void>;
-  onArchive: (itemId: string, archived: boolean) => Promise<void>;
-}) {
-  const [name, setName] = useState(props.item.name);
-  const [summary, setSummary] = useState(props.item.summary);
-  const [ownerActorId, setOwnerActorId] = useState(props.item.ownerActorId ?? '');
-  const dirty = name.trim() !== props.item.name
-    || summary.trim() !== props.item.summary
-    || ownerActorId !== (props.item.ownerActorId ?? '');
+function RecordEditor(props: RecordEditorProps) {
+  const initial = canonicalDraft(props);
+  const [draft, setDraft] = useState<RecordDraft>(initial);
+  const [baseline, setBaseline] = useState<RecordDraft>(initial);
+  const dirty = !sameDraft(draft, baseline);
+
   useEffect(() => {
-    if (dirty) return;
-    setName(props.item.name);
-    setSummary(props.item.summary);
-    setOwnerActorId(props.item.ownerActorId ?? '');
-  }, [dirty, props.item.name, props.item.ownerActorId, props.item.summary]);
+    const next = canonicalDraft(props);
+    const wasDirty = !sameDraft(draft, baseline);
+    setBaseline(next);
+    if (!wasDirty) setDraft(next);
+  }, [props.kind, props.record.name, props.record.summary, props.kind === 'item' ? props.record.ownerActorId : undefined]);
+
   return (
-    <form className={props.item.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
+    <form className={props.record.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
       event.preventDefault();
-      void props.onSave(props.item.id, name, summary, ownerActorId || null);
+      if (props.kind === 'actor') {
+        void props.onSave(props.record.id, draft.name, draft.summary);
+      } else {
+        void props.onSave(props.record.id, draft.name, draft.summary, draft.ownerActorId || null);
+      }
     }}>
       <div className="record-card__heading">
-        <strong>{props.item.archived ? 'Archived Item' : 'Item'}</strong>
-        <span>{props.item.id}</span>
+        <strong>{props.record.archived ? `Archived ${props.kind === 'actor' ? 'Actor' : 'Item'}` : props.kind === 'actor' ? 'Actor' : 'Item'}</strong>
+        <span>{props.record.id}</span>
       </div>
       <label>
         <span>Name</span>
-        <input value={name} onChange={event => setName(event.target.value)} disabled={props.busy || props.readOnly} />
+        <input
+          value={draft.name}
+          onChange={event => setDraft(previous => ({ ...previous, name: event.target.value }))}
+          disabled={props.busy || props.readOnly}
+        />
       </label>
       <label>
         <span>Summary</span>
-        <textarea rows={4} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy || props.readOnly} />
+        <textarea
+          rows={4}
+          value={draft.summary}
+          onChange={event => setDraft(previous => ({ ...previous, summary: event.target.value }))}
+          disabled={props.busy || props.readOnly}
+        />
       </label>
-      <label>
-        <span>Attached Actor</span>
-        <select value={ownerActorId} onChange={event => setOwnerActorId(event.target.value)} disabled={props.busy || props.readOnly}>
-          <option value="">Unattached</option>
-          {props.actors.map(actor => (
-            <option key={actor.id} value={actor.id} disabled={actor.archived && actor.id !== props.item.ownerActorId}>
-              {actor.name}{actor.archived ? ' · archived' : ''}
-            </option>
-          ))}
-        </select>
-      </label>
+      {props.kind === 'item' ? (
+        <label>
+          <span>Attached Actor</span>
+          <select
+            value={draft.ownerActorId}
+            onChange={event => setDraft(previous => ({ ...previous, ownerActorId: event.target.value }))}
+            disabled={props.busy || props.readOnly}
+          >
+            <option value="">Unattached</option>
+            {props.actors.map(actor => (
+              <option key={actor.id} value={actor.id} disabled={actor.archived && actor.id !== props.record.ownerActorId}>
+                {actor.name}{actor.archived ? ' · archived' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <div className="record-actions">
-        <button type="submit" disabled={props.busy || props.readOnly || !name.trim() || !dirty}>Save Item</button>
+        <button type="submit" disabled={props.busy || props.readOnly || !draft.name.trim() || !dirty}>
+          Save {props.kind === 'actor' ? 'Actor' : 'Item'}
+        </button>
         <button
           type="button"
           className="button-secondary"
           disabled={props.busy || props.readOnly}
-          onClick={() => { void props.onArchive(props.item.id, !props.item.archived); }}
+          onClick={() => { void props.onArchive(props.record.id, !props.record.archived); }}
         >
-          {props.item.archived ? 'Restore Item' : 'Archive Item'}
+          {props.record.archived ? `Restore ${props.kind === 'actor' ? 'Actor' : 'Item'}` : `Archive ${props.kind === 'actor' ? 'Actor' : 'Item'}`}
         </button>
       </div>
     </form>
@@ -329,18 +330,22 @@ function SceneEditor(props: {
   readOnly: boolean;
   onSave: (name: string, summary: string) => Promise<void>;
 }) {
-  const [name, setName] = useState(props.scene?.name ?? '');
-  const [summary, setSummary] = useState(props.scene?.summary ?? '');
-  const dirty = name.trim() !== (props.scene?.name ?? '') || summary.trim() !== (props.scene?.summary ?? '');
+  const canonical = { name: props.scene?.name ?? '', summary: props.scene?.summary ?? '' };
+  const [draft, setDraft] = useState(canonical);
+  const [baseline, setBaseline] = useState(canonical);
+  const dirty = draft.name.trim() !== baseline.name || draft.summary.trim() !== baseline.summary;
+
   useEffect(() => {
-    if (dirty) return;
-    setName(props.scene?.name ?? '');
-    setSummary(props.scene?.summary ?? '');
-  }, [dirty, props.scene?.id, props.scene?.name, props.scene?.summary]);
+    const next = { name: props.scene?.name ?? '', summary: props.scene?.summary ?? '' };
+    const wasDirty = draft.name.trim() !== baseline.name || draft.summary.trim() !== baseline.summary;
+    setBaseline(next);
+    if (!wasDirty) setDraft(next);
+  }, [props.scene?.id, props.scene?.name, props.scene?.summary]);
+
   return (
     <form className="record-card" onSubmit={event => {
       event.preventDefault();
-      void props.onSave(name, summary);
+      void props.onSave(draft.name, draft.summary);
     }}>
       <div className="record-card__heading">
         <strong>{props.scene ? 'Current Scene' : 'Start Current Scene'}</strong>
@@ -348,14 +353,23 @@ function SceneEditor(props: {
       </div>
       <label>
         <span>Name</span>
-        <input value={name} onChange={event => setName(event.target.value)} disabled={props.busy || props.readOnly} />
+        <input
+          value={draft.name}
+          onChange={event => setDraft(previous => ({ ...previous, name: event.target.value }))}
+          disabled={props.busy || props.readOnly}
+        />
       </label>
       <label>
         <span>Summary</span>
-        <textarea rows={7} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy || props.readOnly} />
+        <textarea
+          rows={7}
+          value={draft.summary}
+          onChange={event => setDraft(previous => ({ ...previous, summary: event.target.value }))}
+          disabled={props.busy || props.readOnly}
+        />
       </label>
       <div className="record-actions">
-        <button type="submit" disabled={props.busy || props.readOnly || !name.trim() || !dirty}>
+        <button type="submit" disabled={props.busy || props.readOnly || !draft.name.trim() || !dirty}>
           {props.scene ? 'Save Scene' : 'Start Scene'}
         </button>
       </div>
@@ -439,10 +453,10 @@ function CampaignAuthorityPanel() {
     let debounce: number | undefined;
 
     source.onopen = () => {
-      if (!closed && !pendingCanonical) setSyncState('live');
+      if (!closed) setSyncState('live');
     };
     source.onerror = () => {
-      if (!closed && !pendingCanonical) setSyncState('reconnecting');
+      if (!closed) setSyncState('reconnecting');
     };
     const receiveInvalidation = (event: Event) => {
       const messageEvent = event as MessageEvent<string>;
@@ -475,7 +489,7 @@ function CampaignAuthorityPanel() {
       source.removeEventListener('campaign-revision', receiveInvalidation);
       source.close();
     };
-  }, [fetchCampaignSnapshot, pendingCanonical, selected?.campaign.id, selected?.campaign.revision]);
+  }, [fetchCampaignSnapshot, selected?.campaign.id, selected?.campaign.revision]);
 
   async function run(work: () => Promise<void>) {
     setBusy(true);
@@ -531,11 +545,7 @@ function CampaignAuthorityPanel() {
     try {
       const commit = await fetchJson<CampaignCommit>(`/api/campaigns/${encodeURIComponent(campaignId)}/operations`, undefined, {
         method: 'POST',
-        body: JSON.stringify({
-          requestId: newRequestId(),
-          expectedRevision,
-          operation,
-        }),
+        body: JSON.stringify({ requestId: newRequestId(), expectedRevision, operation }),
       });
       const [campaignList, entries] = await Promise.all([
         fetchJson<CampaignSummary[]>('/api/campaigns'),
@@ -751,8 +761,9 @@ function CampaignAuthorityPanel() {
                   ) : null}
                   <div className="record-list">
                     {activeActors.map(actor => (
-                      <ActorEditor
-                        actor={actor}
+                      <RecordEditor
+                        kind="actor"
+                        record={actor}
                         busy={busy}
                         readOnly={historical !== null}
                         onSave={(actorId, name, summary) => run(() => executeOperation({ kind: 'update_actor', actorId, name, summary }))}
@@ -767,8 +778,9 @@ function CampaignAuthorityPanel() {
                       <summary>Archived Actors ({archivedActors.length})</summary>
                       <div className="record-list">
                         {archivedActors.map(actor => (
-                          <ActorEditor
-                            actor={actor}
+                          <RecordEditor
+                            kind="actor"
+                            record={actor}
                             busy={busy}
                             readOnly={historical !== null}
                             onSave={(actorId, name, summary) => run(() => executeOperation({ kind: 'update_actor', actorId, name, summary }))}
@@ -812,8 +824,9 @@ function CampaignAuthorityPanel() {
                   ) : null}
                   <div className="record-list">
                     {activeItems.map(item => (
-                      <ItemEditor
-                        item={item}
+                      <RecordEditor
+                        kind="item"
+                        record={item}
                         actors={displayed.actors}
                         busy={busy}
                         readOnly={historical !== null}
@@ -831,8 +844,9 @@ function CampaignAuthorityPanel() {
                       <summary>Archived Items ({archivedItems.length})</summary>
                       <div className="record-list">
                         {archivedItems.map(item => (
-                          <ItemEditor
-                            item={item}
+                          <RecordEditor
+                            kind="item"
+                            record={item}
                             actors={displayed.actors}
                             busy={busy}
                             readOnly={historical !== null}
