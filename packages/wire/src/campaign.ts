@@ -28,6 +28,29 @@ export const CampaignItemSchema = Type.Object({
 }, { additionalProperties: false });
 export type CampaignItem = Static<typeof CampaignItemSchema>;
 
+export const CampaignQuestStatusSchema = Type.Union([
+  Type.Literal('active'),
+  Type.Literal('completed'),
+]);
+export type CampaignQuestStatus = Static<typeof CampaignQuestStatusSchema>;
+
+export const CampaignQuestSchema = Type.Object({
+  id: Identifier,
+  name: Title,
+  summary: Summary,
+  status: CampaignQuestStatusSchema,
+  archived: Type.Boolean(),
+}, { additionalProperties: false });
+export type CampaignQuest = Static<typeof CampaignQuestSchema>;
+
+export const CampaignPlaceSchema = Type.Object({
+  id: Identifier,
+  name: Title,
+  summary: Summary,
+  archived: Type.Boolean(),
+}, { additionalProperties: false });
+export type CampaignPlace = Static<typeof CampaignPlaceSchema>;
+
 export const CampaignSceneSchema = Type.Object({
   id: Identifier,
   name: Title,
@@ -49,6 +72,8 @@ export const CampaignDocumentSchema = Type.Object({
   campaign: CampaignSummarySchema,
   actors: Type.Array(CampaignActorSchema),
   items: Type.Array(CampaignItemSchema),
+  quests: Type.Array(CampaignQuestSchema),
+  places: Type.Array(CampaignPlaceSchema),
   currentScene: Type.Union([CampaignSceneSchema, Type.Null()]),
 }, { additionalProperties: false });
 export type CampaignDocument = Static<typeof CampaignDocumentSchema>;
@@ -70,6 +95,19 @@ const NewItemSchema = Type.Object({
   name: Title,
   summary: Type.Optional(Summary),
   ownerActorId: Type.Optional(Identifier),
+}, { additionalProperties: false });
+
+const NewQuestSchema = Type.Object({
+  id: Type.Optional(Identifier),
+  name: Title,
+  summary: Type.Optional(Summary),
+  status: Type.Optional(CampaignQuestStatusSchema),
+}, { additionalProperties: false });
+
+const NewPlaceSchema = Type.Object({
+  id: Type.Optional(Identifier),
+  name: Title,
+  summary: Type.Optional(Summary),
 }, { additionalProperties: false });
 
 export const CampaignOperationSchema = Type.Union([
@@ -116,6 +154,37 @@ export const CampaignOperationSchema = Type.Union([
   Type.Object({
     kind: Type.Literal('set_item_archived'),
     itemId: Identifier,
+    archived: Type.Boolean(),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('create_quest'),
+    quest: NewQuestSchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('update_quest'),
+    questId: Identifier,
+    name: Title,
+    summary: Summary,
+    status: CampaignQuestStatusSchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('set_quest_archived'),
+    questId: Identifier,
+    archived: Type.Boolean(),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('create_place'),
+    place: NewPlaceSchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('update_place'),
+    placeId: Identifier,
+    name: Title,
+    summary: Summary,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('set_place_archived'),
+    placeId: Identifier,
     archived: Type.Boolean(),
   }, { additionalProperties: false }),
   Type.Object({
