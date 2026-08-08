@@ -1,6 +1,8 @@
 # Use one versioned exchange and one Narration transaction
 
-Status: accepted provisionally. Wayfinder #20 must validate the pinned SillyTavern and LM Studio behavior before implementation locks the wire.
+Status: superseded for v1 by [ADR 0018](./0018-use-one-companion-one-writer-and-one-model-call.md).
+
+Historical evidence only. Do not implement hidden drafts, enrichment revisions, hidden-prose recovery, vectors, automatic narrator retries, or automatic model management from this ADR. Where still compatible, the versioned exchange and atomic final-delivery constraints remain useful evidence beneath the final v1 contract.
 
 The SillyTavern Bridge describes every Chat Completion request in one canonical, versioned `X-ST-RPG-Exchange` envelope. Missing or invalid wire metadata is an error, never implicit unlinked pass-through. A valid absent per-chat binding marker is encoded explicitly as unlinked; a valid marker carries only canonical Chat Binding ID while Campaign authority remains in SQLite. Chat Locator is collision evidence, never Binding identity.
 

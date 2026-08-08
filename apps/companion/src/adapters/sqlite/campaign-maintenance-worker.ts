@@ -2,8 +2,8 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { DatabaseSync } from 'node:sqlite';
 import type { CampaignDocument, CampaignVerificationResult, ProblemCode } from '@st-llm-rpg/wire';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
-import { asDocument, parseJson, type CampaignState } from '../../modules/campaign/campaign-state.js';
-import { verifyCampaignDatabase } from './campaign-verifier.js';
+import { asDocument } from '../../modules/campaign/campaign-state.js';
+import { reconstructCampaignState, verifyCampaignDatabase } from './campaign-verifier.js';
 
 type WorkerInput =
   | Readonly<{ action: 'verify'; databasePath: string }>
@@ -62,11 +62,7 @@ function readRevision(database: DatabaseSync, campaignId: string, revision: numb
       { campaignId, revision, currentRevision },
     );
   }
-  const event = database.prepare(
-    'SELECT after_state_json FROM campaign_events WHERE campaign_id = ? AND revision = ?',
-  ).get(campaignId, revision) as { after_state_json: string } | undefined;
-  if (!event) throw new Error(`Campaign ${campaignId} is missing immutable revision ${revision}.`);
-  return asDocument(parseJson<CampaignState>(event.after_state_json));
+  return asDocument(reconstructCampaignState(database, campaignId, revision));
 }
 
 let database: DatabaseSync | undefined;

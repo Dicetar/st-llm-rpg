@@ -12,6 +12,14 @@ import type {
   ExecuteCampaignRequest,
 } from '@st-llm-rpg/wire';
 import { CAMPAIGN_AUTHORITY_MIGRATION, campaignMigrationChecksum } from '../../migrations/001-campaign-authority.js';
+import {
+  CAMPAIGN_SUBJECT_EVENTS_MIGRATION,
+  campaignSubjectEventsMigrationChecksum,
+} from '../../migrations/002-campaign-subject-events.js';
+import {
+  CAMPAIGN_CURRENT_PROJECTIONS_MIGRATION,
+  campaignCurrentProjectionsMigrationChecksum,
+} from '../../migrations/003-campaign-current-projections.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   applyOperation,
@@ -19,26 +27,38 @@ import {
   canonicalJson,
   cleanIdentifier,
   cleanText,
-  eventHash,
+  normalizeCampaignState,
   parseJson,
   sha256,
-  type CampaignRow,
+  subjectChangesForOperation,
+  subjectEventHash,
+  subjectImageHash,
   type CampaignState,
-  type ReceiptRow,
+  type CampaignSubjectChange,
 } from '../../modules/campaign/campaign-state.js';
-import { verifyCampaignDatabase } from './campaign-verifier.js';
+import type { CampaignRow, ReceiptRow } from './campaign-rows.js';
+import {
+  applyCurrentCampaignProjectionChanges,
+  LEGACY_CURRENT_STATE_MARKER,
+  readCurrentCampaignState,
+  replaceCurrentCampaignProjections,
+} from './campaign-projections.js';
+import { reconstructCampaignState, verifyCampaignDatabase } from './campaign-verifier.js';
 
 const APPLICATION_ID = 0x52504733;
-const EVENT_SCHEMA_VERSION = 1;
+const EVENT_SCHEMA_VERSION = 2;
 const STATE_SCHEMA_VERSION = 1;
-const DEFAULT_SNAPSHOT_INTERVAL = 25;
+const DEFAULT_SNAPSHOT_INTERVAL = 100;
 const DEFAULT_TIMING_SAMPLE_LIMIT = 500;
+
+type StoredCommitReceipt = Omit<CampaignCommit, 'document' | 'idempotent'> & Readonly<{
+  receiptSchemaVersion: 2;
+}>;
 
 export type CampaignAuthorityObservation = Readonly<{ ready: boolean; message: string; latencyMs: number }>;
 
 export type CampaignJournalFaultPoint =
   | 'create.after-event'
-  | 'create.after-snapshot'
   | 'execute.after-event'
   | 'execute.after-projection'
   | 'restore.after-safety-backup'
@@ -87,7 +107,7 @@ export class SqliteCampaignJournal {
     try {
       journal.configure();
       journal.assertStoreIdentity();
-      journal.migrate();
+      await journal.migrate();
       journal.verifyOrThrow();
       return journal;
     } catch (error) {
@@ -100,6 +120,12 @@ export class SqliteCampaignJournal {
     if (!this.#databaseOpen) return;
     this.#database.close();
     this.#databaseOpen = false;
+  }
+
+  storeEpoch(): string {
+    const row = this.#database.prepare('SELECT store_epoch FROM store_meta WHERE singleton = 1').get() as { store_epoch: string } | undefined;
+    if (!row?.store_epoch) throw new Error('Campaign authority is missing its Store Epoch.');
+    return row.store_epoch;
   }
 
   observation(): CampaignAuthorityObservation {
@@ -158,7 +184,7 @@ export class SqliteCampaignJournal {
   readCampaign(campaignId: string, revision?: number): CampaignDocument {
     const id = cleanIdentifier(campaignId, 'Campaign ID');
     const state = revision === undefined
-      ? parseJson<CampaignState>(this.requireCampaign(id).current_state_json)
+      ? readCurrentCampaignState(this.#database, this.requireCampaign(id))
       : this.reconstruct(id, revision);
     return asDocument(state);
   }
@@ -191,9 +217,30 @@ export class SqliteCampaignJournal {
       const eventId = randomUUID();
       const committedAt = new Date().toISOString();
       const summary: CampaignSummary = { id: campaignId, title, status: 'active', revision: 1, createdAt: committedAt, updatedAt: committedAt };
-      const state: CampaignState = { campaign: summary, actors: {}, items: {}, currentScene: null };
+      const state: CampaignState = {
+        campaign: summary,
+        actors: {},
+        items: {},
+        quests: {},
+        places: {},
+        currentScene: null,
+      };
+      const baseState: CampaignState = { ...structuredClone(state), campaign: { ...summary, revision: 0 } };
       const operation = { kind: 'create_campaign', title };
-      const hash = eventHash({ campaignId, revision: 1, eventId, requestId, operationKind: operation.kind, operation, beforeState: null, afterState: state, acceptedAt: committedAt, previousEventHash: null });
+      const baseStateHash = sha256(baseState);
+      const changes: CampaignSubjectChange[] = [];
+      const hash = subjectEventHash({
+        campaignId,
+        revision: 1,
+        eventId,
+        requestId,
+        operationKind: operation.kind,
+        operation,
+        acceptedAt: committedAt,
+        previousEventHash: null,
+        baseStateHash,
+        changes,
+      });
       const commit: CampaignCommit = {
         campaignId, revision: 1, eventId, requestId, operationKind: operation.kind,
         affectedIds: [campaignId], committedAt, idempotent: false, document: asDocument(state),
@@ -202,11 +249,10 @@ export class SqliteCampaignJournal {
         this.#database.prepare(`
           INSERT INTO campaigns(campaign_id, title, status, current_revision, current_state_json, head_event_hash, created_at, updated_at)
           VALUES (?, ?, 'active', 1, ?, ?, ?, ?)
-        `).run(campaignId, title, canonicalJson(state), hash, committedAt, committedAt);
-        this.insertEvent({ campaignId, revision: 1, eventId, requestId, operationKind: operation.kind, operation, beforeState: null, afterState: state, acceptedAt: committedAt, previousEventHash: null, eventHash: hash });
+        `).run(campaignId, title, LEGACY_CURRENT_STATE_MARKER, hash, committedAt, committedAt);
+        this.insertBase(campaignId, 'blank', baseState, committedAt);
+        this.insertSubjectEvent({ campaignId, revision: 1, eventId, requestId, operationKind: operation.kind, operation, changes, acceptedAt: committedAt, previousEventHash: null, eventHash: hash });
         this.inject('create.after-event');
-        this.insertSnapshot(campaignId, 1, state, hash, committedAt);
-        this.inject('create.after-snapshot');
         this.insertReceipt(requestId, requestDigest, campaignId, commit, committedAt);
       });
       this.recordCommitDuration(started);
@@ -231,25 +277,38 @@ export class SqliteCampaignJournal {
         );
       }
       const started = performance.now();
-      const beforeState = parseJson<CampaignState>(campaign.current_state_json);
+      const beforeState = readCurrentCampaignState(this.#database, campaign);
       const afterState = structuredClone(beforeState);
       const affectedIds = applyOperation(afterState, request.operation);
+      const changes = subjectChangesForOperation(beforeState, afterState, request.operation, affectedIds);
       const revision = Number(campaign.current_revision) + 1;
       const committedAt = new Date().toISOString();
       afterState.campaign = { ...afterState.campaign, revision, updatedAt: committedAt };
       const eventId = randomUUID();
-      const hash = eventHash({ campaignId: id, revision, eventId, requestId, operationKind: request.operation.kind, operation: request.operation, beforeState, afterState, acceptedAt: committedAt, previousEventHash: campaign.head_event_hash });
+      const hash = subjectEventHash({
+        campaignId: id,
+        revision,
+        eventId,
+        requestId,
+        operationKind: request.operation.kind,
+        operation: request.operation,
+        acceptedAt: committedAt,
+        previousEventHash: campaign.head_event_hash,
+        baseStateHash: null,
+        changes,
+      });
       const commit: CampaignCommit = {
         campaignId: id, revision, eventId, requestId, operationKind: request.operation.kind,
         affectedIds, committedAt, idempotent: false, document: asDocument(afterState),
       };
       this.transaction(() => {
-        this.insertEvent({ campaignId: id, revision, eventId, requestId, operationKind: request.operation.kind, operation: request.operation, beforeState, afterState, acceptedAt: committedAt, previousEventHash: campaign.head_event_hash, eventHash: hash });
+        this.insertSubjectEvent({ campaignId: id, revision, eventId, requestId, operationKind: request.operation.kind, operation: request.operation, changes, acceptedAt: committedAt, previousEventHash: campaign.head_event_hash, eventHash: hash });
         this.inject('execute.after-event');
+        applyCurrentCampaignProjectionChanges(this.#database, id, changes);
         this.#database.prepare(`
-          UPDATE campaigns SET title = ?, status = ?, current_revision = ?, current_state_json = ?, head_event_hash = ?, updated_at = ?
+          UPDATE campaigns SET title = ?, status = ?, current_revision = ?, head_event_hash = ?, updated_at = ?
           WHERE campaign_id = ?
-        `).run(afterState.campaign.title, afterState.campaign.status, revision, canonicalJson(afterState), hash, committedAt, id);
+        `).run(afterState.campaign.title, afterState.campaign.status, revision, hash, committedAt, id);
         this.inject('execute.after-projection');
         if (revision % this.snapshotInterval === 0) this.insertSnapshot(id, revision, afterState, hash, committedAt);
         this.insertReceipt(requestId, requestDigest, id, commit, committedAt);
@@ -282,6 +341,7 @@ export class SqliteCampaignJournal {
       if (source === this.databasePath) throw new Error('Campaign restore source must differ from the active database.');
       const safety = `${this.databasePath}.before-restore`;
       const staged = `${this.databasePath}.restore`;
+      let preserveSafety = false;
       await this.removeDatabaseArtifacts(safety);
       await this.removeDatabaseArtifacts(staged);
 
@@ -305,6 +365,8 @@ export class SqliteCampaignJournal {
           await rename(staged, this.databasePath);
           this.inject('restore.after-swap');
           this.openDatabase();
+          await this.migrate();
+          this.rotateStoreEpoch();
           this.verifyOrThrow();
         } catch (error) {
           let recoveryError: unknown;
@@ -318,13 +380,17 @@ export class SqliteCampaignJournal {
             recoveryError = caught;
           }
           if (recoveryError !== undefined) {
-            throw new AggregateError([error, recoveryError], 'Campaign restore failed and the previous authority could not be recovered safely.');
+            preserveSafety = true;
+            throw new AggregateError(
+              [error, recoveryError],
+              `Campaign restore failed and the previous authority could not be recovered safely. Preserve and inspect ${safety}.`,
+            );
           }
           throw error;
         }
       } finally {
         await this.removeDatabaseArtifacts(staged);
-        await this.removeDatabaseArtifacts(safety);
+        if (!preserveSafety) await this.removeDatabaseArtifacts(safety);
       }
     });
   }
@@ -347,7 +413,7 @@ export class SqliteCampaignJournal {
     if (applicationId === 0) this.#database.exec(`PRAGMA application_id = ${APPLICATION_ID}`);
   }
 
-  private migrate(): void {
+  private async migrate(): Promise<void> {
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version INTEGER PRIMARY KEY,
@@ -356,18 +422,36 @@ export class SqliteCampaignJournal {
         applied_at TEXT NOT NULL
       );
     `);
-    const migration = this.#database.prepare('SELECT name, checksum FROM schema_migrations WHERE version = ?').get(CAMPAIGN_AUTHORITY_MIGRATION.version) as { name: string; checksum: string } | undefined;
-    const checksum = campaignMigrationChecksum();
-    if (migration) {
-      if (migration.name !== CAMPAIGN_AUTHORITY_MIGRATION.name || migration.checksum !== checksum) throw new Error('Campaign migration checksum mismatch.');
-      return;
+    const migrations = [
+      { ...CAMPAIGN_AUTHORITY_MIGRATION, checksum: campaignMigrationChecksum() },
+      { ...CAMPAIGN_SUBJECT_EVENTS_MIGRATION, checksum: campaignSubjectEventsMigrationChecksum() },
+      { ...CAMPAIGN_CURRENT_PROJECTIONS_MIGRATION, checksum: campaignCurrentProjectionsMigrationChecksum() },
+    ];
+    const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
+    const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
+    const knownVersions = new Set<number>(migrations.map(migration => migration.version));
+    const unknown = appliedRows.find(row => !knownVersions.has(Number(row.version)));
+    if (unknown) throw new Error(`Campaign database schema ${unknown.version} is newer than this companion supports.`);
+    for (const migration of migrations) {
+      const found = applied.get(migration.version);
+      if (found && (found.name !== migration.name || found.checksum !== migration.checksum)) {
+        throw new Error(`Campaign migration ${migration.version} checksum mismatch.`);
+      }
     }
-    this.transaction(() => {
-      this.#database.exec(CAMPAIGN_AUTHORITY_MIGRATION.source);
-      this.#database.prepare('INSERT INTO store_meta(singleton, store_epoch) VALUES (1, ?)').run(randomUUID());
-      this.#database.prepare('INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)')
-        .run(CAMPAIGN_AUTHORITY_MIGRATION.version, CAMPAIGN_AUTHORITY_MIGRATION.name, checksum, new Date().toISOString());
-    });
+    const pending = migrations.filter(migration => !applied.has(migration.version));
+    if (pending.length > 0 && applied.size > 0) await this.backupBeforeMigration(pending[0]!.version);
+    for (const migration of pending) {
+      this.transaction(() => {
+        this.#database.exec(migration.source);
+        if (migration.version === CAMPAIGN_AUTHORITY_MIGRATION.version) {
+          this.#database.prepare('INSERT INTO store_meta(singleton, store_epoch) VALUES (1, ?)').run(randomUUID());
+        }
+        if (migration.version === CAMPAIGN_SUBJECT_EVENTS_MIGRATION.version) this.backfillCampaignBases();
+        if (migration.version === CAMPAIGN_CURRENT_PROJECTIONS_MIGRATION.version) this.backfillCurrentCampaignProjections();
+        this.#database.prepare('INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)')
+          .run(migration.version, migration.name, migration.checksum, new Date().toISOString());
+      });
+    }
   }
 
   private reconstruct(campaignId: string, revision: number): CampaignState {
@@ -375,10 +459,8 @@ export class SqliteCampaignJournal {
     if (!Number.isInteger(revision) || revision < 1 || revision > Number(campaign.current_revision)) {
       throw new CampaignExpectedError('CAMPAIGN_REVISION_NOT_FOUND', `Campaign revision ${revision} was not found.`, 404, { campaignId, revision, currentRevision: Number(campaign.current_revision) });
     }
-    const event = this.#database.prepare('SELECT after_state_json FROM campaign_events WHERE campaign_id = ? AND revision = ?').get(campaignId, revision) as { after_state_json: string } | undefined;
-    if (!event) throw new Error(`Campaign ${campaignId} is missing immutable revision ${revision}.`);
     verifyCampaignDatabase(this.#database);
-    return parseJson<CampaignState>(event.after_state_json);
+    return reconstructCampaignState(this.#database, campaignId, revision);
   }
 
   private requireCampaign(campaignId: string): CampaignRow {
@@ -393,23 +475,100 @@ export class SqliteCampaignJournal {
 
   private acceptReceipt(receipt: ReceiptRow, digest: string): CampaignCommit {
     if (receipt.request_hash !== digest) throw new CampaignExpectedError('CAMPAIGN_REQUEST_CONFLICT', 'Request ID was already used for different Campaign work.', 409);
-    return { ...parseJson<CampaignCommit>(receipt.outcome_json), idempotent: true };
+    const outcome = parseJson<CampaignCommit | StoredCommitReceipt>(receipt.outcome_json);
+    if ('document' in outcome) return { ...outcome, idempotent: true };
+    if (outcome.receiptSchemaVersion !== 2) throw new Error('Campaign request receipt uses an unsupported schema.');
+    const { receiptSchemaVersion: _receiptSchemaVersion, ...commit } = outcome;
+    return {
+      ...commit,
+      idempotent: true,
+      document: asDocument(this.reconstruct(commit.campaignId, commit.revision)),
+    };
   }
 
   private insertReceipt(requestId: string, digest: string, campaignId: string, commit: CampaignCommit, createdAt: string): void {
+    const { document: _document, idempotent: _idempotent, ...metadata } = commit;
+    const stored: StoredCommitReceipt = { receiptSchemaVersion: 2, ...metadata };
     this.#database.prepare('INSERT INTO request_receipts(request_id, request_hash, campaign_id, outcome_json, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(requestId, digest, campaignId, canonicalJson(commit), createdAt);
+      .run(requestId, digest, campaignId, canonicalJson(stored), createdAt);
   }
 
-  private insertEvent(input: {
+  private insertBase(campaignId: string, baseKind: 'blank' | 'legacy_import', state: CampaignState, createdAt: string): void {
+    this.#database.prepare(`
+      INSERT INTO campaign_bases(campaign_id, base_kind, state_schema_version, state_json, state_hash, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(campaignId, baseKind, STATE_SCHEMA_VERSION, canonicalJson(state), sha256(state), createdAt);
+  }
+
+  private insertSubjectEvent(input: {
     campaignId: string; revision: number; eventId: string; requestId: string; operationKind: string;
-    operation: unknown; beforeState: CampaignState | null; afterState: CampaignState; acceptedAt: string;
+    operation: unknown; changes: readonly CampaignSubjectChange[]; acceptedAt: string;
     previousEventHash: string | null; eventHash: string;
   }): void {
     this.#database.prepare(`
       INSERT INTO campaign_events(campaign_id, revision, event_id, request_id, event_schema_version, operation_kind, operation_json, before_state_json, after_state_json, accepted_at, previous_event_hash, event_hash)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(input.campaignId, input.revision, input.eventId, input.requestId, EVENT_SCHEMA_VERSION, input.operationKind, canonicalJson(input.operation), input.beforeState ? canonicalJson(input.beforeState) : null, canonicalJson(input.afterState), input.acceptedAt, input.previousEventHash, input.eventHash);
+    `).run(input.campaignId, input.revision, input.eventId, input.requestId, EVENT_SCHEMA_VERSION, input.operationKind, canonicalJson(input.operation), null, '{}', input.acceptedAt, input.previousEventHash, input.eventHash);
+    const statement = this.#database.prepare(`
+      INSERT INTO campaign_event_changes(
+        event_id, ordinal, subject_kind, subject_id,
+        before_schema_version, before_image_json, before_hash,
+        after_schema_version, after_image_json, after_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    input.changes.forEach((change, ordinal) => {
+      statement.run(
+        input.eventId,
+        ordinal,
+        change.subjectKind,
+        change.subjectId,
+        change.beforeImage === null ? null : STATE_SCHEMA_VERSION,
+        change.beforeImage === null ? null : canonicalJson(change.beforeImage),
+        subjectImageHash(change.beforeImage),
+        change.afterImage === null ? null : STATE_SCHEMA_VERSION,
+        change.afterImage === null ? null : canonicalJson(change.afterImage),
+        subjectImageHash(change.afterImage),
+      );
+    });
+  }
+
+  private backfillCampaignBases(): void {
+    const rows = this.#database.prepare(`
+      SELECT c.campaign_id, c.created_at, e.after_state_json
+      FROM campaigns c
+      JOIN campaign_events e ON e.campaign_id = c.campaign_id AND e.revision = 1
+    `).all() as Array<{ campaign_id: string; created_at: string; after_state_json: string }>;
+    for (const row of rows) {
+      const state = parseJson<CampaignState>(row.after_state_json);
+      this.insertBase(row.campaign_id, 'legacy_import', state, row.created_at);
+    }
+  }
+
+  private backfillCurrentCampaignProjections(): void {
+    const rows = this.#database.prepare('SELECT * FROM campaigns ORDER BY campaign_id').all() as CampaignRow[];
+    const markMigrated = this.#database.prepare('UPDATE campaigns SET current_state_json = ? WHERE campaign_id = ?');
+    for (const row of rows) {
+      const state = normalizeCampaignState(parseJson<CampaignState>(row.current_state_json));
+      replaceCurrentCampaignProjections(this.#database, row.campaign_id, state);
+      markMigrated.run(LEGACY_CURRENT_STATE_MARKER, row.campaign_id);
+    }
+  }
+
+  private async backupBeforeMigration(nextVersion: number): Promise<void> {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const destination = `${this.databasePath}.pre-migration-v${nextVersion}-${timestamp}.sqlite`;
+    await backup(this.#database, destination);
+    const copy = new DatabaseSync(destination, { readOnly: true });
+    try { verifyCampaignDatabase(copy); } finally { copy.close(); }
+  }
+
+  private rotateStoreEpoch(): string {
+    const epoch = randomUUID();
+    this.transaction(() => {
+      const result = this.#database.prepare('UPDATE store_meta SET store_epoch = ? WHERE singleton = 1').run(epoch);
+      if (Number(result.changes) !== 1) throw new Error('Campaign authority could not rotate its Store Epoch.');
+    });
+    return epoch;
   }
 
   private insertSnapshot(campaignId: string, revision: number, state: CampaignState, eventHashValue: string, createdAt: string): void {

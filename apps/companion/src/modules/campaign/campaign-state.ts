@@ -20,31 +20,14 @@ export type CampaignState = {
   currentScene: CampaignScene | null;
 };
 
-export type CampaignRow = {
-  campaign_id: string;
-  title: string;
-  status: 'active' | 'archived';
-  current_revision: number;
-  current_state_json: string;
-  head_event_hash: string;
-  created_at: string;
-  updated_at: string;
-};
-
-export type EventRow = {
-  revision: number;
-  event_id: string;
-  request_id: string;
-  operation_kind: string;
-  operation_json: string;
-  before_state_json: string | null;
-  after_state_json: string;
-  accepted_at: string;
-  previous_event_hash: string | null;
-  event_hash: string;
-};
-
-export type ReceiptRow = { request_hash: string; outcome_json: string };
+export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'current_scene';
+export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignScene | null;
+export type CampaignSubjectChange = Readonly<{
+  subjectKind: CampaignSubjectKind;
+  subjectId: string;
+  beforeImage: CampaignSubjectImage;
+  afterImage: CampaignSubjectImage;
+}>;
 
 function sortValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortValue);
@@ -67,6 +50,14 @@ export function sha256(value: unknown): string {
 
 export function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
+}
+
+export function normalizeCampaignState(state: CampaignState): CampaignState {
+  return {
+    ...state,
+    quests: state.quests ?? {},
+    places: state.places ?? {},
+  };
 }
 
 export function cleanText(value: string, field: string, maximum: number): string {
@@ -190,6 +181,123 @@ function requirePlace(state: CampaignState, placeId: string): CampaignPlace {
   const place = state.places?.[id];
   if (!place) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Place ${id} was not found.`, 404, { placeId: id });
   return place;
+}
+
+export function subjectImageHash(image: CampaignSubjectImage): string | null {
+  return image === null ? null : sha256(image);
+}
+
+export function subjectEventHash(input: {
+  campaignId: string;
+  revision: number;
+  eventId: string;
+  requestId: string;
+  operationKind: string;
+  operation: unknown;
+  acceptedAt: string;
+  previousEventHash: string | null;
+  baseStateHash: string | null;
+  changes: readonly CampaignSubjectChange[];
+}): string {
+  return sha256({
+    campaignId: input.campaignId,
+    revision: input.revision,
+    eventId: input.eventId,
+    requestId: input.requestId,
+    eventSchemaVersion: 2,
+    operationKind: input.operationKind,
+    operation: input.operation,
+    acceptedAt: input.acceptedAt,
+    previousEventHash: input.previousEventHash,
+    baseStateHash: input.baseStateHash,
+    changes: input.changes.map(change => ({
+      subjectKind: change.subjectKind,
+      subjectId: change.subjectId,
+      beforeHash: subjectImageHash(change.beforeImage),
+      afterHash: subjectImageHash(change.afterImage),
+    })),
+  });
+}
+
+export function subjectImageAt(
+  state: CampaignState,
+  subjectKind: CampaignSubjectKind,
+  subjectId: string,
+): CampaignSubjectImage {
+  if (subjectKind === 'actor') return structuredClone(state.actors[subjectId] ?? null);
+  if (subjectKind === 'item') return structuredClone(state.items[subjectId] ?? null);
+  if (subjectKind === 'quest') return structuredClone(state.quests?.[subjectId] ?? null);
+  if (subjectKind === 'place') return structuredClone(state.places?.[subjectId] ?? null);
+  return structuredClone(state.currentScene);
+}
+
+export function subjectChangesForOperation(
+  beforeState: CampaignState,
+  afterState: CampaignState,
+  operation: CampaignOperation,
+  affectedIds: readonly string[],
+): CampaignSubjectChange[] {
+  let subjects: Array<readonly [CampaignSubjectKind, string]>;
+  if (operation.kind === 'create_actor_with_item') {
+    const [actorId, itemId] = affectedIds;
+    if (!actorId || !itemId) throw new Error('Campaign Operation create_actor_with_item produced incomplete subjects.');
+    subjects = [['actor', actorId], ['item', itemId]];
+  } else {
+    const affectedId = affectedIds[0];
+    if (!affectedId) throw new Error(`Campaign Operation ${operation.kind} produced no affected subject.`);
+    const subjectKind: CampaignSubjectKind = operation.kind === 'set_current_scene'
+      ? 'current_scene'
+      : operation.kind.includes('item')
+        ? 'item'
+        : operation.kind.includes('quest')
+          ? 'quest'
+          : operation.kind.includes('place')
+            ? 'place'
+            : 'actor';
+    subjects = [[subjectKind, subjectKind === 'current_scene' ? 'current' : affectedId]];
+  }
+  return subjects.map(([subjectKind, subjectId]) => ({
+    subjectKind,
+    subjectId,
+    beforeImage: subjectImageAt(beforeState, subjectKind, subjectId),
+    afterImage: subjectImageAt(afterState, subjectKind, subjectId),
+  }));
+}
+
+export function applySubjectChanges(
+  state: CampaignState,
+  changes: readonly CampaignSubjectChange[],
+  revision: number,
+  acceptedAt: string,
+): void {
+  for (const change of changes) {
+    if (change.subjectKind === 'actor') {
+      if (change.afterImage === null) delete state.actors[change.subjectId];
+      else state.actors[change.subjectId] = structuredClone(change.afterImage as CampaignActor);
+      continue;
+    }
+    if (change.subjectKind === 'item') {
+      if (change.afterImage === null) delete state.items[change.subjectId];
+      else state.items[change.subjectId] = structuredClone(change.afterImage as CampaignItem);
+      continue;
+    }
+    if (change.subjectKind === 'quest') {
+      state.quests ??= {};
+      if (change.afterImage === null) delete state.quests[change.subjectId];
+      else state.quests[change.subjectId] = structuredClone(change.afterImage as CampaignQuest);
+      continue;
+    }
+    if (change.subjectKind === 'place') {
+      state.places ??= {};
+      if (change.afterImage === null) delete state.places[change.subjectId];
+      else state.places[change.subjectId] = structuredClone(change.afterImage as CampaignPlace);
+      continue;
+    }
+    state.currentScene = change.afterImage === null
+      ? null
+      : structuredClone(change.afterImage as CampaignScene);
+  }
+  state.campaign = { ...state.campaign, revision, updatedAt: acceptedAt };
 }
 
 export function applyOperation(state: CampaignState, operation: CampaignOperation): string[] {

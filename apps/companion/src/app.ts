@@ -1,7 +1,7 @@
 import { access, readFile, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import Fastify, { LogController, type FastifyInstance, type FastifyReply } from 'fastify';
 import {
   COMPANION_SERVICE,
   HealthDocumentSchema,
@@ -101,7 +101,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   const app = Fastify({
     logger: { level: options.config.logLevel },
     genReqId: () => randomUUID(),
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
   });
 
   if (ownsCampaignEngine) {

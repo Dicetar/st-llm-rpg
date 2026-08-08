@@ -1,6 +1,8 @@
 # Companion runtime and module seams
 
-Status: accepted as the provisional architecture for Wayfinder issue #16. Prototype evidence may revise implementation choices; Wayfinder #26 makes the final architecture decision.
+Status: superseded in part by [Final companion architecture and verification seams](./final-companion-architecture-and-verification.md).
+
+Historical seam exploration only where it conflicts with the final architecture. V1 has one deterministic preflight Context Plan and one narrator call; hidden drafts, enrichment revisions, vectors, automatic retries, and automatic model management remain excluded.
 
 ## Decision
 

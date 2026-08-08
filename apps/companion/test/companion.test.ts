@@ -113,7 +113,7 @@ test('Campaign API persists revisions and returns an explicit stale conflict', a
   assert.equal(stale.json().code, 'CAMPAIGN_REVISION_CONFLICT');
 
   const revisionOne = await app.inject({ method: 'GET', url: `/api/campaigns/${created.campaignId}?revision=1` });
-  assert.equal(revisionOne.statusCode, 200);
+  assert.equal(revisionOne.statusCode, 200, revisionOne.body);
   assert.equal(revisionOne.json().actors.length, 0);
 
   const performance = await app.inject({ method: 'GET', url: '/api/campaign-authority/performance' });

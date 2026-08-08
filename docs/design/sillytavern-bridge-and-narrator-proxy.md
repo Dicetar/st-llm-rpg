@@ -1,6 +1,8 @@
 # SillyTavern bridge and narrator proxy
 
-Status: accepted as the provisional interface design for Wayfinder issue #19. Wayfinder #20 must prove it against the pinned SillyTavern build and real LM Studio before implementation depends on it.
+Status: superseded in part by [Final companion architecture and verification seams](./final-companion-architecture-and-verification.md) and [ADR 0018](../adr/0018-use-one-companion-one-writer-and-one-model-call.md).
+
+Historical interface evidence only. V1 keeps explicit routing, linked fail-closed behavior, cancellation, full buffering, and atomic final delivery. It does not implement this document's hidden draft, enrichment, recovery-cache, vector, retry, or automatic model-management stages.
 
 ## Decision
 
