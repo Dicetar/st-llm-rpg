@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.2` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed, and production browser/physical-phone generation gestures are still an open acceptance gate in GitHub issue #37.
+Version `0.3.0-preview.2` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed, and the physical-phone production generation trace is still an open acceptance gate in GitHub issue #37. The real pinned-SillyTavern desktop browser/chat-history trace now passes.
 
 ## Start
 
@@ -49,7 +49,7 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 
 ## Preview limits
 
-- Real desktop browser gesture/chat-history and physical Android traces for the production bridge remain unaccepted; do not treat this tag as final cutover.
+- The physical Android generation-mode, Stop, and outage trace for the production bridge remains unaccepted; do not treat this tag as final cutover. Sanitized desktop evidence is in `docs/evidence/production-narration-desktop-2026-08-09.json`.
 - This convenience launcher is preview packaging for the active narration tracer, not acceptance of the later supervisor/update tracer. Occupied-port, partial-start, shutdown, update, and rollback failure-injection acceptance remains ahead.
 - New blank Campaigns cannot yet create a fresh Chat Binding from Campaign Book; use the already-linked Campaign or import an existing fallback chat.
 - Story Sync and worker jobs, addon reconciliation, daily backup automation, staged ST updates, and final rollback UX belong to later tracers.

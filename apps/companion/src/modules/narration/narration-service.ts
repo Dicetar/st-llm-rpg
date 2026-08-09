@@ -170,6 +170,20 @@ function assembleMessages(messages: readonly OpenAiMessage[], context: ContextPl
   return [...messages.slice(0, insertion), ...additions, ...messages.slice(insertion)];
 }
 
+function generationMessages(
+  messages: readonly OpenAiMessage[],
+  generation: NarrationExchange['generation'],
+): OpenAiMessage[] {
+  if (generation !== 'continue') return [...messages];
+  return [
+    ...messages,
+    {
+      role: 'user',
+      content: 'Continue the preceding assistant reply. Output only the new continuation text to append. Do not repeat existing text, mention this instruction, or start a separate reply.',
+    },
+  ];
+}
+
 function completionContent(value: unknown, requestId: string): {
   completion: Readonly<Record<string, unknown>>;
   content: string;
@@ -304,7 +318,7 @@ export class NarrationService {
     }
     const upstreamRequest: Record<string, unknown> = {
       ...request,
-      messages: assembleMessages(request.messages, planned.value),
+      messages: generationMessages(assembleMessages(request.messages, planned.value), exchange.generation),
       stream: false,
       n: 1,
       max_tokens: typeof request.max_tokens === 'number'

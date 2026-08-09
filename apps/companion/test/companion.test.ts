@@ -60,6 +60,24 @@ test('health stays alive while external readiness is degraded', async t => {
   assert.equal(ready.json().components.length, 4);
 });
 
+test('SillyTavern can read the companion health check across the local port boundary', async t => {
+  const workspaceRoot = await workspaceFixture();
+  const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  const health = await app.inject({
+    method: 'GET',
+    url: '/health',
+    headers: { origin: 'http://127.0.0.1:8001' },
+  });
+
+  assert.equal(health.statusCode, 200);
+  assert.equal(health.headers['access-control-allow-origin'], '*');
+});
+
 test('blocking internal failure makes readiness not-ready', async t => {
   const workspaceRoot = await workspaceFixture();
   const failed = observations.map(value => value.id === 'sqlite-runtime'

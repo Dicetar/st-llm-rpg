@@ -370,4 +370,8 @@ test('continue delivers only the new suffix and never repeats the saved assistan
   );
   assert.equal(result.kind, 'linked');
   if (result.kind === 'linked') assert.equal(result.content, ' and closes the door.');
+  const sentMessages = current.calls[0]?.messages;
+  assert.ok(Array.isArray(sentMessages));
+  assert.equal(sentMessages.at(-1)?.role, 'user');
+  assert.match(String(sentMessages.at(-1)?.content), /only the new continuation text/i);
 });

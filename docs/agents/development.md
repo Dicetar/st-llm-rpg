@@ -19,7 +19,7 @@ When older provisional material conflicts with the normative specification or fi
 
 ## Current implementation frontier
 
-Issues #32 through #36 are complete. Issue #37 is active. Its production envelope, companion proxy, LM Studio adapter, Context assembly, inference serialization, atomic linked delivery, explicit-unlinked stream, and thin SillyTavern bridge are implemented. Direct live LM Studio traces pass. Finish the real SillyTavern desktop and physical-phone generation-mode/Stop/outage traces before closing #37; do not start a later tracer while it remains open.
+Issues #32 through #36 are complete. Issue #37 is active. Its production envelope, companion proxy, LM Studio adapter, Context assembly, inference serialization, atomic linked delivery, explicit-unlinked stream, and thin SillyTavern bridge are implemented. Direct live LM Studio and real pinned-SillyTavern desktop generation-mode/Stop/outage traces pass. Finish the physical-phone production trace before closing #37; do not start a later tracer while it remains open. Sanitized desktop evidence is recorded in `docs/evidence/production-narration-desktop-2026-08-09.json`.
 
 Work directly on `main` unless the user explicitly requests another workflow. Claim the active issue before substantive work.
 

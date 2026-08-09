@@ -4,10 +4,10 @@
   "requires": [],
   "dependencies": [],
   "optional": [],
-  "js": "index.js?v=0.2.1",
+  "js": "index.js?v=0.2.2",
   "css": "style.css?v=0.1.0",
   "author": "Dicetar",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "auto_update": false,
   "minimum_client_version": "1.18.0",
   "generate_interceptor": "stRpgCompanionGenerationInterceptor"

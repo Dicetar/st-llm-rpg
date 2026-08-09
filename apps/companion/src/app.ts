@@ -188,7 +188,8 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
 
   app.get('/health', {
     schema: { response: { 200: HealthDocumentSchema } },
-  }, async request => {
+  }, async (request, reply) => {
+    reply.header('access-control-allow-origin', '*');
     const result: HealthDocument = {
       schema: 'st-rpg.health',
       version: WIRE_VERSION,

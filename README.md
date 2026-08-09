@@ -8,7 +8,7 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 - **Working product:** `extension/st-rpg-campaign` is the tested SillyTavern fallback used today.
 - **Durable companion authority:** issue #33 owns Campaign truth in SQLite, with immutable history, reconstruction, stale-write protection, verified backup/restore, and restart evidence.
 - **Context planning milestone:** issue #36 adds revision-pinned Context Plans, visibility, ordered per-chat pins, exact/Scene/FTS5/relation retrieval, token budgets, and the inspectable Context Tray.
-- **Narration routing preview:** issue #37 has the strict production bridge envelope, fail-closed linked admission, transparent explicit-unlinked forwarding, one serial inference lane, deterministic Context assembly, and atomic buffered delivery. Direct production LM Studio and pinned-ST backend traces pass; browser gesture/chat-history and physical-phone production traces remain before full acceptance.
+- **Narration routing preview:** issue #37 has the strict production bridge envelope, fail-closed linked admission, transparent explicit-unlinked forwarding, one serial inference lane, deterministic Context assembly, and atomic buffered delivery. Direct production LM Studio and real pinned-ST desktop browser/chat-history traces pass; the physical-phone production trace remains before full acceptance.
 
 The planning phase is complete. Existing files under `prototypes/` are frozen decision evidence: do not extend them or treat them as production code.
 

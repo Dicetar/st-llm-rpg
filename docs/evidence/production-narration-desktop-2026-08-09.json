@@ -1,0 +1,90 @@
+{
+  "kind": "production-narration-desktop-evidence",
+  "capturedAt": "2026-08-09",
+  "sanitized": true,
+  "environment": {
+    "sillyTavernVersion": "1.18.0",
+    "sillyTavernRevision": "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "sillyTavernOrigin": "http://127.0.0.1:8001",
+    "companionOrigin": "http://127.0.0.1:8002",
+    "lmStudioOrigin": "http://127.0.0.1:1234/v1",
+    "bridgeVersion": "0.2.2",
+    "browser": "Google Chrome via Playwright 1.62.0",
+    "model": "gemma-4-31b-styletune-heretic-ara-i1"
+  },
+  "launcher": {
+    "openedFromPinnedSillyTavernGesture": true,
+    "workspaceLoadedInNewTab": true,
+    "crossPortHealthCheckReadable": true,
+    "consoleErrors": 0
+  },
+  "binding": {
+    "createdThroughPreviewBackupImport": true,
+    "markerState": "verified",
+    "routeObservedByBridge": "linked"
+  },
+  "linkedModes": {
+    "normal": {
+      "state": "completed",
+      "httpStatus": 200,
+      "messageDelta": 2,
+      "userMessageDelta": 1,
+      "assistantMessageDelta": 1,
+      "requestedCandidates": 1
+    },
+    "regenerate": {
+      "state": "completed",
+      "httpStatus": 200,
+      "messageDelta": 0,
+      "userMessageDelta": 0,
+      "assistantMessageDelta": 0
+    },
+    "continue": {
+      "state": "completed",
+      "httpStatus": 200,
+      "messageDelta": 0,
+      "userMessageDelta": 0,
+      "assistantMessageDelta": 0,
+      "assistantCharsBefore": 91,
+      "assistantCharsAfter": 240
+    },
+    "swipe": {
+      "state": "completed",
+      "httpStatus": 200,
+      "messageDelta": 0,
+      "userMessageDelta": 0,
+      "assistantMessageDelta": 0,
+      "swipesBefore": 1,
+      "swipesAfter": 2
+    },
+    "stop": {
+      "state": "cancelled",
+      "messageDelta": 0,
+      "userMessageDelta": 0,
+      "assistantMessageDelta": 0,
+      "assistantHashBefore": 682370260,
+      "assistantHashAfter": 682370260
+    }
+  },
+  "campaignOutage": {
+    "sqliteRuntime": "unavailable",
+    "lmStudio": "available",
+    "linked": {
+      "state": "failed",
+      "httpStatus": 503,
+      "userMessageDelta": 1,
+      "assistantMessageDelta": 0,
+      "actionableToast": true
+    },
+    "explicitUnlinked": {
+      "state": "completed",
+      "httpStatus": 200,
+      "userMessageDelta": 1,
+      "assistantMessageDelta": 1
+    },
+    "normalSqliteServiceRestored": true
+  },
+  "remainingAcceptance": [
+    "Repeat the production generation-mode, Stop, and outage trace on the physical Android client near 360 CSS pixels."
+  ]
+}

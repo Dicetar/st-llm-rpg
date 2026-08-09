@@ -21,6 +21,7 @@ test('desktop bridge generates request IDs when randomUUID is unavailable on an 
   const errors = [];
   let settingsReady;
   let exchange;
+  let route = { kind: 'linked', bindingId: 'binding-1' };
   const menu = { appendChild() {} };
   const stContext = {
     eventTypes: { CHAT_COMPLETION_SETTINGS_READY: 'settings-ready' },
@@ -36,7 +37,7 @@ test('desktop bridge generates request IDs when randomUUID is unavailable on an 
     extension_settings: {},
     chat_completion_sources: { CUSTOM: 'custom' },
     oai_settings: { chat_completion_source: 'custom' },
-    bindingRoute: () => ({ kind: 'unlinked' }),
+    bindingRoute: () => route,
     encodeNarrationExchange(value) {
       exchange = JSON.parse(JSON.stringify(value));
       return JSON.stringify(value);
@@ -70,10 +71,17 @@ test('desktop bridge generates request IDs when randomUUID is unavailable on an 
   assert.deepEqual(aborts, [], `generation was blocked: ${errors.join('; ')}`);
   assert.deepEqual(errors, []);
 
-  const generateData = {};
+  const generateData = { n: 2 };
   await settingsReady(generateData);
   assert.match(exchange.requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.match(exchange.locator.hostId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.equal(generateData.custom_url, 'http://10.8.1.2:8002/v1');
   assert.match(generateData.custom_include_headers, /X-ST-RPG-Exchange/);
+  assert.equal(generateData.n, 1, 'linked narration must request exactly one atomic candidate');
+
+  route = { kind: 'unlinked' };
+  await sandbox.stRpgCompanionGenerationInterceptor([], 4096, value => aborts.push(value), 'normal');
+  const unlinkedGenerateData = { n: 2 };
+  await settingsReady(unlinkedGenerateData);
+  assert.equal(unlinkedGenerateData.n, 2, 'unlinked narration preserves SillyTavern multiple-candidate behavior');
 });

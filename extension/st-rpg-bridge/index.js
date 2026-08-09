@@ -1,13 +1,13 @@
 import { main_api } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { chat_completion_sources, oai_settings } from '/scripts/openai.js';
-import { bindingRoute, encodeNarrationExchange, mergeExchangeHeader } from './wire.js?v=0.2.1';
+import { bindingRoute, encodeNarrationExchange, mergeExchangeHeader } from './wire.js?v=0.2.2';
 
 const LAUNCHER_ID = 'st-rpg-companion-launcher';
 const SETTINGS_KEY = 'stRpgCompanionBridge';
 const BINDING_META_KEY = 'stLlmRpgBinding';
 const COMPANION_PORT = 8002;
-const BRIDGE_VERSION = '0.2.1';
+const BRIDGE_VERSION = '0.2.2';
 const SILLYTAVERN_REVISION = '380e31e8c58d196969b6a0da74f431ba999c7e0a';
 const GENERATION_TYPES = new Set(['normal', 'regenerate', 'continue', 'swipe', 'quiet', 'impersonate']);
 const LINKED_GENERATION_TYPES = new Set(['normal', 'regenerate', 'continue', 'swipe']);
@@ -115,6 +115,7 @@ async function applyExchangeHeader(generateData) {
   // here to stop a linked request: make the transient destination explicit.
   generateData.chat_completion_source = chat_completion_sources.CUSTOM;
   generateData.custom_url = companionUrl('/v1');
+  if (exchange.route.kind === 'linked') generateData.n = 1;
   generateData.custom_include_headers = mergeExchangeHeader(
     generateData.custom_include_headers,
     encodeNarrationExchange(exchange),
