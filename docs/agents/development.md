@@ -19,7 +19,7 @@ When older provisional material conflicts with the normative specification or fi
 
 ## Current implementation frontier
 
-Finish issue #32, then deliver issue #33 as the first companion product milestone: durable Campaign authority in SQLite. Do not start a later tracer while either is open.
+Issues #32 and #33 are complete. Deliver issue #34 next: edit canonical Campaign truth through Campaign Book on desktop and narrow responsive layouts. Do not start a later tracer while #34 is open.
 
 Work directly on `main` unless the user explicitly requests another workflow. Claim the active issue before substantive work.
 

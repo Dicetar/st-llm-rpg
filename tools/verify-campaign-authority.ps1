@@ -211,7 +211,10 @@ try {
         @($revisionOne.actors).Count -eq 0
     )
 
-    $history = @(Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)/history")
+    # Windows PowerShell returns an Invoke-RestMethod JSON array as one pipeline
+    # object across a function boundary. Assign it directly so .Count observes
+    # the actual entries instead of wrapping the array inside another array.
+    $history = Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)/history"
     $historyComplete = ($history.Count -eq $revision)
     $performance = Invoke-Json 'GET' '/api/campaign-authority/performance'
     $verification = Invoke-Json 'GET' '/api/campaign-authority/verify'

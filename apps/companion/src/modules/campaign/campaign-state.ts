@@ -62,9 +62,9 @@ export function normalizeCampaignState(state: CampaignState): CampaignState {
 
 export function cleanText(value: string, field: string, maximum: number): string {
   const cleaned = String(value ?? '').trim();
-  if (!cleaned) throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} is required.`, 400, { field });
+  if (!cleaned) throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} is required.`, { field });
   if (cleaned.length > maximum) {
-    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} must be ${maximum} characters or fewer.`, 400, { field, maximum });
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} must be ${maximum} characters or fewer.`, { field, maximum });
   }
   return cleaned;
 }
@@ -72,7 +72,7 @@ export function cleanText(value: string, field: string, maximum: number): string
 function cleanOptionalText(value: string | undefined, field: string, maximum: number): string {
   const cleaned = String(value ?? '').trim();
   if (cleaned.length > maximum) {
-    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} must be ${maximum} characters or fewer.`, 400, { field, maximum });
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} must be ${maximum} characters or fewer.`, { field, maximum });
   }
   return cleaned;
 }
@@ -80,7 +80,7 @@ function cleanOptionalText(value: string | undefined, field: string, maximum: nu
 export function cleanIdentifier(value: string, field: string): string {
   const cleaned = cleanText(value, field, 128);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(cleaned)) {
-    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} contains unsupported characters.`, 400, { field });
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} contains unsupported characters.`, { field });
   }
   return cleaned;
 }
@@ -137,7 +137,7 @@ function recordIdExists(state: CampaignState, id: string): boolean {
 function requireUnusedId(state: CampaignState, value: string | undefined, field: string): string {
   const id = value ? cleanIdentifier(value, field) : randomUUID();
   if (recordIdExists(state, id)) {
-    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Record ID ${id} already exists.`, 400, { id });
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Record ID ${id} already exists.`, { id });
   }
   return id;
 }
@@ -145,7 +145,7 @@ function requireUnusedId(state: CampaignState, value: string | undefined, field:
 function requireActor(state: CampaignState, actorId: string): CampaignActor {
   const id = cleanIdentifier(actorId, 'Actor ID');
   const actor = state.actors[id];
-  if (!actor) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Actor ${id} was not found.`, 404, { actorId: id });
+  if (!actor) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Actor ${id} was not found.`, { actorId: id });
   return actor;
 }
 
@@ -155,7 +155,6 @@ function requireAttachableActor(state: CampaignState, actorId: string): Campaign
     throw new CampaignExpectedError(
       'CAMPAIGN_VALIDATION_FAILED',
       `Item cannot be attached to archived Actor ${actor.id}.`,
-      400,
       { actorId: actor.id },
     );
   }
@@ -165,21 +164,21 @@ function requireAttachableActor(state: CampaignState, actorId: string): Campaign
 function requireItem(state: CampaignState, itemId: string): CampaignItem {
   const id = cleanIdentifier(itemId, 'Item ID');
   const item = state.items[id];
-  if (!item) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Item ${id} was not found.`, 404, { itemId: id });
+  if (!item) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Item ${id} was not found.`, { itemId: id });
   return item;
 }
 
 function requireQuest(state: CampaignState, questId: string): CampaignQuest {
   const id = cleanIdentifier(questId, 'Quest ID');
   const quest = state.quests?.[id];
-  if (!quest) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Quest ${id} was not found.`, 404, { questId: id });
+  if (!quest) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Quest ${id} was not found.`, { questId: id });
   return quest;
 }
 
 function requirePlace(state: CampaignState, placeId: string): CampaignPlace {
   const id = cleanIdentifier(placeId, 'Place ID');
   const place = state.places?.[id];
-  if (!place) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Place ${id} was not found.`, 404, { placeId: id });
+  if (!place) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Place ${id} was not found.`, { placeId: id });
   return place;
 }
 
@@ -318,7 +317,6 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       throw new CampaignExpectedError(
         'CAMPAIGN_VALIDATION_FAILED',
         'Actor and Item IDs must be different.',
-        400,
         { actorId, itemId },
       );
     }

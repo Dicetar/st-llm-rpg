@@ -4,23 +4,24 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SqliteCampaignJournal } from '../src/adapters/sqlite/campaign-journal.js';
+import { acceptCampaignCreate, acceptCampaignOperation } from './campaign-test-helpers.js';
 
 test('Quest and Place records persist, edit, archive, and reconstruct through immutable history', async t => {
   const root = await mkdtemp(join(tmpdir(), 'st-rpg-workspace-records-'));
   const journal = await SqliteCampaignJournal.open(join(root, 'campaigns.sqlite'), 25);
   t.after(async () => {
-    journal.close();
+    await journal.close();
     await rm(root, { recursive: true, force: true });
   });
 
-  const created = await journal.createCampaign({
+  const created = await acceptCampaignCreate(journal, {
     requestId: 'workspace-create',
     title: 'Routed Records',
   });
   assert.deepEqual(created.document.quests, []);
   assert.deepEqual(created.document.places, []);
 
-  const questCommit = await journal.execute(created.campaignId, {
+  const questCommit = await acceptCampaignOperation(journal, created.campaignId, {
     requestId: 'workspace-quest-create',
     expectedRevision: 1,
     operation: {
@@ -34,7 +35,7 @@ test('Quest and Place records persist, edit, archive, and reconstruct through im
   const questId = questCommit.affectedIds[0]!;
   assert.equal(questCommit.document.quests[0]?.status, 'active');
 
-  const placeCommit = await journal.execute(created.campaignId, {
+  const placeCommit = await acceptCampaignOperation(journal, created.campaignId, {
     requestId: 'workspace-place-create',
     expectedRevision: 2,
     operation: {
@@ -47,7 +48,7 @@ test('Quest and Place records persist, edit, archive, and reconstruct through im
   });
   const placeId = placeCommit.affectedIds[0]!;
 
-  const completedQuest = await journal.execute(created.campaignId, {
+  const completedQuest = await acceptCampaignOperation(journal, created.campaignId, {
     requestId: 'workspace-quest-complete',
     expectedRevision: 3,
     operation: {
@@ -60,7 +61,7 @@ test('Quest and Place records persist, edit, archive, and reconstruct through im
   });
   assert.equal(completedQuest.document.quests[0]?.status, 'completed');
 
-  const archivedPlace = await journal.execute(created.campaignId, {
+  const archivedPlace = await acceptCampaignOperation(journal, created.campaignId, {
     requestId: 'workspace-place-archive',
     expectedRevision: 4,
     operation: {

@@ -17,6 +17,7 @@ import { createDefaultDependencyProbe, type DependencyProbe } from './observatio
 import { makeProblem, ProblemError } from './problem.js';
 import { CampaignEngine } from './modules/campaign/campaign-engine.js';
 import { registerCampaignRoutes } from './modules/campaign/campaign-routes.js';
+import { SqliteCampaignJournal } from './adapters/sqlite/campaign-journal.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -92,10 +93,10 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   await assertWorkspaceBuild(options.config);
   const startedAt = options.startedAt ?? new Date();
   const ownsCampaignEngine = options.campaignEngine === undefined;
-  const campaignEngine = options.campaignEngine ?? await CampaignEngine.open(
+  const campaignEngine = options.campaignEngine ?? new CampaignEngine(await SqliteCampaignJournal.open(
     options.config.databasePath,
     options.config.snapshotInterval,
-  );
+  ));
   const probeDependencies = options.probeDependencies
     ?? createDefaultDependencyProbe(options.config, () => campaignEngine.observation());
   const app = Fastify({
@@ -106,7 +107,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
 
   if (ownsCampaignEngine) {
     app.addHook('onClose', async () => {
-      campaignEngine.close();
+      await campaignEngine.close();
     });
   }
 

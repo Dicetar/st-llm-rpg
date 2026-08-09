@@ -5,8 +5,8 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 ## Status
 
 - **Working product:** `extension/st-rpg-campaign` is the tested SillyTavern fallback used today.
-- **Companion in progress:** issue #33 owns Campaign truth in SQLite and exposes the first Campaign Book create/edit/history workflow.
-- **Current product milestone:** finish issue #33 recovery, replay, performance, restart, and fallback-coexistence evidence before starting later tracers.
+- **Durable companion authority:** issue #33 owns Campaign truth in SQLite, with immutable history, reconstruction, stale-write protection, verified backup/restore, and restart evidence.
+- **Current product milestone:** issue #34 expands Campaign Book into the task-oriented desktop and narrow-screen editor over that authority.
 
 The planning phase is complete. Existing files under `prototypes/` are frozen decision evidence: do not extend them or treat them as production code.
 

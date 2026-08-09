@@ -12,12 +12,31 @@ import {
   type CampaignInvalidation,
   type CreateCampaignRequest,
   type ExecuteCampaignRequest,
+  type ProblemCode,
 } from '@st-llm-rpg/wire';
 import type { CampaignEngine, Outcome } from './campaign-engine.js';
 
+function httpStatusFor(code: ProblemCode): number {
+  if (code === 'CAMPAIGN_VALIDATION_FAILED') return 400;
+  if (
+    code === 'CAMPAIGN_NOT_FOUND'
+    || code === 'CAMPAIGN_RECORD_NOT_FOUND'
+    || code === 'CAMPAIGN_REVISION_NOT_FOUND'
+    || code === 'NOT_FOUND'
+  ) return 404;
+  if (code === 'CAMPAIGN_REVISION_CONFLICT' || code === 'CAMPAIGN_REQUEST_CONFLICT') return 409;
+  if (
+    code === 'CAMPAIGN_HISTORY_CORRUPT'
+    || code === 'CAMPAIGN_STORE_UNAVAILABLE'
+    || code === 'SQLITE_RUNTIME_UNAVAILABLE'
+    || code === 'DEPENDENCY_UNAVAILABLE'
+  ) return 503;
+  return 500;
+}
+
 function sendOutcome<T>(reply: FastifyReply, outcome: Outcome<T>, successStatus = 200) {
   if (outcome.ok) return reply.code(successStatus).send(outcome.value);
-  return reply.code(outcome.statusCode).send(outcome.problem);
+  return reply.code(httpStatusFor(outcome.problem.code)).send(outcome.problem);
 }
 
 export function registerCampaignRoutes(app: FastifyInstance, engine: CampaignEngine): void {

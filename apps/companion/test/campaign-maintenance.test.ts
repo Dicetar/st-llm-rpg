@@ -8,18 +8,19 @@ import {
   readCampaignRevisionInWorker,
   verifyCampaignAuthorityInWorker,
 } from '../src/adapters/sqlite/campaign-maintenance.js';
+import { acceptCampaignCreate, acceptCampaignOperation } from './campaign-test-helpers.js';
 
 test('maintenance worker verifies history and reconstructs a numbered revision off the main thread', async t => {
   const root = await mkdtemp(join(tmpdir(), 'st-rpg-maintenance-'));
   const databasePath = join(root, 'campaigns.sqlite');
   const journal = await SqliteCampaignJournal.open(databasePath, 2);
   t.after(async () => {
-    journal.close();
+    await journal.close();
     await rm(root, { recursive: true, force: true });
   });
 
-  const created = await journal.createCampaign({ requestId: 'worker-create', title: 'Worker Campaign' });
-  await journal.execute(created.campaignId, {
+  const created = await acceptCampaignCreate(journal, { requestId: 'worker-create', title: 'Worker Campaign' });
+  await acceptCampaignOperation(journal, created.campaignId, {
     requestId: 'worker-actor',
     expectedRevision: 1,
     operation: { kind: 'create_actor', actor: { name: 'Worker Actor' } },

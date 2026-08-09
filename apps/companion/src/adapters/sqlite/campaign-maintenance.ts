@@ -1,35 +1,33 @@
 import { Worker } from 'node:worker_threads';
-import type { CampaignDocument, CampaignVerificationResult, ProblemCode } from '@st-llm-rpg/wire';
+import type { CampaignDocument, CampaignVerificationResult } from '@st-llm-rpg/wire';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
+import type {
+  CampaignMaintenanceRequest,
+  CampaignMaintenanceResponse,
+  CampaignMaintenanceValue,
+  CampaignSnapshotCandidate,
+} from './campaign-maintenance-protocol.js';
+export type { CampaignSnapshotCandidate } from './campaign-maintenance-protocol.js';
 
-type WorkerRequest =
-  | Readonly<{ action: 'verify'; databasePath: string }>
-  | Readonly<{ action: 'read-revision'; databasePath: string; campaignId: string; revision: number }>;
-
-type WorkerResponse<T> =
-  | Readonly<{ ok: true; value: T }>
-  | Readonly<{
-      ok: false;
-      message: string;
-      code?: ProblemCode;
-      statusCode?: number;
-      details?: unknown;
-    }>;
-
-function resolveWorkerResponse<T>(message: WorkerResponse<T>): T {
+function resolveWorkerResponse<T extends CampaignMaintenanceValue>(message: CampaignMaintenanceResponse<T>): T {
   if (message.ok) return message.value;
-  if (message.code && message.statusCode) {
+  if (message.code) {
     throw new CampaignExpectedError(
       message.code,
       message.message,
-      message.statusCode,
       message.details,
     );
   }
   throw new Error(message.message);
 }
 
-function runWorker<T>(request: WorkerRequest): Promise<T> {
+function isWorkerResponse(message: unknown): message is CampaignMaintenanceResponse {
+  if (typeof message !== 'object' || message === null || !('ok' in message)) return false;
+  if (message.ok === true) return 'value' in message;
+  return message.ok === false && 'message' in message && typeof message.message === 'string';
+}
+
+function runWorker<T extends CampaignMaintenanceValue>(request: CampaignMaintenanceRequest): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const sourceMode = import.meta.url.endsWith('.ts');
     const workerUrl = new URL(
@@ -37,11 +35,15 @@ function runWorker<T>(request: WorkerRequest): Promise<T> {
       import.meta.url,
     );
     const worker = new Worker(workerUrl, { workerData: request });
-    let response: WorkerResponse<T> | undefined;
+    let response: CampaignMaintenanceResponse<T> | undefined;
     let workerError: Error | undefined;
 
-    worker.once('message', (message: WorkerResponse<T>) => {
-      response = message;
+    worker.once('message', (message: unknown) => {
+      if (!isWorkerResponse(message)) {
+        workerError = new Error('Campaign maintenance worker returned a malformed response.');
+        return;
+      }
+      response = message as CampaignMaintenanceResponse<T>;
     });
     worker.once('error', error => {
       workerError = error;
@@ -78,4 +80,12 @@ export function readCampaignRevisionInWorker(
   revision: number,
 ): Promise<CampaignDocument> {
   return runWorker<CampaignDocument>({ action: 'read-revision', databasePath, campaignId, revision });
+}
+
+export function buildCampaignSnapshotInWorker(
+  databasePath: string,
+  campaignId: string,
+  revision: number,
+): Promise<CampaignSnapshotCandidate> {
+  return runWorker<CampaignSnapshotCandidate>({ action: 'build-snapshot', databasePath, campaignId, revision });
 }
