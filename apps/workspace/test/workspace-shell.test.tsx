@@ -89,12 +89,15 @@ test('stale revision conflict tells the player that no Campaign state was writte
     conflict={{ campaignId: 'campaign-1', expectedRevision: 3, actualRevision: 4 }}
     busy={false}
     onReload={() => undefined}
+    onStay={() => undefined}
   />);
   assert.match(html, /This tab is stale/);
   assert.match(html, /expected revision 3/);
   assert.match(html, /now at revision 4/);
   assert.match(html, /Nothing was written/);
-  assert.match(html, /Load canonical Campaign/);
+  assert.match(html, /Your draft is still here/);
+  assert.match(html, /Keep draft and load canonical/);
+  assert.match(html, /Stay on this draft/);
 });
 
 test('Command Deck exposes the common Campaign actions without leaving the current Campaign', () => {

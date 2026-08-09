@@ -101,6 +101,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
     ?? createDefaultDependencyProbe(options.config, () => campaignEngine.observation());
   const app = Fastify({
     logger: { level: options.config.logLevel },
+    ajv: { customOptions: { removeAdditional: false } },
     genReqId: () => randomUUID(),
     logController: new LogController({ disableRequestLogging: true }),
   });

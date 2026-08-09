@@ -104,6 +104,24 @@ test('Campaign API persists revisions and returns an explicit stale conflict', a
   assert.equal(actor.statusCode, 200);
   assert.equal(actor.json().revision, 2);
 
+  const updated = await app.inject({
+    method: 'POST',
+    url: `/api/campaigns/${created.campaignId}/operations`,
+    payload: {
+      requestId: 'http-actor-update',
+      expectedRevision: 2,
+      operation: {
+        kind: 'update_actor',
+        actorId: actor.json().affectedIds[0],
+        name: 'HTTP Actor',
+        summary: 'Edited through the HTTP Workspace contract.',
+      },
+    },
+  });
+  assert.equal(updated.statusCode, 200, updated.body);
+  assert.equal(updated.json().revision, 3);
+  assert.equal(updated.json().document.actors[0].summary, 'Edited through the HTTP Workspace contract.');
+
   const stale = await app.inject({
     method: 'POST',
     url: `/api/campaigns/${created.campaignId}/operations`,
@@ -118,7 +136,7 @@ test('Campaign API persists revisions and returns an explicit stale conflict', a
 
   const performance = await app.inject({ method: 'GET', url: '/api/campaign-authority/performance' });
   assert.equal(performance.statusCode, 200);
-  assert.equal(performance.json().sampleCount, 2);
+  assert.equal(performance.json().sampleCount, 3);
   assert.equal(performance.json().targetMs, 50);
 });
 

@@ -197,6 +197,7 @@ export function RevisionConflictBanner(props: {
   conflict: RevisionConflict;
   busy: boolean;
   onReload: () => void;
+  onStay: () => void;
 }) {
   const actual = props.conflict.actualRevision === null
     ? 'a newer revision'
@@ -205,9 +206,12 @@ export function RevisionConflictBanner(props: {
     <div className="conflict-banner" role="alert">
       <div>
         <strong>This tab is stale.</strong>
-        <p>Your edit expected revision {props.conflict.expectedRevision}, but the Campaign is now at {actual}. Nothing was written.</p>
+        <p>Your edit expected revision {props.conflict.expectedRevision}, but the Campaign is now at {actual}. Nothing was written. Your draft is still here.</p>
       </div>
-      <button type="button" onClick={props.onReload} disabled={props.busy}>Load canonical Campaign</button>
+      <div className="conflict-actions">
+        <button type="button" onClick={props.onReload} disabled={props.busy}>Keep draft and load canonical</button>
+        <button type="button" className="button-secondary" onClick={props.onStay} disabled={props.busy}>Stay on this draft</button>
+      </div>
     </div>
   );
 }
@@ -943,7 +947,6 @@ export default function CampaignWorkspace() {
       const revisionConflict = conflictFrom(apiError?.problem ?? null, campaignId, expectedRevision);
       if (revisionConflict) {
         setConflict(revisionConflict);
-        setError('The server rejected the stale edit before writing any Campaign state.');
       }
       throw value;
     }
@@ -1084,6 +1087,11 @@ export default function CampaignWorkspace() {
               return;
             }
             void run(() => openCampaign(selected.campaign.id));
+          }}
+          onStay={() => {
+            setConflict(null);
+            setError('');
+            setMessage('Draft kept. Load canonical Campaign truth before trying to save it again.');
           }}
         />
       ) : null}

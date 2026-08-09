@@ -109,6 +109,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .canonical-update-banner { border: 1px solid #6a78a8; background: rgba(53, 65, 111, 0.28); color: #e1e6ff; }
 .conflict-banner p, .canonical-update-banner p { margin: 0.35rem 0 0; line-height: 1.5; }
 .conflict-banner button, .canonical-update-banner button { flex: 0 0 auto; }
+.conflict-actions { display: flex; flex: 0 0 auto; gap: 0.55rem; flex-wrap: wrap; justify-content: flex-end; }
 .historical-note { border-left: 3px solid #98713b; padding: 0.75rem 1rem; background: rgba(89, 61, 29, 0.25); color: #e7d2b0; }
 
 .command-deck { margin: 1rem 0; border: 1px solid #655542; border-radius: 0.9rem; padding: 0.9rem; background: linear-gradient(135deg, rgba(75, 55, 31, 0.72), rgba(33, 28, 22, 0.92)); }
@@ -202,6 +203,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .authority-layout { grid-template-columns: 1fr; }
   .campaign-detail { order: -1; }
   .campaign-title-row, .conflict-banner, .canonical-update-banner, .historical-banner { flex-direction: column; align-items: stretch; }
+  .conflict-actions { display: grid; grid-template-columns: 1fr; }
   .joined-create-form { grid-template-columns: 1fr; }
   .joined-create-form > button { grid-column: auto; }
   .command-deck__actions { grid-template-columns: 1fr; }

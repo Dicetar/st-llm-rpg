@@ -216,6 +216,22 @@ try {
     # the actual entries instead of wrapping the array inside another array.
     $history = Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)/history"
     $historyComplete = ($history.Count -eq $revision)
+    $workspaceLoadDurations = [System.Collections.Generic.List[double]]::new()
+    for ($index = 1; $index -le $Iterations; $index += 1) {
+        $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $null = Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)"
+        $null = Invoke-Json 'GET' "/api/campaigns/$($created.campaignId)/history"
+        $stopwatch.Stop()
+        $workspaceLoadDurations.Add($stopwatch.Elapsed.TotalMilliseconds)
+    }
+    $sortedWorkspaceLoads = @($workspaceLoadDurations | Sort-Object)
+    $workspaceP95Index = [Math]::Max(0, [Math]::Ceiling($sortedWorkspaceLoads.Count * 0.95) - 1)
+    $workspaceLoadPerformance = [ordered]@{
+        sampleCount = $sortedWorkspaceLoads.Count
+        p95Ms = [Math]::Round([double]$sortedWorkspaceLoads[$workspaceP95Index], 4)
+        maxMs = [Math]::Round([double]$sortedWorkspaceLoads[-1], 4)
+        targetMs = 100
+    }
     $performance = Invoke-Json 'GET' '/api/campaign-authority/performance'
     $verification = Invoke-Json 'GET' '/api/campaign-authority/verify'
     Start-Sleep -Milliseconds 500
@@ -239,6 +255,7 @@ try {
         [double]$performance.p95Ms -lt 50 -and
         [double]$performance.maxMs -lt 200
     )
+    $workspaceLoadTargetMet = [double]$workspaceLoadPerformance.p95Ms -lt 100
     $fallbackPreserved = if ($fallbackBefore) { $fallbackAfter } else { $true }
     $passed = (
         $persisted -and
@@ -248,6 +265,7 @@ try {
         [bool]$verification.verified -and
         [bool]$verificationAfterRestart.verified -and
         $latencyTargetMet -and
+        $workspaceLoadTargetMet -and
         -not $memoryInvestigationRequired -and
         $fallbackPreserved
     )
@@ -278,6 +296,8 @@ try {
         verificationAfterRestart = $verificationAfterRestart
         performance = $performance
         latencyTargetMet = $latencyTargetMet
+        workspaceLoadPerformance = $workspaceLoadPerformance
+        workspaceLoadTargetMet = $workspaceLoadTargetMet
         workingSetMiB = $workingSetMiB
         memoryTargetMiB = 250
         memoryTargetMet = $memoryTargetMet
