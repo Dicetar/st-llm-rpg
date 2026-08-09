@@ -35,7 +35,7 @@
     "test:cutover-prototype": "node --test prototypes/migration-cutover-spike/prototype.test.mjs",
     "test:proxy-phone-evidence": "node --test prototypes/st-narrator-proxy-spike/run-script.test.mjs prototypes/st-narrator-proxy-spike/bridge/phone-evidence.test.mjs",
     "pretest": "npm run check:runtime",
-    "test": "npm run build && node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs tests/node-version-policy.test.mjs tests/repository-authority.test.mjs tests/bridge-boundary.test.mjs && npm run test -w @st-llm-rpg/wire && npm run test -w @st-llm-rpg/companion && npm run test -w @st-llm-rpg/workspace"
+    "test": "npm run build && node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs tests/node-version-policy.test.mjs tests/repository-authority.test.mjs tests/bridge-boundary.test.mjs tests/bridge-wire.test.mjs && npm run test -w @st-llm-rpg/wire && npm run test -w @st-llm-rpg/companion && npm run test -w @st-llm-rpg/workspace"
   },
   "devDependencies": {
     "@types/node": "24.13.3",

@@ -7,7 +7,7 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 - **Working product:** `extension/st-rpg-campaign` is the tested SillyTavern fallback used today.
 - **Durable companion authority:** issue #33 owns Campaign truth in SQLite, with immutable history, reconstruction, stale-write protection, verified backup/restore, and restart evidence.
 - **Context planning milestone:** issue #36 adds revision-pinned Context Plans, visibility, ordered per-chat pins, exact/Scene/FTS5/relation retrieval, token budgets, and the inspectable Context Tray.
-- **Next product milestone:** issue #37 routes linked SillyTavern narration through one deterministic Context Plan and one atomic LM Studio call while preserving the working fallback.
+- **Narration routing in progress:** issue #37 now has the strict production bridge envelope, fail-closed linked admission, transparent explicit-unlinked forwarding, one serial inference lane, deterministic Context assembly, and atomic buffered delivery. Direct production LM Studio traces pass; real SillyTavern desktop/phone mode traces remain before closure.
 
 The planning phase is complete. Existing files under `prototypes/` are frozen decision evidence: do not extend them or treat them as production code.
 
@@ -31,6 +31,8 @@ Install the launcher into the project-local SillyTavern instance:
 ```powershell
 npm run install:bridge
 ```
+
+Before linked narration, save exactly one Narrator Model Profile for the model ID selected in SillyTavern. Use **Campaign Book → Context → Model profile**. Unlinked chats require no Campaign or profile, but still route explicitly through the running companion.
 
 ## Working fallback
 

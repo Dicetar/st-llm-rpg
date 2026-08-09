@@ -4,6 +4,7 @@ import { Value } from '@sinclair/typebox/value';
 export * from './campaign.js';
 export * from './context.js';
 export * from './legacy-import.js';
+export * from './narration.js';
 
 export const WIRE_VERSION = '1.0' as const;
 export const COMPANION_SERVICE = 'st-rpg-companion' as const;
@@ -40,6 +41,13 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('CONTEXT_MODEL_PROFILE_MISSING'),
   Type.Literal('CONTEXT_MODEL_INCOMPATIBLE'),
   Type.Literal('CONTEXT_CANCELLED'),
+  Type.Literal('NARRATION_EXCHANGE_INVALID'),
+  Type.Literal('NARRATION_BRIDGE_INCOMPATIBLE'),
+  Type.Literal('NARRATION_ROUTE_REJECTED'),
+  Type.Literal('NARRATION_LOCATOR_MISMATCH'),
+  Type.Literal('NARRATION_UPSTREAM_FAILED'),
+  Type.Literal('NARRATION_OUTPUT_INVALID'),
+  Type.Literal('NARRATION_CANCELLED'),
   Type.Literal('NOT_FOUND'),
   Type.Literal('INTERNAL_ERROR'),
 ]);

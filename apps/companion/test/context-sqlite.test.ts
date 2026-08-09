@@ -8,6 +8,7 @@ import type {
   LegacyChatLocator,
   NarratorModelProfile,
 } from '@st-llm-rpg/wire';
+import { encodeNarrationExchange, PINNED_SILLYTAVERN_REVISION } from '@st-llm-rpg/wire';
 import { SqliteCampaignJournal } from '../src/adapters/sqlite/campaign-journal.js';
 import { buildCompanion } from '../src/app.js';
 import { readCompanionConfig } from '../src/config.js';
@@ -299,7 +300,21 @@ test('Context HTTP boundary saves a profile and pins before returning an inspect
     RPG_LM_STUDIO_URL: 'http://127.0.0.1:1234/v1',
     RPG_LOG_LEVEL: 'silent',
   });
-  const app = await buildCompanion({ config, legacyChatSource: new ContextLegacySource() });
+  const upstreamCalls: Array<Readonly<Record<string, unknown>>> = [];
+  const app = await buildCompanion({
+    config,
+    legacyChatSource: new ContextLegacySource(),
+    lmStudioGateway: {
+      models: async () => new Response('{"data":[]}'),
+      chat: async request => {
+        upstreamCalls.push(structuredClone(request));
+        return new Response(JSON.stringify({
+          id: 'chatcmpl-sqlite', object: 'chat.completion', created: 1, model: profile.modelId,
+          choices: [{ index: 0, message: { role: 'assistant', content: 'The wardrobe waits.' }, finish_reason: 'stop' }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      },
+    },
+  });
   t.after(async () => {
     await app.close();
     await rm(root, { recursive: true, force: true });
@@ -361,6 +376,35 @@ test('Context HTTP boundary saves a profile and pins before returning an inspect
   assert.equal(plan.statusCode, 200, plan.body);
   assert.equal(plan.json().selections[1].tier, 'manual-pin');
   assert.equal(plan.json().selections[1].recordId, 'item-wardrobe');
+
+  const exchange = encodeNarrationExchange({
+    protocol: 'st-rpg.narration', version: 1,
+    requestId: '2b8ba8c6-46d9-4a3f-a75f-0cf8b413998a',
+    route: { kind: 'linked', bindingId: imported.json().binding.id },
+    generation: 'normal',
+    locator: {
+      version: 1, hostId: 'context-test-host',
+      chat: { kind: 'character', ownerId: locator.avatar, chatId: locator.chatId },
+    },
+    bridge: { version: '0.2.0', sillyTavernRevision: PINNED_SILLYTAVERN_REVISION },
+  });
+  const narration = await app.inject({
+    method: 'POST', url: '/v1/chat/completions',
+    headers: { 'x-st-rpg-exchange': exchange },
+    payload: {
+      model: profile.modelId, stream: true,
+      messages: [
+        { role: 'system', content: 'Narrate.' },
+        { role: 'user', content: 'I wait in silence.' },
+      ],
+    },
+  });
+  assert.equal(narration.statusCode, 200, narration.body);
+  assert.match(narration.body, /The wardrobe waits\./);
+  assert.equal(upstreamCalls.length, 1);
+  const upstreamMessages = upstreamCalls[0]?.messages as Array<{ role: string; content: string }>;
+  assert.equal(upstreamCalls[0]?.stream, false);
+  assert.equal(upstreamMessages.some(message => message.content.includes('Heirloom Wardrobe')), true);
 
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();

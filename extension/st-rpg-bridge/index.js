@@ -1,9 +1,110 @@
+import { main_api } from '/script.js';
+import { extension_settings } from '/scripts/extensions.js';
+import { chat_completion_sources, oai_settings } from '/scripts/openai.js';
+import { bindingRoute, encodeNarrationExchange, mergeExchangeHeader } from './wire.js?v=0.2.0';
+
 const LAUNCHER_ID = 'st-rpg-companion-launcher';
+const SETTINGS_KEY = 'stRpgCompanionBridge';
+const BINDING_META_KEY = 'stLlmRpgBinding';
 const COMPANION_PORT = 8002;
+const BRIDGE_VERSION = '0.2.0';
+const SILLYTAVERN_REVISION = '380e31e8c58d196969b6a0da74f431ba999c7e0a';
+const GENERATION_TYPES = new Set(['normal', 'regenerate', 'continue', 'swipe', 'quiet', 'impersonate']);
+const LINKED_GENERATION_TYPES = new Set(['normal', 'regenerate', 'continue', 'swipe']);
+let pendingExchange = null;
+let eventsMounted = false;
+let settingsHookReady = false;
+
+function context() {
+  return globalThis.SillyTavern?.getContext?.() ?? null;
+}
 
 function companionUrl(path = '/') {
   const hostname = window.location.hostname || '127.0.0.1';
   return `http://${hostname}:${COMPANION_PORT}${path}`;
+}
+
+function hostId() {
+  const settings = extension_settings[SETTINGS_KEY] ??= {};
+  if (typeof settings.hostId !== 'string' || !settings.hostId) {
+    settings.hostId = crypto.randomUUID();
+    context()?.saveSettingsDebounced?.();
+  }
+  return settings.hostId;
+}
+
+function currentLocator() {
+  const current = context();
+  const chatId = String(current?.getCurrentChatId?.() ?? current?.chatId ?? '');
+  if (!chatId) throw new Error('Open a saved SillyTavern chat before generating.');
+  const groupId = String(current?.groupId ?? '');
+  if (groupId) {
+    return { version: 1, hostId: hostId(), chat: { kind: 'group', ownerId: groupId, chatId } };
+  }
+  const character = current?.characters?.[current?.characterId];
+  const ownerId = String(character?.avatar ?? '');
+  if (!ownerId) throw new Error('RPG Companion could not read the current character locator.');
+  return { version: 1, hostId: hostId(), chat: { kind: 'character', ownerId, chatId } };
+}
+
+function currentRoute() {
+  return bindingRoute(context()?.chatMetadata?.[BINDING_META_KEY]);
+}
+
+function assertCustomConnection() {
+  if (main_api !== 'openai' || oai_settings.chat_completion_source !== chat_completion_sources.CUSTOM) {
+    throw new Error('Select Custom Chat Completions before generating through RPG Companion.');
+  }
+}
+
+function reportBlocked(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('[RPG Companion Bridge] Generation blocked:', error);
+  globalThis.toastr?.error?.(message, 'RPG Companion blocked generation');
+}
+
+async function generationInterceptor(_chat, _contextSize, abort, type) {
+  try {
+    if (!settingsHookReady) throw new Error('RPG Companion routing hook is not ready. Reload SillyTavern before generating.');
+    assertCustomConnection();
+    const route = currentRoute();
+    const generation = type ?? 'normal';
+    if (!GENERATION_TYPES.has(generation)) throw new Error(`Generation type ${generation} is not supported by RPG Companion.`);
+    if (route.kind === 'linked' && !LINKED_GENERATION_TYPES.has(generation)) {
+      throw new Error(`Linked generation does not support ${generation}.`);
+    }
+    pendingExchange = {
+      protocol: 'st-rpg.narration',
+      version: 1,
+      requestId: crypto.randomUUID(),
+      route,
+      generation,
+      locator: currentLocator(),
+      bridge: { version: BRIDGE_VERSION, sillyTavernRevision: SILLYTAVERN_REVISION },
+    };
+  } catch (error) {
+    pendingExchange = null;
+    reportBlocked(error);
+    abort(true);
+  }
+}
+
+async function applyExchangeHeader(generateData) {
+  if (!pendingExchange) return;
+  const exchange = pendingExchange;
+  pendingExchange = null;
+  if (!generateData || typeof generateData !== 'object') {
+    reportBlocked(new Error('SillyTavern did not expose mutable Chat Completion settings; generation cannot be routed safely.'));
+    return;
+  }
+  // SillyTavern swallows event-listener exceptions. Never depend on throwing
+  // here to stop a linked request: make the transient destination explicit.
+  generateData.chat_completion_source = chat_completion_sources.CUSTOM;
+  generateData.custom_url = companionUrl('/v1');
+  generateData.custom_include_headers = mergeExchangeHeader(
+    generateData.custom_include_headers,
+    encodeNarrationExchange(exchange),
+  );
 }
 
 function renderFailure(target, error) {
@@ -34,7 +135,7 @@ async function openCampaignBook() {
   }
 }
 
-function mount() {
+function mountLauncher() {
   if (document.getElementById(LAUNCHER_ID)) return;
   const menu = document.getElementById('extensionsMenu');
   if (!menu) {
@@ -57,6 +158,28 @@ function mount() {
   });
   menu.appendChild(launcher);
 }
+
+function mount() {
+  if (!eventsMounted) {
+    const current = context();
+    const events = current?.eventTypes ?? current?.event_types;
+    const event = events?.CHAT_COMPLETION_SETTINGS_READY;
+    if (event && typeof current?.eventSource?.makeLast === 'function') {
+      current.eventSource.makeLast(event, applyExchangeHeader);
+      settingsHookReady = true;
+    } else if (event && typeof current?.eventSource?.on === 'function') {
+      current.eventSource.on(event, applyExchangeHeader);
+      settingsHookReady = true;
+    } else {
+      reportBlocked(new Error('Pinned SillyTavern Chat Completion settings hook is unavailable.'));
+    }
+    eventsMounted = true;
+  }
+  mountLauncher();
+}
+
+globalThis.stRpgCompanionGenerationInterceptor = generationInterceptor;
+globalThis.stRpgCompanionBridge = Object.freeze({ openCampaignBook, currentLocator, currentRoute });
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });
 else mount();

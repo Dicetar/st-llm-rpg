@@ -73,7 +73,7 @@ export class ContextService {
     }
   }
 
-  async plan(request: PreflightContextRequest, signal: AbortSignal): Promise<ReturnType<ContextPlanner['plan']>> {
+  async plan(request: PreflightContextRequest, signal: AbortSignal): Promise<Awaited<ReturnType<ContextPlanner['plan']>>> {
     try {
       return await this.planner.plan(request, signal);
     } catch (error) {

@@ -23,6 +23,14 @@ import { LegacyImportService, type LegacyChatSource } from './modules/legacy-imp
 import { registerLegacyImportRoutes } from './modules/legacy-import/legacy-import-routes.js';
 import { ContextService } from './modules/context/context-service.js';
 import { registerContextRoutes } from './modules/context/context-routes.js';
+import {
+  NarrationService,
+  SerialInferenceLane,
+  type InferenceLane,
+  type LmStudioGateway,
+} from './modules/narration/narration-service.js';
+import { registerNarrationRoutes, type NarrationHttpService } from './modules/narration/narration-routes.js';
+import { FetchLmStudioGateway } from './adapters/lm-studio/fetch-lm-studio-gateway.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -41,6 +49,9 @@ export type BuildCompanionOptions = Readonly<{
   probeDependencies?: DependencyProbe;
   campaignEngine?: CampaignEngine;
   legacyChatSource?: LegacyChatSource;
+  narrationService?: NarrationHttpService;
+  lmStudioGateway?: LmStudioGateway;
+  inferenceLane?: InferenceLane;
   startedAt?: Date;
 }>;
 
@@ -111,6 +122,17 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
       )
     : null;
   const contextService = campaignJournal ? new ContextService(campaignJournal) : null;
+  const narrationService = options.narrationService ?? (campaignJournal && contextService
+    ? new NarrationService({
+        authority: {
+          readBinding: bindingId => campaignJournal.readBinding(bindingId),
+          listNarratorModelProfiles: () => campaignJournal.listNarratorModelProfiles(),
+          plan: (request, signal) => contextService.plan(request, signal),
+        },
+        inference: options.inferenceLane ?? new SerialInferenceLane(),
+        lmStudio: options.lmStudioGateway ?? new FetchLmStudioGateway(options.config.lmStudioBaseUrl),
+      })
+    : null);
   const probeDependencies = options.probeDependencies
     ?? createDefaultDependencyProbe(options.config, () => campaignEngine.observation());
   const app = Fastify({
@@ -161,6 +183,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   registerCampaignRoutes(app, campaignEngine);
   if (legacyImportService) registerLegacyImportRoutes(app, legacyImportService);
   if (contextService) registerContextRoutes(app, contextService);
+  if (narrationService) registerNarrationRoutes(app, narrationService);
 
   app.get('/assets/*', async (request, reply) => {
     const relative = (request.params as { '*': string })['*'];
