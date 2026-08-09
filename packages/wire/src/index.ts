@@ -2,6 +2,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
 export * from './campaign.js';
+export * from './context.js';
 export * from './legacy-import.js';
 
 export const WIRE_VERSION = '1.0' as const;
@@ -31,6 +32,14 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('LEGACY_IMPORT_STALE'),
   Type.Literal('LEGACY_IMPORT_COLLISION'),
   Type.Literal('CHAT_BINDING_NOT_FOUND'),
+  Type.Literal('CONTEXT_CORE_OVER_BUDGET'),
+  Type.Literal('CONTEXT_PINS_OVER_BUDGET'),
+  Type.Literal('CONTEXT_STALE_PIN'),
+  Type.Literal('CONTEXT_PRIVATE_PIN'),
+  Type.Literal('CONTEXT_AUTHORITY_MISMATCH'),
+  Type.Literal('CONTEXT_MODEL_PROFILE_MISSING'),
+  Type.Literal('CONTEXT_MODEL_INCOMPATIBLE'),
+  Type.Literal('CONTEXT_CANCELLED'),
   Type.Literal('NOT_FOUND'),
   Type.Literal('INTERNAL_ERROR'),
 ]);

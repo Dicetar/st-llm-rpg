@@ -18,12 +18,14 @@ import {
   type CampaignQuestStatus,
   type CampaignScene,
   type CampaignSummary,
+  type NarratorVisibility,
   type Problem,
 } from '@st-llm-rpg/wire';
 import type { ChatBindingDocument } from '@st-llm-rpg/wire';
 import LegacyImportPanel, { ChatBindingsPanel } from './LegacyImportPanel.js';
+import { ContextTray } from './ContextTray.js';
 
-export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'scene' | 'history';
+export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'scene' | 'context' | 'history';
 
 type WorkspaceRoute = Readonly<{
   campaignId: string | null;
@@ -50,6 +52,8 @@ type CanonicalUpdate = Readonly<{
 type EditorDraft = Readonly<{
   name: string;
   summary: string;
+  aliases: readonly string[];
+  visibility: NarratorVisibility;
   ownerActorId: string;
   status: CampaignQuestStatus;
 }>;
@@ -67,6 +71,7 @@ const COLLECTION_KEYS: readonly CollectionKey[] = [
   'quests',
   'places',
   'scene',
+  'context',
   'history',
 ];
 
@@ -182,6 +187,8 @@ function syncLabel(state: SyncState): string {
 function sameDraft(left: EditorDraft, right: EditorDraft): boolean {
   return left.name.trim() === right.name
     && left.summary.trim() === right.summary
+    && left.aliases.map(value => value.trim()).join('\u0000') === right.aliases.map(value => value.trim()).join('\u0000')
+    && left.visibility === right.visibility
     && left.ownerActorId === right.ownerActorId
     && left.status === right.status;
 }
@@ -192,6 +199,7 @@ function collectionLabel(collection: CollectionKey): string {
   if (collection === 'quests') return 'Quests';
   if (collection === 'places') return 'Places';
   if (collection === 'scene') return 'Current Scene';
+  if (collection === 'context') return 'Context Tray';
   return 'History';
 }
 
@@ -346,6 +354,7 @@ export function WorkspaceRouteState(props: {
 function CollectionNavigation(props: {
   route: WorkspaceRoute;
   document: CampaignDocument;
+  bindings: readonly ChatBindingDocument[];
   onNavigate: (route: WorkspaceRoute) => void;
 }) {
   const entries: ReadonlyArray<Readonly<{ key: CollectionKey; label: string; count?: number }>> = [
@@ -354,6 +363,7 @@ function CollectionNavigation(props: {
     { key: 'quests', label: 'Quests', count: props.document.quests.filter(record => !record.archived).length },
     { key: 'places', label: 'Places', count: props.document.places.filter(record => !record.archived).length },
     { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
+    { key: 'context', label: 'Context Tray', count: props.bindings.reduce((total, binding) => total + (binding.pins?.length ?? 0), 0) },
     { key: 'history', label: 'History' },
   ];
   return (
@@ -392,7 +402,7 @@ type RecordEditorProps =
       actors: readonly CampaignActor[];
       busy: boolean;
       readOnly: boolean;
-      onSave: (id: string, name: string, summary: string) => Promise<void>;
+      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility) => Promise<void>;
       onArchive: (id: string, archived: boolean) => Promise<void>;
     }>
   | Readonly<{
@@ -401,7 +411,7 @@ type RecordEditorProps =
       actors: readonly CampaignActor[];
       busy: boolean;
       readOnly: boolean;
-      onSave: (id: string, name: string, summary: string, ownerActorId: string | null) => Promise<void>;
+      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility, ownerActorId: string | null) => Promise<void>;
       onArchive: (id: string, archived: boolean) => Promise<void>;
     }>
   | Readonly<{
@@ -410,7 +420,7 @@ type RecordEditorProps =
       actors: readonly CampaignActor[];
       busy: boolean;
       readOnly: boolean;
-      onSave: (id: string, name: string, summary: string, status: CampaignQuestStatus) => Promise<void>;
+      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility, status: CampaignQuestStatus) => Promise<void>;
       onArchive: (id: string, archived: boolean) => Promise<void>;
     }>
   | Readonly<{
@@ -419,7 +429,7 @@ type RecordEditorProps =
       actors: readonly CampaignActor[];
       busy: boolean;
       readOnly: boolean;
-      onSave: (id: string, name: string, summary: string) => Promise<void>;
+      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility) => Promise<void>;
       onArchive: (id: string, archived: boolean) => Promise<void>;
     }>;
 
@@ -427,6 +437,8 @@ function canonicalDraft(props: RecordEditorProps): EditorDraft {
   return {
     name: props.record.name,
     summary: props.record.summary,
+    aliases: props.record.aliases ?? [],
+    visibility: props.record.visibility ?? 'known',
     ownerActorId: props.kind === 'item' ? props.record.ownerActorId ?? '' : '',
     status: props.kind === 'quest' ? props.record.status : 'active',
   };
@@ -439,12 +451,14 @@ function editorLabel(kind: RecordEditorProps['kind']): string {
   return 'Place';
 }
 
-function RecordEditor(props: RecordEditorProps) {
+export function RecordEditor(props: RecordEditorProps) {
   const initial = canonicalDraft(props);
   const [draft, setDraft] = useState<EditorDraft>(initial);
   const [baseline, setBaseline] = useState<EditorDraft>(initial);
   const ownerActorId = props.kind === 'item' ? props.record.ownerActorId ?? '' : '';
   const questStatus = props.kind === 'quest' ? props.record.status : 'active';
+  const aliasesKey = (props.record.aliases ?? []).join('\u0000');
+  const visibility = props.record.visibility ?? 'known';
   const dirty = !sameDraft(draft, baseline);
 
   useEffect(() => {
@@ -452,18 +466,19 @@ function RecordEditor(props: RecordEditorProps) {
     const wasDirty = !sameDraft(draft, baseline);
     setBaseline(next);
     if (!wasDirty) setDraft(next);
-  }, [props.kind, props.record.id, props.record.name, props.record.summary, props.record.archived, ownerActorId, questStatus]);
+  }, [props.kind, props.record.id, props.record.name, props.record.summary, props.record.archived, aliasesKey, visibility, ownerActorId, questStatus]);
 
   const label = editorLabel(props.kind);
   return (
     <form className={props.record.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
       event.preventDefault();
+      const aliases = draft.aliases.map(value => value.trim()).filter(Boolean);
       if (props.kind === 'actor' || props.kind === 'place') {
-        void props.onSave(props.record.id, draft.name, draft.summary);
+        void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility);
       } else if (props.kind === 'item') {
-        void props.onSave(props.record.id, draft.name, draft.summary, draft.ownerActorId || null);
+        void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility, draft.ownerActorId || null);
       } else {
-        void props.onSave(props.record.id, draft.name, draft.summary, draft.status);
+        void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility, draft.status);
       }
     }}>
       <div className="record-card__heading">
@@ -477,6 +492,50 @@ function RecordEditor(props: RecordEditorProps) {
           onChange={event => setDraft(previous => ({ ...previous, name: event.target.value }))}
           disabled={props.busy || props.readOnly}
         />
+      </label>
+      <fieldset className="alias-editor">
+        <legend>Aliases</legend>
+        {draft.aliases.length === 0 ? <p className="empty-state">No alternate names.</p> : null}
+        {draft.aliases.map((alias, index) => (
+          <div className="alias-row" key={`${index}-${alias}`}>
+            <label>
+              <span>Alias {index + 1}</span>
+              <input
+                value={alias}
+                onChange={event => setDraft(previous => ({
+                  ...previous,
+                  aliases: previous.aliases.map((value, candidate) => candidate === index ? event.target.value : value),
+                }))}
+                disabled={props.busy || props.readOnly}
+              />
+            </label>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setDraft(previous => ({ ...previous, aliases: previous.aliases.filter((_value, candidate) => candidate !== index) }))}
+              disabled={props.busy || props.readOnly}
+              aria-label={`Remove alias ${index + 1}`}
+            >Remove</button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="button-secondary"
+          onClick={() => setDraft(previous => ({ ...previous, aliases: [...previous.aliases, ''] }))}
+          disabled={props.busy || props.readOnly || draft.aliases.length >= 32}
+        >+ Add alias</button>
+      </fieldset>
+      <label>
+        <span>Narrator Visibility</span>
+        <select
+          value={draft.visibility}
+          onChange={event => setDraft(previous => ({ ...previous, visibility: event.target.value as NarratorVisibility }))}
+          disabled={props.busy || props.readOnly}
+        >
+          <option value="known">Known · may be used and revealed</option>
+          <option value="narrator_secret">Narrator Secret · use silently</option>
+          <option value="campaign_private">Campaign Private · never sent</option>
+        </select>
       </label>
       <label>
         <span>Summary</span>
@@ -537,28 +596,66 @@ function RecordEditor(props: RecordEditorProps) {
   );
 }
 
-function SceneEditor(props: {
+type SceneDraft = Readonly<{
+  name: string;
+  summary: string;
+  placeId: string;
+  actorIds: readonly string[];
+  itemIds: readonly string[];
+}>;
+
+function sceneDraft(scene: CampaignScene | null): SceneDraft {
+  return {
+    name: scene?.name ?? '',
+    summary: scene?.summary ?? '',
+    placeId: scene?.placeId ?? '',
+    actorIds: scene?.actorIds ?? [],
+    itemIds: scene?.itemIds ?? [],
+  };
+}
+
+function sameSceneDraft(left: SceneDraft, right: SceneDraft): boolean {
+  return left.name.trim() === right.name.trim()
+    && left.summary.trim() === right.summary.trim()
+    && left.placeId === right.placeId
+    && left.actorIds.join('\u0000') === right.actorIds.join('\u0000')
+    && left.itemIds.join('\u0000') === right.itemIds.join('\u0000');
+}
+
+export function SceneEditor(props: {
   scene: CampaignScene | null;
+  actors: readonly CampaignActor[];
+  items: readonly CampaignItem[];
+  places: readonly CampaignPlace[];
   busy: boolean;
   readOnly: boolean;
-  onSave: (name: string, summary: string) => Promise<void>;
+  onSave: (name: string, summary: string, placeId: string | null, actorIds: readonly string[], itemIds: readonly string[]) => Promise<void>;
 }) {
-  const canonical = { name: props.scene?.name ?? '', summary: props.scene?.summary ?? '' };
+  const canonical = sceneDraft(props.scene);
   const [draft, setDraft] = useState(canonical);
   const [baseline, setBaseline] = useState(canonical);
-  const dirty = draft.name.trim() !== baseline.name || draft.summary.trim() !== baseline.summary;
+  const dirty = !sameSceneDraft(draft, baseline);
+  const actorIdsKey = (props.scene?.actorIds ?? []).join('\u0000');
+  const itemIdsKey = (props.scene?.itemIds ?? []).join('\u0000');
 
   useEffect(() => {
-    const next = { name: props.scene?.name ?? '', summary: props.scene?.summary ?? '' };
-    const wasDirty = draft.name.trim() !== baseline.name || draft.summary.trim() !== baseline.summary;
+    const next = sceneDraft(props.scene);
+    const wasDirty = !sameSceneDraft(draft, baseline);
     setBaseline(next);
     if (!wasDirty) setDraft(next);
-  }, [props.scene?.id, props.scene?.name, props.scene?.summary]);
+  }, [props.scene?.id, props.scene?.name, props.scene?.summary, props.scene?.placeId, actorIdsKey, itemIdsKey]);
+
+  const toggle = (field: 'actorIds' | 'itemIds', id: string) => setDraft(previous => ({
+    ...previous,
+    [field]: previous[field].includes(id)
+      ? previous[field].filter(candidate => candidate !== id)
+      : [...previous[field], id],
+  }));
 
   return (
     <form className="record-card" onSubmit={event => {
       event.preventDefault();
-      void props.onSave(draft.name, draft.summary);
+      void props.onSave(draft.name, draft.summary, draft.placeId || null, draft.actorIds, draft.itemIds);
     }}>
       <div className="record-card__heading">
         <strong>{props.scene ? 'Current Scene' : 'Start Current Scene'}</strong>
@@ -572,6 +669,33 @@ function SceneEditor(props: {
           disabled={props.busy || props.readOnly}
         />
       </label>
+      <label>
+        <span>Scene Place</span>
+        <select value={draft.placeId} onChange={event => setDraft(previous => ({ ...previous, placeId: event.target.value }))} disabled={props.busy || props.readOnly}>
+          <option value="">No attached Place</option>
+          {props.places.map(place => <option key={place.id} value={place.id} disabled={place.archived && place.id !== props.scene?.placeId}>{place.name}{place.archived ? ' · archived' : ''}</option>)}
+        </select>
+      </label>
+      <div className="scene-attachments">
+        <fieldset>
+          <legend>Present Actors</legend>
+          {props.actors.length === 0 ? <p className="empty-state">No Actors available.</p> : props.actors.map(actor => (
+            <label key={actor.id}>
+              <input type="checkbox" checked={draft.actorIds.includes(actor.id)} onChange={() => toggle('actorIds', actor.id)} disabled={props.busy || props.readOnly || (actor.archived && !draft.actorIds.includes(actor.id))} />
+              <span>{actor.name}{actor.archived ? ' · archived' : ''}</span>
+            </label>
+          ))}
+        </fieldset>
+        <fieldset>
+          <legend>Present Items</legend>
+          {props.items.length === 0 ? <p className="empty-state">No Items available.</p> : props.items.map(item => (
+            <label key={item.id}>
+              <input type="checkbox" checked={draft.itemIds.includes(item.id)} onChange={() => toggle('itemIds', item.id)} disabled={props.busy || props.readOnly || (item.archived && !draft.itemIds.includes(item.id))} />
+              <span>{item.name}{item.archived ? ' · archived' : ''}</span>
+            </label>
+          ))}
+        </fieldset>
+      </div>
       <label>
         <span>Summary</span>
         <textarea
@@ -1226,7 +1350,7 @@ export default function CampaignWorkspace() {
                 />
               ) : null}
 
-              <CollectionNavigation route={route} document={displayed} onNavigate={navigate} />
+              <CollectionNavigation route={route} document={displayed} bindings={bindings} onNavigate={navigate} />
 
               {readOnly ? (
                 <p className="historical-note">Historical revision {route.revision} is read-only. Collection and record routes remain available for inspection.</p>
@@ -1250,7 +1374,7 @@ export default function CampaignWorkspace() {
                           actors={displayed.actors}
                           busy={busy}
                           readOnly={readOnly}
-                          onSave={(actorId, name, summary) => run(() => executeOperation({ kind: 'update_actor', actorId, name, summary }).then(() => undefined))}
+                           onSave={(actorId, name, summary, aliases, visibility) => run(() => executeOperation({ kind: 'update_actor', actorId, name, summary, aliases: [...aliases], visibility }).then(() => undefined))}
                           onArchive={(actorId, archived) => run(() => executeOperation({ kind: 'set_actor_archived', actorId, archived }).then(() => undefined))}
                         />
                       ) : <p className="error-banner">Actor {recordId} does not exist in this revision.</p>}
@@ -1301,7 +1425,7 @@ export default function CampaignWorkspace() {
                           actors={displayed.actors}
                           busy={busy}
                           readOnly={readOnly}
-                          onSave={(itemId, name, summary, ownerActorId) => run(() => executeOperation({ kind: 'update_item', itemId, name, summary, ownerActorId }).then(() => undefined))}
+                           onSave={(itemId, name, summary, aliases, visibility, ownerActorId) => run(() => executeOperation({ kind: 'update_item', itemId, name, summary, aliases: [...aliases], visibility, ownerActorId }).then(() => undefined))}
                           onArchive={(itemId, archived) => run(() => executeOperation({ kind: 'set_item_archived', itemId, archived }).then(() => undefined))}
                         />
                       ) : <p className="error-banner">Item {recordId} does not exist in this revision.</p>}
@@ -1341,7 +1465,7 @@ export default function CampaignWorkspace() {
                           actors={displayed.actors}
                           busy={busy}
                           readOnly={readOnly}
-                          onSave={(questId, name, summary, status) => run(() => executeOperation({ kind: 'update_quest', questId, name, summary, status }).then(() => undefined))}
+                           onSave={(questId, name, summary, aliases, visibility, status) => run(() => executeOperation({ kind: 'update_quest', questId, name, summary, aliases: [...aliases], visibility, status }).then(() => undefined))}
                           onArchive={(questId, archived) => run(() => executeOperation({ kind: 'set_quest_archived', questId, archived }).then(() => undefined))}
                         />
                       ) : <p className="error-banner">Quest {recordId} does not exist in this revision.</p>}
@@ -1381,7 +1505,7 @@ export default function CampaignWorkspace() {
                           actors={displayed.actors}
                           busy={busy}
                           readOnly={readOnly}
-                          onSave={(placeId, name, summary) => run(() => executeOperation({ kind: 'update_place', placeId, name, summary }).then(() => undefined))}
+                           onSave={(placeId, name, summary, aliases, visibility) => run(() => executeOperation({ kind: 'update_place', placeId, name, summary, aliases: [...aliases], visibility }).then(() => undefined))}
                           onArchive={(placeId, archived) => run(() => executeOperation({ kind: 'set_place_archived', placeId, archived }).then(() => undefined))}
                         />
                       ) : <p className="error-banner">Place {recordId} does not exist in this revision.</p>}
@@ -1406,11 +1530,35 @@ export default function CampaignWorkspace() {
                   <div className="collection-heading"><div><h4 id="scene-heading">Current Scene</h4><p>One canonical record for the Campaign’s present moment.</p></div></div>
                   <SceneEditor
                     scene={displayed.currentScene}
+                    actors={displayed.actors}
+                    items={displayed.items}
+                    places={displayed.places}
                     busy={busy}
                     readOnly={readOnly}
-                    onSave={(name, summary) => run(() => executeOperation({ kind: 'set_current_scene', scene: { name, summary } }).then(() => undefined))}
+                    onSave={(name, summary, placeId, actorIds, itemIds) => run(() => executeOperation({
+                      kind: 'set_current_scene',
+                      scene: {
+                        name,
+                        summary,
+                        ...(placeId ? { placeId } : {}),
+                        actorIds: [...actorIds],
+                        itemIds: [...itemIds],
+                      },
+                    }).then(() => undefined))}
                   />
                 </section>
+              ) : null}
+
+              {route.collection === 'context' ? (
+                <ContextTray
+                  document={displayed}
+                  bindings={bindings}
+                  busy={busy}
+                  readOnly={readOnly}
+                  onBindingChanged={binding => setBindings(current => current.map(candidate => candidate.id === binding.id ? binding : candidate))}
+                  onStatus={setMessage}
+                  onError={setError}
+                />
               ) : null}
 
               {route.collection === 'history' ? (

@@ -9,11 +9,14 @@ import { buildStatusCards } from './status-model.js';
 export {
   CampaignCommandDeck,
   CampaignHistoryView,
+  RecordEditor,
+  SceneEditor,
   RevisionConflictBanner,
   WorkspaceRouteState,
   parseWorkspacePath,
 } from './CampaignWorkspace.js';
 export { ChatBindingsPanel, LegacyImportPreviewCard } from './LegacyImportPanel.js';
+export { ContextTray } from './ContextTray.js';
 
 type Snapshot = Readonly<{
   health: HealthDocument | null;

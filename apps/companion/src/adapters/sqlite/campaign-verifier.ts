@@ -64,6 +64,8 @@ type StoredBinding = {
   content_fingerprint: string;
   marker_state: 'pending' | 'verified' | 'blocked';
   marker_problem: string | null;
+  context_focus_revision?: number;
+  pins_json?: string;
 };
 
 type StoredBindingEvent = {
@@ -198,6 +200,8 @@ function verifyChatBindings(database: DatabaseSync): void {
     }
     let markerState: StoredBinding['marker_state'] = 'pending';
     let markerProblem: string | null = null;
+    let contextFocusRevision = 1;
+    let pins: string[] = [];
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index]!;
       if (Number(event.revision) !== index + 1) {
@@ -213,17 +217,32 @@ function verifyChatBindings(database: DatabaseSync): void {
         }
         continue;
       }
-      if (event.operation_kind !== 'reconcile_binding_marker' || operation.kind !== 'reconcile_binding_marker'
-        || !['verified', 'blocked'].includes(String(operation.state))) {
-        throw new Error(`Chat Binding ${binding.binding_id} reconciliation Event verification failed.`);
+      if (event.operation_kind === 'reconcile_binding_marker' && operation.kind === 'reconcile_binding_marker'
+        && ['verified', 'blocked'].includes(String(operation.state))) {
+        markerState = operation.state as 'verified' | 'blocked';
+        markerProblem = markerState === 'blocked' && typeof operation.problem === 'string'
+          ? operation.problem
+          : null;
+        continue;
       }
-      markerState = operation.state as 'verified' | 'blocked';
-      markerProblem = markerState === 'blocked' && typeof operation.problem === 'string'
-        ? operation.problem
-        : null;
+      if (event.operation_kind === 'set_context_pins' && operation.kind === 'set_context_pins'
+        && Array.isArray(operation.pins) && operation.pins.every(pin => typeof pin === 'string')) {
+        pins = operation.pins as string[];
+        contextFocusRevision += 1;
+        continue;
+      }
+      throw new Error(`Chat Binding ${binding.binding_id} Event ${event.revision} verification failed.`);
     }
     if (markerState !== binding.marker_state || markerProblem !== binding.marker_problem) {
       throw new Error(`Chat Binding ${binding.binding_id} head does not match immutable history.`);
+    }
+    const storedContextFocusRevision = binding.context_focus_revision === undefined
+      ? 1
+      : Number(binding.context_focus_revision);
+    const storedPins = binding.pins_json === undefined ? [] : parseJson<unknown>(binding.pins_json);
+    if (contextFocusRevision !== storedContextFocusRevision
+      || canonicalJson(pins) !== canonicalJson(storedPins)) {
+      throw new Error(`Chat Binding ${binding.binding_id} Context Focus head does not match immutable history.`);
     }
     const markerProblemValid = binding.marker_state === 'blocked'
       ? Boolean(binding.marker_problem?.trim())

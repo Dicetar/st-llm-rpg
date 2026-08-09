@@ -21,6 +21,8 @@ import { SqliteCampaignJournal } from './adapters/sqlite/campaign-journal.js';
 import { SillyTavernChatSource } from './adapters/sillytavern/sillytavern-chat-source.js';
 import { LegacyImportService, type LegacyChatSource } from './modules/legacy-import/legacy-import-service.js';
 import { registerLegacyImportRoutes } from './modules/legacy-import/legacy-import-routes.js';
+import { ContextService } from './modules/context/context-service.js';
+import { registerContextRoutes } from './modules/context/context-routes.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -108,6 +110,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
         join(dirname(options.config.databasePath), 'backups'),
       )
     : null;
+  const contextService = campaignJournal ? new ContextService(campaignJournal) : null;
   const probeDependencies = options.probeDependencies
     ?? createDefaultDependencyProbe(options.config, () => campaignEngine.observation());
   const app = Fastify({
@@ -157,6 +160,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
 
   registerCampaignRoutes(app, campaignEngine);
   if (legacyImportService) registerLegacyImportRoutes(app, legacyImportService);
+  if (contextService) registerContextRoutes(app, contextService);
 
   app.get('/assets/*', async (request, reply) => {
     const relative = (request.params as { '*': string })['*'];

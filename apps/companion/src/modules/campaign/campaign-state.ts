@@ -8,6 +8,7 @@ import type {
   CampaignQuest,
   CampaignScene,
   CampaignSummary,
+  NarratorVisibility,
 } from '@st-llm-rpg/wire';
 import { CampaignExpectedError } from './campaign-error.js';
 
@@ -182,6 +183,44 @@ function requirePlace(state: CampaignState, placeId: string): CampaignPlace {
   return place;
 }
 
+function requireActiveSceneRecord<T extends { id: string; archived: boolean }>(record: T, label: string): T {
+  if (record.archived) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${label} ${record.id} is archived and cannot enter the current Scene.`, { recordId: record.id });
+  }
+  return record;
+}
+
+function cleanAliases(value: readonly string[] | undefined): string[] {
+  const aliases = (value ?? []).map((alias, index) => cleanText(alias, `Alias ${index + 1}`, 160));
+  const normalized = new Set<string>();
+  for (const alias of aliases) {
+    const key = alias.normalize('NFKC').toLocaleLowerCase('en-US');
+    if (normalized.has(key)) {
+      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Alias ${alias} is duplicated.`, { alias });
+    }
+    normalized.add(key);
+  }
+  if (aliases.length > 32) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'A Record may have at most 32 aliases.', { maximum: 32 });
+  }
+  return aliases;
+}
+
+function cleanVisibility(value: NarratorVisibility | undefined): NarratorVisibility {
+  return value ?? 'known';
+}
+
+function narratorFields(
+  current: { aliases?: string[]; visibility?: NarratorVisibility },
+  aliases: readonly string[] | undefined,
+  visibility: NarratorVisibility | undefined,
+) {
+  return {
+    aliases: aliases === undefined ? [...(current.aliases ?? [])] : cleanAliases(aliases),
+    visibility: visibility ?? current.visibility ?? 'known',
+  };
+}
+
 export function subjectImageHash(image: CampaignSubjectImage): string | null {
   return image === null ? null : sha256(image);
 }
@@ -305,7 +344,9 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     state.actors[id] = {
       id,
       name: cleanText(operation.actor.name, 'Actor name', 160),
+      aliases: cleanAliases(operation.actor.aliases),
       summary: cleanOptionalText(operation.actor.summary, 'Actor summary', 4000),
+      visibility: cleanVisibility(operation.actor.visibility),
       archived: false,
     };
     return [id];
@@ -323,13 +364,17 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     state.actors[actorId] = {
       id: actorId,
       name: cleanText(operation.actor.name, 'Actor name', 160),
+      aliases: cleanAliases(operation.actor.aliases),
       summary: cleanOptionalText(operation.actor.summary, 'Actor summary', 4000),
+      visibility: cleanVisibility(operation.actor.visibility),
       archived: false,
     };
     state.items[itemId] = {
       id: itemId,
       name: cleanText(operation.item.name, 'Item name', 160),
+      aliases: cleanAliases(operation.item.aliases),
       summary: cleanOptionalText(operation.item.summary, 'Item summary', 4000),
+      visibility: cleanVisibility(operation.item.visibility),
       archived: false,
       ownerActorId: actorId,
     };
@@ -346,6 +391,7 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       ...actor,
       name: cleanText(operation.name, 'Actor name', 160),
       summary: cleanOptionalText(operation.summary, 'Actor summary', 4000),
+      ...narratorFields(actor, operation.aliases, operation.visibility),
     };
     return [actor.id];
   }
@@ -362,7 +408,9 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     state.items[id] = {
       id,
       name: cleanText(operation.item.name, 'Item name', 160),
+      aliases: cleanAliases(operation.item.aliases),
       summary: cleanOptionalText(operation.item.summary, 'Item summary', 4000),
+      visibility: cleanVisibility(operation.item.visibility),
       archived: false,
       ...(owner === undefined ? {} : { ownerActorId: owner }),
     };
@@ -374,6 +422,7 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       ...item,
       name: cleanText(operation.name, 'Item name', 160),
       summary: cleanOptionalText(operation.summary, 'Item summary', 4000),
+      ...narratorFields(item, operation.aliases, operation.visibility),
     };
     if ('ownerActorId' in operation) {
       if (operation.ownerActorId === null || operation.ownerActorId === undefined) {
@@ -401,7 +450,9 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     state.quests[id] = {
       id,
       name: cleanText(operation.quest.name, 'Quest name', 160),
+      aliases: cleanAliases(operation.quest.aliases),
       summary: cleanOptionalText(operation.quest.summary, 'Quest summary', 4000),
+      visibility: cleanVisibility(operation.quest.visibility),
       status: operation.quest.status ?? 'active',
       archived: false,
     };
@@ -415,6 +466,7 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       name: cleanText(operation.name, 'Quest name', 160),
       summary: cleanOptionalText(operation.summary, 'Quest summary', 4000),
       status: operation.status,
+      ...narratorFields(quest, operation.aliases, operation.visibility),
     };
     return [quest.id];
   }
@@ -430,7 +482,9 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     state.places[id] = {
       id,
       name: cleanText(operation.place.name, 'Place name', 160),
+      aliases: cleanAliases(operation.place.aliases),
       summary: cleanOptionalText(operation.place.summary, 'Place summary', 4000),
+      visibility: cleanVisibility(operation.place.visibility),
       archived: false,
     };
     return [id];
@@ -442,6 +496,7 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       ...place,
       name: cleanText(operation.name, 'Place name', 160),
       summary: cleanOptionalText(operation.summary, 'Place summary', 4000),
+      ...narratorFields(place, operation.aliases, operation.visibility),
     };
     return [place.id];
   }
@@ -453,10 +508,18 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
   }
   if (operation.kind === 'set_current_scene') {
     const id = operation.scene.id ? cleanIdentifier(operation.scene.id, 'Scene ID') : state.currentScene?.id ?? randomUUID();
+    const placeId = operation.scene.placeId === undefined
+      ? undefined
+      : requireActiveSceneRecord(requirePlace(state, operation.scene.placeId), 'Place').id;
+    const actorIds = operation.scene.actorIds?.map(actorId => requireActiveSceneRecord(requireActor(state, actorId), 'Actor').id) ?? [];
+    const itemIds = operation.scene.itemIds?.map(itemId => requireActiveSceneRecord(requireItem(state, itemId), 'Item').id) ?? [];
     state.currentScene = {
       id,
       name: cleanText(operation.scene.name, 'Scene name', 160),
       summary: cleanOptionalText(operation.scene.summary, 'Scene summary', 4000),
+      ...(placeId ? { placeId } : {}),
+      ...(actorIds.length ? { actorIds } : {}),
+      ...(itemIds.length ? { itemIds } : {}),
     };
     return [id];
   }

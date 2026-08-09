@@ -19,7 +19,7 @@ When older provisional material conflicts with the normative specification or fi
 
 ## Current implementation frontier
 
-Issues #32, #33, and #34 are complete. Deliver issue #35 next: import a selected legacy chat into a self-contained Campaign with an explicit Chat Binding. Do not start a later tracer while #35 is open.
+Issues #32 through #36 are complete. Deliver issue #37 next: route linked SillyTavern narration through the companion with one deterministic Context Plan and one atomic LM Studio call. Do not start a later tracer while #37 is open.
 
 Work directly on `main` unless the user explicitly requests another workflow. Claim the active issue before substantive work.
 

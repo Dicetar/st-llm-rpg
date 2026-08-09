@@ -10,6 +10,9 @@ import {
   RevisionConflictBanner,
   WorkspaceRouteState,
   LegacyImportPreviewCard,
+  ContextTray,
+  RecordEditor,
+  SceneEditor,
   parseWorkspacePath,
 } from '../src/App.js';
 
@@ -159,6 +162,83 @@ test('Chat Binding inspection stays available after the import result is gone', 
   assert.match(html, /Campaign anchor 7/);
   assert.match(html, /marker blocked/);
   assert.match(html, /Retry marker/);
+});
+
+test('Context Tray keeps profile, ordered pins, planning evidence, and privacy in one routed surface', () => {
+  const html = renderToStaticMarkup(<ContextTray
+    document={{
+      campaign: {
+        id: 'campaign-1', title: 'House Harcourt', status: 'active', revision: 7,
+        createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z',
+      },
+      actors: [{ id: 'actor-lavir', name: 'Lavir', summary: 'A noble.', archived: false, visibility: 'known' }],
+      items: [{ id: 'item-private', name: 'Private Ledger', summary: 'Never sent.', archived: false, visibility: 'campaign_private' }],
+      quests: [], places: [], currentScene: null,
+    }}
+    bindings={[{
+      schema: 'st-rpg.chat-binding', version: '1.0', id: 'binding-1', campaignId: 'campaign-1',
+      revision: 2, campaignAnchor: 7, contextFocusRevision: 1, pins: [],
+      locator: { kind: 'character', chatId: 'Harcourt', avatar: 'Narrator.png' },
+      sourceFingerprint: 'a'.repeat(64), contentFingerprint: 'b'.repeat(64), markerState: 'verified',
+      createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z',
+    }]}
+    busy={false}
+    readOnly={false}
+    onBindingChanged={() => undefined}
+    onStatus={() => undefined}
+    onError={() => undefined}
+  />);
+  assert.match(html, /Context Tray/);
+  assert.match(html, /Narrator model profile/);
+  assert.match(html, /Ordered manual pins/);
+  assert.match(html, /Private Ledger/);
+  assert.match(html, /Campaign Private/);
+  assert.match(html, /Safety margin/);
+  assert.match(html, /Automatic Record limit/);
+  assert.match(html, /Generation type/);
+  assert.match(html, /Continue/);
+  assert.match(html, /Build Context Plan/);
+});
+
+test('Record editor exposes repeatable aliases and Narrator Visibility beside ordinary fields', () => {
+  const html = renderToStaticMarkup(<RecordEditor
+    kind="actor"
+    record={{
+      id: 'actor-secret', name: 'The Steward', aliases: ['Old Fox'], summary: 'Runs the estate.',
+      visibility: 'narrator_secret', archived: false,
+    }}
+    actors={[]}
+    busy={false}
+    readOnly={false}
+    onSave={async () => undefined}
+    onArchive={async () => undefined}
+  />);
+  assert.match(html, /Aliases/);
+  assert.match(html, /Old Fox/);
+  assert.match(html, /Add alias/);
+  assert.match(html, /Narrator Visibility/);
+  assert.match(html, /Narrator Secret/);
+  assert.doesNotMatch(html, /comma-separated/i);
+});
+
+test('Scene editor exposes structural Place, Actor, and Item attachments for Context anchors', () => {
+  const html = renderToStaticMarkup(<SceneEditor
+    scene={{
+      id: 'scene-1', name: 'Bedroom', summary: 'A guarded meeting.', placeId: 'place-house',
+      actorIds: ['actor-lavir'], itemIds: ['item-key'],
+    }}
+    actors={[{ id: 'actor-lavir', name: 'Lavir', summary: '', archived: false }]}
+    items={[{ id: 'item-key', name: 'Wardrobe Key', summary: '', archived: false }]}
+    places={[{ id: 'place-house', name: 'House Harcourt', summary: '', archived: false }]}
+    busy={false}
+    readOnly={false}
+    onSave={async () => undefined}
+  />);
+  assert.match(html, /Scene Place/);
+  assert.match(html, /Present Actors/);
+  assert.match(html, /Present Items/);
+  assert.match(html, /Lavir/);
+  assert.match(html, /Wardrobe Key/);
 });
 
 test('route state explains pending and failed navigation with an explicit retry', () => {

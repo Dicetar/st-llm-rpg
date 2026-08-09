@@ -10,6 +10,9 @@ import type {
   CampaignSummary,
   CampaignVerificationResult,
   ChatBindingDocument,
+  NarratorModelProfile,
+  PreflightContextRequest,
+  SetContextPinsRequest,
 } from '@st-llm-rpg/wire';
 import { CAMPAIGN_AUTHORITY_MIGRATION, campaignMigrationChecksum } from '../../migrations/001-campaign-authority.js';
 import {
@@ -24,6 +27,10 @@ import {
   CHAT_BINDINGS_MIGRATION,
   chatBindingsMigrationChecksum,
 } from '../../migrations/004-chat-bindings.js';
+import {
+  CONTEXT_PLANNING_MIGRATION,
+  contextPlanningMigrationChecksum,
+} from '../../migrations/005-context-planning.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -73,12 +80,38 @@ import type {
   LegacyMarkerOutcome,
   StoredLegacyImport,
 } from '../../modules/legacy-import/legacy-import-journal.js';
+import type {
+  ContextAuthority,
+  ContextPlanningSource,
+  ContextSearchHit,
+} from '../../modules/context/context-planner.js';
 
 const APPLICATION_ID = 0x52504733;
 const EVENT_SCHEMA_VERSION = 2;
 const STATE_SCHEMA_VERSION = 1;
 const DEFAULT_SNAPSHOT_INTERVAL = 100;
 const DEFAULT_TIMING_SAMPLE_LIMIT = 500;
+const SEARCH_STOP_WORDS = new Set([
+  'and', 'are', 'but', 'for', 'from', 'has', 'have', 'her', 'his', 'into', 'its',
+  'not', 'that', 'the', 'their', 'then', 'there', 'they', 'this', 'was', 'were',
+  'what', 'when', 'where', 'which', 'who', 'with', 'you', 'your',
+]);
+
+function normalizeSearchText(value: string): string {
+  return String(value ?? '').normalize('NFKC').toLocaleLowerCase('en-US')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim().replace(/\s+/g, ' ');
+}
+
+function significantSearchTerms(value: string): string[] {
+  const terms: string[] = [];
+  for (const term of normalizeSearchText(value).split(' ')) {
+    if (term.length < 3 || SEARCH_STOP_WORDS.has(term) || terms.includes(term)) continue;
+    terms.push(term);
+    if (terms.length >= 16) break;
+  }
+  return terms;
+}
 
 type StoredCommitReceipt = CampaignCommitReceipt & Readonly<{
   receiptSchemaVersion: 2;
@@ -95,6 +128,8 @@ type ChatBindingRow = Readonly<{
   content_fingerprint: string;
   marker_state: 'pending' | 'verified' | 'blocked';
   marker_problem: string | null;
+  context_focus_revision: number;
+  pins_json: string;
   created_at: string;
   updated_at: string;
 }>;
@@ -107,6 +142,8 @@ function bindingDocument(row: ChatBindingRow): ChatBindingDocument {
     campaignId: row.campaign_id,
     revision: Number(row.binding_revision),
     campaignAnchor: Number(row.campaign_anchor),
+    contextFocusRevision: Number(row.context_focus_revision ?? 1),
+    pins: parseJson<string[]>(row.pins_json ?? '[]'),
     locator: parseJson(row.locator_json),
     sourceFingerprint: row.source_fingerprint,
     contentFingerprint: row.content_fingerprint,
@@ -134,7 +171,7 @@ export type CampaignJournalOptions = Readonly<{
   beforeRestoreActivation?: () => Promise<void>;
 }>;
 
-export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJournal {
+export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJournal, ContextPlanningSource {
   readonly databasePath: string;
   readonly snapshotInterval: number;
   readonly timingSampleLimit: number;
@@ -358,6 +395,85 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
     }, { allowMaintenanceFailure: true });
   }
 
+  async setContextPins(input: SetContextPinsRequest & Readonly<{ bindingId: string }>): Promise<ChatBindingDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const bindingId = cleanIdentifier(input.bindingId, 'Binding ID');
+      const current = this.findBindingById(bindingId);
+      if (!current) {
+        throw new CampaignExpectedError('CHAT_BINDING_NOT_FOUND', `Chat Binding ${bindingId} was not found.`, { bindingId });
+      }
+      const focusRevision = Number(current.context_focus_revision ?? 1);
+      if (
+        Number(current.binding_revision) !== input.expectedBindingRevision
+        || focusRevision !== input.expectedContextFocusRevision
+      ) {
+        throw new CampaignExpectedError(
+          'CAMPAIGN_REVISION_CONFLICT',
+          `Context Focus changed before ordered pins could be saved.`,
+          {
+            bindingId,
+            expectedBindingRevision: input.expectedBindingRevision,
+            actualBindingRevision: Number(current.binding_revision),
+            expectedContextFocusRevision: input.expectedContextFocusRevision,
+            actualContextFocusRevision: focusRevision,
+          },
+        );
+      }
+      const pins = input.pins.map(pin => cleanIdentifier(pin, 'Pinned Record ID'));
+      if (new Set(pins).size !== pins.length) {
+        throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Context pins must be unique.', { pins });
+      }
+      const state = this.reconstruct(current.campaign_id, Number(current.campaign_anchor));
+      const records = new Map([
+        ...Object.values(state.actors).map(record => [record.id, record] as const),
+        ...Object.values(state.items).map(record => [record.id, record] as const),
+        ...Object.values(state.quests ?? {}).map(record => [record.id, record] as const),
+        ...Object.values(state.places ?? {}).map(record => [record.id, record] as const),
+      ]);
+      for (const pin of pins) {
+        const record = records.get(pin);
+        if (!record || record.archived) {
+          throw new CampaignExpectedError('CONTEXT_STALE_PIN', `Pinned Record ${pin} is missing or archived.`, { recordId: pin });
+        }
+        if (record.visibility === 'campaign_private') {
+          throw new CampaignExpectedError('CONTEXT_PRIVATE_PIN', `Pinned Record ${pin} is Campaign Private.`, { recordId: pin });
+        }
+      }
+      const nextBindingRevision = input.expectedBindingRevision + 1;
+      const nextFocusRevision = input.expectedContextFocusRevision + 1;
+      const updatedAt = new Date().toISOString();
+      const operation = { kind: 'set_context_pins', pins };
+      const result = this.#database.prepare(`
+        UPDATE chat_bindings
+        SET binding_revision = ?, context_focus_revision = ?, pins_json = ?, updated_at = ?
+        WHERE binding_id = ? AND binding_revision = ? AND context_focus_revision = ?
+      `).run(
+        nextBindingRevision,
+        nextFocusRevision,
+        canonicalJson(pins),
+        updatedAt,
+        bindingId,
+        input.expectedBindingRevision,
+        input.expectedContextFocusRevision,
+      );
+      if (Number(result.changes) !== 1) {
+        throw new CampaignExpectedError('CAMPAIGN_REVISION_CONFLICT', 'Context pin update lost its revision race.', { bindingId });
+      }
+      this.#database.prepare(`
+        INSERT INTO chat_binding_events(binding_id, revision, event_id, request_id, operation_kind, operation_json, accepted_at)
+        VALUES (?, ?, ?, ?, 'set_context_pins', ?, ?)
+      `).run(
+        bindingId,
+        nextBindingRevision,
+        cleanIdentifier(input.eventId, 'Binding Event ID'),
+        cleanIdentifier(input.requestId, 'Binding request ID'),
+        canonicalJson(operation),
+        updatedAt,
+      );
+      return bindingDocument(this.findBindingById(bindingId)!);
+    })));
+  }
+
   async listBindings(campaignId: string): Promise<readonly ChatBindingDocument[]> {
     return this.serializeLifecycle(() => {
       const id = cleanIdentifier(campaignId, 'Campaign ID');
@@ -418,6 +534,89 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
     return this.serializeLifecycle(() => Number(this.requireCampaign(cleanIdentifier(campaignId, 'Campaign ID')).current_revision), {
       allowMaintenanceFailure: true,
     });
+  }
+
+  async saveNarratorModelProfile(profile: NarratorModelProfile): Promise<NarratorModelProfile> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const updatedAt = new Date().toISOString();
+      this.#database.prepare(`
+        INSERT INTO narrator_model_profiles(profile_id, model_id, profile_json, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(profile_id) DO UPDATE SET
+          model_id = excluded.model_id,
+          profile_json = excluded.profile_json,
+          updated_at = excluded.updated_at
+      `).run(profile.id, profile.modelId, canonicalJson(profile), updatedAt);
+      return structuredClone(profile);
+    })));
+  }
+
+  async listNarratorModelProfiles(): Promise<readonly NarratorModelProfile[]> {
+    return this.serializeLifecycle(() => {
+      const rows = this.#database.prepare(`
+        SELECT profile_json FROM narrator_model_profiles ORDER BY profile_id
+      `).all() as Array<{ profile_json: string }>;
+      return rows.map(row => parseJson<NarratorModelProfile>(row.profile_json));
+    }, { allowMaintenanceFailure: true });
+  }
+
+  async readAuthority(request: PreflightContextRequest): Promise<ContextAuthority> {
+    return this.serializeLifecycle(() => {
+      const bindingId = cleanIdentifier(request.bindingId, 'Binding ID');
+      const binding = this.findBindingById(bindingId);
+      if (!binding) {
+        throw new CampaignExpectedError('CHAT_BINDING_NOT_FOUND', `Chat Binding ${bindingId} was not found.`, { bindingId });
+      }
+      const profileId = cleanIdentifier(request.modelProfileId, 'Narrator model profile ID');
+      const profileRow = this.#database.prepare(`
+        SELECT profile_json FROM narrator_model_profiles WHERE profile_id = ?
+      `).get(profileId) as { profile_json: string } | undefined;
+      if (!profileRow) {
+        throw new CampaignExpectedError(
+          'CONTEXT_MODEL_PROFILE_MISSING',
+          `Narrator model profile ${profileId} was not found.`,
+          { profileId },
+        );
+      }
+      return {
+        campaign: asDocument(this.reconstruct(cleanIdentifier(request.campaignId, 'Campaign ID'), request.campaignRevision)),
+        binding: bindingDocument(binding),
+        profile: parseJson<NarratorModelProfile>(profileRow.profile_json),
+      };
+    }, { allowMaintenanceFailure: true });
+  }
+
+  async search(request: Readonly<{
+    campaignId: string;
+    campaignRevision: number;
+    query: string;
+    limit: number;
+  }>): Promise<readonly ContextSearchHit[]> {
+    return this.serializeLifecycle(() => {
+      const terms = significantSearchTerms(request.query);
+      if (terms.length === 0) return [];
+      const ftsQuery = terms.map(term => `"${term.replaceAll('"', '""')}"`).join(' OR ');
+      const rows = this.#database.prepare(`
+        SELECT record_id, name, aliases, summary, bm25(context_search_fts) AS rank
+        FROM context_search_fts
+        WHERE campaign_id = ? AND campaign_revision = ? AND context_search_fts MATCH ?
+        ORDER BY rank ASC, name ASC, record_id ASC
+        LIMIT ?
+      `).all(
+        cleanIdentifier(request.campaignId, 'Campaign ID'),
+        request.campaignRevision,
+        ftsQuery,
+        Math.max(1, Math.min(64, Math.trunc(request.limit))),
+      ) as Array<{ record_id: string; name: string; aliases: string; summary: string; rank: number }>;
+      return rows.map(row => {
+        const indexedTerms = new Set(normalizeSearchText(`${row.name} ${row.aliases} ${row.summary}`).split(' '));
+        return {
+          recordId: row.record_id,
+          rank: Number(row.rank),
+          matchedTerms: terms.filter(term => indexedTerms.has(term)).length,
+        };
+      });
+    }, { allowMaintenanceFailure: true });
   }
 
   transact<T>(
@@ -619,6 +818,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       { ...CAMPAIGN_SUBJECT_EVENTS_MIGRATION, checksum: campaignSubjectEventsMigrationChecksum() },
       { ...CAMPAIGN_CURRENT_PROJECTIONS_MIGRATION, checksum: campaignCurrentProjectionsMigrationChecksum() },
       { ...CHAT_BINDINGS_MIGRATION, checksum: chatBindingsMigrationChecksum() },
+      { ...CONTEXT_PLANNING_MIGRATION, checksum: contextPlanningMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
@@ -641,6 +841,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
         }
         if (migration.version === CAMPAIGN_SUBJECT_EVENTS_MIGRATION.version) this.backfillCampaignBases();
         if (migration.version === CAMPAIGN_CURRENT_PROJECTIONS_MIGRATION.version) this.backfillCurrentCampaignProjections();
+        if (migration.version === CONTEXT_PLANNING_MIGRATION.version) this.backfillContextSearchDocuments();
         this.#database.prepare('INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)')
           .run(migration.version, migration.name, migration.checksum, new Date().toISOString());
       });
@@ -720,8 +921,8 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       INSERT INTO chat_bindings(
         binding_id, campaign_id, binding_revision, campaign_anchor, locator_json,
         locator_fingerprint, source_fingerprint, content_fingerprint,
-        marker_state, marker_problem, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        marker_state, marker_problem, context_focus_revision, pins_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       binding.id,
       binding.campaignId,
@@ -733,6 +934,8 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       binding.contentFingerprint,
       binding.markerState,
       binding.markerProblem ?? null,
+      binding.contextFocusRevision ?? 1,
+      canonicalJson(binding.pins ?? []),
       binding.createdAt,
       binding.updatedAt,
     );
@@ -825,6 +1028,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       );
       this.inject('execute.after-projection');
     }
+    this.replaceContextSearchDocuments(commit.campaignId, commit.revision, input.afterState);
     this.insertReceipt(input.requestId, input.requestHash, commit, commit.committedAt);
   }
 
@@ -931,6 +1135,49 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       candidate.eventHash,
       candidate.createdAt,
     );
+  }
+
+  private backfillContextSearchDocuments(): void {
+    const rows = this.#database.prepare('SELECT campaign_id, current_revision FROM campaigns ORDER BY campaign_id').all() as
+      Array<{ campaign_id: string; current_revision: number }>;
+    for (const row of rows) {
+      for (let revision = 1; revision <= Number(row.current_revision); revision += 1) {
+        this.replaceContextSearchDocuments(
+          row.campaign_id,
+          revision,
+          reconstructCampaignState(this.#database, row.campaign_id, revision),
+        );
+      }
+    }
+  }
+
+  private replaceContextSearchDocuments(campaignId: string, revision: number, state: CampaignState): void {
+    this.#database.prepare(`
+      DELETE FROM context_search_fts WHERE campaign_id = ? AND campaign_revision = ?
+    `).run(campaignId, revision);
+    const insert = this.#database.prepare(`
+      INSERT INTO context_search_fts(
+        campaign_id, campaign_revision, record_id, record_kind, name, aliases, summary
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const records = [
+      ...Object.values(state.actors).map(record => ({ kind: 'actor', record })),
+      ...Object.values(state.items).map(record => ({ kind: 'item', record })),
+      ...Object.values(state.quests ?? {}).map(record => ({ kind: 'quest', record })),
+      ...Object.values(state.places ?? {}).map(record => ({ kind: 'place', record })),
+    ].sort((left, right) => left.record.name.localeCompare(right.record.name) || left.record.id.localeCompare(right.record.id));
+    for (const { kind, record } of records) {
+      if (record.archived || record.visibility === 'campaign_private') continue;
+      insert.run(
+        campaignId,
+        revision,
+        record.id,
+        kind,
+        record.name,
+        (record.aliases ?? []).join(' '),
+        record.summary,
+      );
+    }
   }
 
   private queueSnapshot(campaignId: string, revision: number): void {

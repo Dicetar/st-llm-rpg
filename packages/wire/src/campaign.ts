@@ -10,11 +10,20 @@ const Title = Type.String({ minLength: 1, maxLength: 160 });
 const Summary = Type.String({ maxLength: 4000 });
 const Timestamp = Type.String({ minLength: 1, maxLength: 64 });
 const RequestId = Type.String({ minLength: 1, maxLength: 128 });
+const Alias = Type.String({ minLength: 1, maxLength: 160 });
+const Aliases = Type.Array(Alias, { maxItems: 32, uniqueItems: true });
+const NarratorVisibility = Type.Union([
+  Type.Literal('known'),
+  Type.Literal('narrator_secret'),
+  Type.Literal('campaign_private'),
+]);
 
 export const CampaignActorSchema = Type.Object({
   id: Identifier,
   name: Title,
+  aliases: Type.Optional(Aliases),
   summary: Summary,
+  visibility: Type.Optional(NarratorVisibility),
   archived: Type.Boolean(),
 }, { additionalProperties: false });
 export type CampaignActor = Static<typeof CampaignActorSchema>;
@@ -22,7 +31,9 @@ export type CampaignActor = Static<typeof CampaignActorSchema>;
 export const CampaignItemSchema = Type.Object({
   id: Identifier,
   name: Title,
+  aliases: Type.Optional(Aliases),
   summary: Summary,
+  visibility: Type.Optional(NarratorVisibility),
   archived: Type.Boolean(),
   ownerActorId: Type.Optional(Identifier),
 }, { additionalProperties: false });
@@ -37,7 +48,9 @@ export type CampaignQuestStatus = Static<typeof CampaignQuestStatusSchema>;
 export const CampaignQuestSchema = Type.Object({
   id: Identifier,
   name: Title,
+  aliases: Type.Optional(Aliases),
   summary: Summary,
+  visibility: Type.Optional(NarratorVisibility),
   status: CampaignQuestStatusSchema,
   archived: Type.Boolean(),
 }, { additionalProperties: false });
@@ -46,7 +59,9 @@ export type CampaignQuest = Static<typeof CampaignQuestSchema>;
 export const CampaignPlaceSchema = Type.Object({
   id: Identifier,
   name: Title,
+  aliases: Type.Optional(Aliases),
   summary: Summary,
+  visibility: Type.Optional(NarratorVisibility),
   archived: Type.Boolean(),
 }, { additionalProperties: false });
 export type CampaignPlace = Static<typeof CampaignPlaceSchema>;
@@ -55,6 +70,9 @@ export const CampaignSceneSchema = Type.Object({
   id: Identifier,
   name: Title,
   summary: Summary,
+  placeId: Type.Optional(Identifier),
+  actorIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
+  itemIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
 }, { additionalProperties: false });
 export type CampaignScene = Static<typeof CampaignSceneSchema>;
 
@@ -87,27 +105,35 @@ export type CreateCampaignRequest = Static<typeof CreateCampaignRequestSchema>;
 const NewActorSchema = Type.Object({
   id: Type.Optional(Identifier),
   name: Title,
+  aliases: Type.Optional(Aliases),
   summary: Type.Optional(Summary),
+  visibility: Type.Optional(NarratorVisibility),
 }, { additionalProperties: false });
 
 const NewItemSchema = Type.Object({
   id: Type.Optional(Identifier),
   name: Title,
+  aliases: Type.Optional(Aliases),
   summary: Type.Optional(Summary),
+  visibility: Type.Optional(NarratorVisibility),
   ownerActorId: Type.Optional(Identifier),
 }, { additionalProperties: false });
 
 const NewQuestSchema = Type.Object({
   id: Type.Optional(Identifier),
   name: Title,
+  aliases: Type.Optional(Aliases),
   summary: Type.Optional(Summary),
+  visibility: Type.Optional(NarratorVisibility),
   status: Type.Optional(CampaignQuestStatusSchema),
 }, { additionalProperties: false });
 
 const NewPlaceSchema = Type.Object({
   id: Type.Optional(Identifier),
   name: Title,
+  aliases: Type.Optional(Aliases),
   summary: Type.Optional(Summary),
+  visibility: Type.Optional(NarratorVisibility),
 }, { additionalProperties: false });
 
 export const CampaignOperationSchema = Type.Union([
@@ -121,7 +147,9 @@ export const CampaignOperationSchema = Type.Union([
     item: Type.Object({
       id: Type.Optional(Identifier),
       name: Title,
+      aliases: Type.Optional(Aliases),
       summary: Type.Optional(Summary),
+      visibility: Type.Optional(NarratorVisibility),
     }, { additionalProperties: false }),
   }, { additionalProperties: false }),
   Type.Object({
@@ -134,6 +162,8 @@ export const CampaignOperationSchema = Type.Union([
     actorId: Identifier,
     name: Title,
     summary: Summary,
+    aliases: Type.Optional(Aliases),
+    visibility: Type.Optional(NarratorVisibility),
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('set_actor_archived'),
@@ -149,6 +179,8 @@ export const CampaignOperationSchema = Type.Union([
     itemId: Identifier,
     name: Title,
     summary: Summary,
+    aliases: Type.Optional(Aliases),
+    visibility: Type.Optional(NarratorVisibility),
     ownerActorId: Type.Optional(Type.Union([Identifier, Type.Null()])),
   }, { additionalProperties: false }),
   Type.Object({
@@ -166,6 +198,8 @@ export const CampaignOperationSchema = Type.Union([
     name: Title,
     summary: Summary,
     status: CampaignQuestStatusSchema,
+    aliases: Type.Optional(Aliases),
+    visibility: Type.Optional(NarratorVisibility),
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('set_quest_archived'),
@@ -181,6 +215,8 @@ export const CampaignOperationSchema = Type.Union([
     placeId: Identifier,
     name: Title,
     summary: Summary,
+    aliases: Type.Optional(Aliases),
+    visibility: Type.Optional(NarratorVisibility),
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('set_place_archived'),
@@ -193,6 +229,9 @@ export const CampaignOperationSchema = Type.Union([
       id: Type.Optional(Identifier),
       name: Title,
       summary: Type.Optional(Summary),
+      placeId: Type.Optional(Identifier),
+      actorIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
+      itemIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
     }, { additionalProperties: false }),
   }, { additionalProperties: false }),
 ]);
