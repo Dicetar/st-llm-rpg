@@ -89,6 +89,18 @@ async function main() {
     return 'Campaign Book production assets are served by the companion.';
   });
 
+  await check('narration-status', async () => {
+    const status = await readResponse(`${companionBase}/api/narration/status`);
+    if (status.schema !== 'st-rpg.narration-status' || !Array.isArray(status.active) || !('latest' in status)) {
+      throw new Error('Narration status diagnostics do not match the playable contract.');
+    }
+    const serialized = JSON.stringify(status);
+    for (const forbidden of ['"messages"', '"prompt"', '"completion"', '"content"']) {
+      if (serialized.includes(forbidden)) throw new Error(`Narration status leaked forbidden field ${forbidden}.`);
+    }
+    return `Content-free operational narration status is available (${status.active.length} active; latest ${status.latest?.state ?? 'none'}).`;
+  });
+
   await check('campaign-authority', async () => {
     const campaigns = await readResponse(`${companionBase}/api/campaigns`);
     const values = collectionValues(campaigns, 'campaigns');

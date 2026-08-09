@@ -2,12 +2,14 @@ import { Readable } from 'node:stream';
 import { finished } from 'node:stream/promises';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
+  NarrationStatusDocumentSchema,
   NarrationExchangeError,
   decodeNarrationExchange,
   readNarrationExchangeHeader,
   type NarrationExchange,
 } from '@st-llm-rpg/wire';
 import { makeProblem, ProblemError } from '../../problem.js';
+import { NarrationStatus } from './narration-status.js';
 import type { NarrationDelivery, UnlinkedResponseConsumer } from './narration-service.js';
 
 const MAX_CHAT_BODY_BYTES = 4 * 1024 * 1024;
@@ -111,7 +113,15 @@ function cancellation(request: { raw: NodeJS.EventEmitter }, reply: FastifyReply
   };
 }
 
-export function registerNarrationRoutes(app: FastifyInstance, service: NarrationHttpService): void {
+export function registerNarrationRoutes(
+  app: FastifyInstance,
+  service: NarrationHttpService,
+  status = new NarrationStatus(),
+): void {
+  app.get('/api/narration/status', {
+    schema: { response: { 200: NarrationStatusDocumentSchema } },
+  }, async () => status.document());
+
   app.get('/v1/models', async (request, reply) => {
     const cancel = cancellation(request, reply);
     try {
@@ -130,15 +140,24 @@ export function registerNarrationRoutes(app: FastifyInstance, service: Narration
     bodyLimit: MAX_CHAT_BODY_BYTES,
     errorHandler(error, request, reply) {
       const candidate = error as Error & { statusCode?: number };
-      const status = Number.isInteger(candidate.statusCode) && Number(candidate.statusCode) >= 400 && Number(candidate.statusCode) < 500
+      const statusCode = Number.isInteger(candidate.statusCode) && Number(candidate.statusCode) >= 400 && Number(candidate.statusCode) < 500
         ? Number(candidate.statusCode)
         : 502;
       const problem = makeProblem({
-        code: status < 500 ? 'NARRATION_EXCHANGE_INVALID' : 'NARRATION_UPSTREAM_FAILED',
+        code: statusCode < 500 ? 'NARRATION_EXCHANGE_INVALID' : 'NARRATION_UPSTREAM_FAILED',
         message: candidate.message || 'Narration request failed.',
         requestId: String(request.id),
+        retryable: statusCode >= 500,
+        actions: [{
+          id: statusCode === 413 ? 'reduce-context' : 'inspect-bridge',
+          label: statusCode === 413
+            ? 'Reduce the SillyTavern prompt or context size, then retry.'
+            : 'Reload SillyTavern and inspect the RPG Companion bridge before retrying.',
+          kind: 'inspect',
+        }],
       });
-      void reply.code(status).send(openAiError(problem));
+      status.rejectInvalid(String(request.id), problem, statusCode);
+      void reply.code(statusCode).send(openAiError(problem));
     },
   }, async (request, reply) => {
     const cancel = cancellation(request, reply);
@@ -148,12 +167,16 @@ export function registerNarrationRoutes(app: FastifyInstance, service: Narration
     } catch (error) {
       cancel.dispose();
       const result = problemFor(error, String(request.id));
+      status.rejectInvalid(String(request.id), result.problem, result.status);
       return reply.code(result.status).send(openAiError(result.problem));
     }
+    const trace = status.begin(exchange);
 
     try {
       if (exchange.route.kind === 'unlinked') {
+        let upstreamStatus = 200;
         await service.forwardUnlinked(exchange, request.body, cancel.signal, async response => {
+          upstreamStatus = response.status;
           copyResponseMetadata(response, reply);
           if (!response.body) {
             reply.send();
@@ -163,18 +186,44 @@ export function registerNarrationRoutes(app: FastifyInstance, service: Narration
           reply.send(stream);
           await finished(stream);
         });
+        if (upstreamStatus >= 400) {
+          trace.finish({
+            state: 'failed',
+            httpStatus: upstreamStatus,
+            problem: makeProblem({
+              code: 'NARRATION_UPSTREAM_FAILED',
+              message: `LM Studio returned HTTP ${upstreamStatus} for unlinked narration.`,
+              requestId: exchange.requestId,
+              retryable: true,
+              actions: [{
+                id: 'inspect-lm-studio',
+                label: 'Check that LM Studio is running on port 1234, then retry in SillyTavern.',
+                kind: 'inspect',
+              }],
+            }),
+          });
+        } else {
+          trace.finish({ state: 'completed', httpStatus: upstreamStatus });
+        }
         return reply;
       }
 
       const delivery = await service.respond(exchange, request.body, cancel.signal);
       if (delivery.kind !== 'linked') throw new Error('Linked narration returned an unlinked delivery.');
+      trace.finish({ state: 'completed', httpStatus: 200 });
       if (delivery.stream) {
         return reply.type('text/event-stream; charset=utf-8').send(linkedSse(delivery, exchange.requestId));
       }
       return reply.type('application/json; charset=utf-8').send(delivery.completion);
     } catch (error) {
-      if (reply.sent) return reply;
       const result = problemFor(error, exchange.requestId);
+      if (cancel.signal.aborted) trace.finish({ state: 'cancelled', httpStatus: 499 });
+      else trace.finish({
+        state: result.status < 500 ? 'rejected' : 'failed',
+        httpStatus: result.status,
+        problem: result.problem,
+      });
+      if (reply.sent) return reply;
       return reply.code(result.status).send(openAiError(result.problem));
     } finally {
       cancel.dispose();

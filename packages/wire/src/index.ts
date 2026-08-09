@@ -1,5 +1,6 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+import { NarrationGenerationSchema } from './narration.js';
 
 export * from './campaign.js';
 export * from './context.js';
@@ -77,6 +78,45 @@ export const ProblemSchema = Type.Object({
   details: Type.Optional(Type.Unknown()),
 }, { $id: 'Problem', additionalProperties: false });
 export type Problem = Static<typeof ProblemSchema>;
+
+const NarrationStatusBase = {
+  requestId: RequestId,
+  route: Type.Union([Type.Literal('linked'), Type.Literal('unlinked'), Type.Literal('invalid')]),
+  generation: Type.Union([NarrationGenerationSchema, Type.Null()]),
+  bindingId: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+  startedAt: Timestamp,
+};
+const NarrationStatusFinished = {
+  ...NarrationStatusBase,
+  completedAt: Timestamp,
+  elapsedMs: Type.Integer({ minimum: 0 }),
+  httpStatus: Type.Integer({ minimum: 100, maximum: 599 }),
+};
+const { details: _narrationStatusDetails, ...NarrationStatusProblemProperties } = ProblemSchema.properties;
+const NarrationStatusProblemSchema = Type.Object(NarrationStatusProblemProperties, { additionalProperties: false });
+
+export const NarrationStatusRunningSchema = Type.Object({
+  ...NarrationStatusBase,
+  state: Type.Literal('running'),
+}, { additionalProperties: false });
+export type NarrationStatusRunning = Static<typeof NarrationStatusRunningSchema>;
+
+export const NarrationStatusFinishedSchema = Type.Union([
+  Type.Object({ ...NarrationStatusFinished, state: Type.Literal('completed') }, { additionalProperties: false }),
+  Type.Object({ ...NarrationStatusFinished, state: Type.Literal('cancelled') }, { additionalProperties: false }),
+  Type.Object({ ...NarrationStatusFinished, state: Type.Literal('rejected'), problem: NarrationStatusProblemSchema }, { additionalProperties: false }),
+  Type.Object({ ...NarrationStatusFinished, state: Type.Literal('failed'), problem: NarrationStatusProblemSchema }, { additionalProperties: false }),
+]);
+export type NarrationStatusFinished = Static<typeof NarrationStatusFinishedSchema>;
+
+export const NarrationStatusDocumentSchema = Type.Object({
+  schema: Type.Literal('st-rpg.narration-status'),
+  version: Type.Literal(WIRE_VERSION),
+  observedAt: Timestamp,
+  active: Type.Array(NarrationStatusRunningSchema, { maxItems: 16 }),
+  latest: Type.Union([NarrationStatusFinishedSchema, Type.Null()]),
+}, { $id: 'NarrationStatusDocument', additionalProperties: false });
+export type NarrationStatusDocument = Static<typeof NarrationStatusDocumentSchema>;
 
 export const ComponentIdSchema = Type.Union([
   Type.Literal('workspace'),

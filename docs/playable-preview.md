@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.1` is the first daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed, and production browser/physical-phone generation gestures are still an open acceptance gate in GitHub issue #37.
+Version `0.3.0-preview.2` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed, and production browser/physical-phone generation gestures are still an open acceptance gate in GitHub issue #37.
 
 ## Start
 
@@ -21,6 +21,7 @@ The currently imported and linked Campaign is ready for use:
 2. Edit Actors, Items, Quests, Places, and the Current Scene. Each accepted edit advances immutable Campaign history; stale tabs cannot overwrite a newer revision.
 3. Open Context Tray. Confirm the linked chat, exact narrator model profile, automatic budget, and any manual pins. Use **Build Context Plan** for an inspectable dry run with no model call.
 4. In SillyTavern, select the same exact model ID as the saved narrator profile and chat normally. The bridge routes linked generations through one deterministic Context Plan and one LM Studio call. The complete answer is withheld until accepted, so Stop cannot leave partial companion text.
+5. Open **Narration status** in Campaign Book when a reply fails. It shows active requests and only the latest outcome, elapsed time, a safe error message, and concrete recovery guidance. It never stores prompts, generated prose, or request history and resets when the Companion restarts.
 
 An existing fallback chat can be imported through **Import a fallback chat**. Import is previewed, backed up, and explicit; legacy metadata stays intact. Creating a brand-new Campaign works, but creating a brand-new chat binding without legacy import is not yet part of this preview.
 
@@ -33,6 +34,7 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - deterministic exact, Scene, FTS, and relation Context planning with ordered manual pins;
 - exact narrator model profiles and token budgets;
 - linked normal, regenerate, continue, swipe, and Stop proxy behavior at the server seam;
+- content-free Narration status for the current request and latest outcome, with concrete recovery guidance;
 - explicit-unlinked pass-through, including when Campaign SQLite is unavailable;
 - separate desktop/mobile Campaign Book page;
 - working SillyTavern fallback kept alongside the production bridge.

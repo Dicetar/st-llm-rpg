@@ -11,10 +11,58 @@ import {
   WorkspaceRouteState,
   LegacyImportPreviewCard,
   ContextTray,
+  NarrationStatusPanel,
   RecordEditor,
   SceneEditor,
   parseWorkspacePath,
 } from '../src/App.js';
+
+test('Narration status shows one operational failure with recovery and no recorder workflow', () => {
+  const html = renderToStaticMarkup(<NarrationStatusPanel
+    document={{
+      schema: 'st-rpg.narration-status', version: '1.0', observedAt: '2026-08-09T12:00:10.000Z', active: [],
+      latest: {
+        requestId: 'request-failed', route: 'linked', generation: 'continue', state: 'failed', bindingId: 'binding-1',
+        startedAt: '2026-08-09T12:00:03.000Z', completedAt: '2026-08-09T12:00:04.000Z', elapsedMs: 1000, httpStatus: 502,
+        problem: {
+          schema: 'st-rpg.problem', version: '1.0', code: 'NARRATION_UPSTREAM_FAILED',
+          message: 'LM Studio did not answer.', requestId: 'request-failed', retryable: true,
+          actions: [{ id: 'inspect-lm-studio', label: 'Check LM Studio, then retry in SillyTavern.', kind: 'inspect' }],
+        },
+      },
+    }}
+    loading={false}
+    error=""
+    onRefresh={() => undefined}
+  />);
+
+  assert.match(html, /Narration status/);
+  assert.match(html, /Latest outcome/);
+  assert.match(html, /NARRATION_UPSTREAM_FAILED/);
+  assert.match(html, /LM Studio did not answer/);
+  assert.match(html, /Check LM Studio, then retry in SillyTavern/);
+  assert.match(html, /does not record request history/);
+  assert.match(html, /No prompts or generated prose are retained/);
+  assert.doesNotMatch(html, /observed|Clear finished/);
+});
+
+test('Narration status does not promise atomic delivery for cancelled unlinked streaming', () => {
+  const html = renderToStaticMarkup(<NarrationStatusPanel
+    document={{
+      schema: 'st-rpg.narration-status', version: '1.0', observedAt: '2026-08-09T12:00:10.000Z', active: [],
+      latest: {
+        requestId: 'request-cancelled', route: 'unlinked', generation: 'normal', state: 'cancelled',
+        startedAt: '2026-08-09T12:00:03.000Z', completedAt: '2026-08-09T12:00:04.000Z', elapsedMs: 1000, httpStatus: 499,
+      },
+    }}
+    loading={false}
+    error=""
+    onRefresh={() => undefined}
+  />);
+
+  assert.match(html, /Transparent unlinked streaming may already have delivered partial output/);
+  assert.doesNotMatch(html, /before a companion reply was delivered/);
+});
 
 test('Campaign Book renders the routed Campaign workspace honestly', () => {
   const html = renderToStaticMarkup(<CampaignBookView

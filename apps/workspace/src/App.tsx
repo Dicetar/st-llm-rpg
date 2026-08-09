@@ -1,9 +1,11 @@
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import type {
   HealthDocument,
+  NarrationStatusDocument,
   ReadinessDocument,
 } from '@st-llm-rpg/wire';
 import CampaignWorkspace from './CampaignWorkspace.js';
+import { NarrationStatusPanel } from './NarrationStatusPanel.js';
 import { buildStatusCards } from './status-model.js';
 
 export {
@@ -17,10 +19,17 @@ export {
 } from './CampaignWorkspace.js';
 export { ChatBindingsPanel, LegacyImportPreviewCard } from './LegacyImportPanel.js';
 export { ContextTray } from './ContextTray.js';
+export { NarrationStatusPanel } from './NarrationStatusPanel.js';
 
 type Snapshot = Readonly<{
   health: HealthDocument | null;
   readiness: ReadinessDocument | null;
+  loading: boolean;
+  error: string;
+}>;
+
+type NarrationSnapshot = Readonly<{
+  document: NarrationStatusDocument | null;
   loading: boolean;
   error: string;
 }>;
@@ -37,6 +46,8 @@ async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
 export function CampaignBookView(props: {
   snapshot: Snapshot;
   onRefresh: () => void;
+  narration?: NarrationSnapshot;
+  onRefreshNarration?: () => void;
   children?: ReactNode;
 }) {
   const cards = buildStatusCards(props.snapshot.readiness);
@@ -79,6 +90,15 @@ export function CampaignBookView(props: {
         </div>
       </details>
 
+      {props.narration ? (
+        <NarrationStatusPanel
+          document={props.narration.document}
+          loading={props.narration.loading}
+          error={props.narration.error}
+          onRefresh={props.onRefreshNarration ?? (() => undefined)}
+        />
+      ) : null}
+
       {props.children}
     </main>
   );
@@ -86,6 +106,8 @@ export function CampaignBookView(props: {
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>({ health: null, readiness: null, loading: true, error: '' });
+  const [narration, setNarration] = useState<NarrationSnapshot>({ document: null, loading: true, error: '' });
+  const narrationRequest = useRef(0);
 
   const refresh = useCallback(() => {
     const controller = new AbortController();
@@ -105,9 +127,44 @@ export default function App() {
     return () => controller.abort();
   }, []);
 
+  const refreshNarration = useCallback((signal?: AbortSignal, foreground = false) => {
+    const request = ++narrationRequest.current;
+    if (foreground) setNarration(previous => ({ ...previous, loading: true, error: '' }));
+    fetchJson<NarrationStatusDocument>('/api/narration/status', signal).then(document => {
+      if (request !== narrationRequest.current) return;
+      setNarration({ document, loading: false, error: '' });
+    }).catch(value => {
+      if (signal?.aborted || request !== narrationRequest.current) return;
+      setNarration(previous => ({
+        ...previous,
+        loading: false,
+        error: value instanceof Error ? value.message : String(value),
+      }));
+    });
+  }, []);
+
   useEffect(() => refresh(), [refresh]);
+  useEffect(() => {
+    let controller = new AbortController();
+    const poll = () => {
+      controller.abort();
+      controller = new AbortController();
+      refreshNarration(controller.signal);
+    };
+    poll();
+    const interval = window.setInterval(poll, 4_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [refreshNarration]);
   return (
-    <CampaignBookView snapshot={snapshot} onRefresh={() => { refresh(); }}>
+    <CampaignBookView
+      snapshot={snapshot}
+      onRefresh={() => { refresh(); }}
+      narration={narration}
+      onRefreshNarration={() => { refreshNarration(undefined, true); }}
+    >
       <CampaignWorkspace />
     </CampaignBookView>
   );

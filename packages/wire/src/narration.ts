@@ -17,6 +17,16 @@ const UuidV4 = Type.String({
 const Revision = Type.String({ minLength: 40, maxLength: 40, pattern: '^[0-9a-f]{40}$' });
 const LocatorText = Type.String({ minLength: 1, maxLength: 512 });
 
+export const NarrationGenerationSchema = Type.Union([
+  Type.Literal('normal'),
+  Type.Literal('regenerate'),
+  Type.Literal('continue'),
+  Type.Literal('swipe'),
+  Type.Literal('quiet'),
+  Type.Literal('impersonate'),
+]);
+export type NarrationGeneration = Static<typeof NarrationGenerationSchema>;
+
 export const NarrationChatLocatorSchema = Type.Union([
   Type.Object({
     kind: Type.Literal('character'),
@@ -65,14 +75,7 @@ const UnlinkedNarrationExchangeSchema = Type.Object({
   version: Type.Literal(1),
   requestId: UuidV4,
   route: Type.Object({ kind: Type.Literal('unlinked') }, { additionalProperties: false }),
-  generation: Type.Union([
-    Type.Literal('normal'),
-    Type.Literal('regenerate'),
-    Type.Literal('continue'),
-    Type.Literal('swipe'),
-    Type.Literal('quiet'),
-    Type.Literal('impersonate'),
-  ]),
+  generation: NarrationGenerationSchema,
   locator: LocatorSchema,
   bridge: BridgeSchema,
 }, { additionalProperties: false });
