@@ -37,6 +37,10 @@ type RevisionConflict = Readonly<{
 }>;
 
 type SyncState = 'idle' | 'live' | 'reconnecting' | 'update-ready';
+type RouteLoadState =
+  | Readonly<{ phase: 'idle' }>
+  | Readonly<{ phase: 'loading'; title: string }>
+  | Readonly<{ phase: 'error'; title: string; message: string }>;
 type CanonicalUpdate = Readonly<{
   document: CampaignDocument;
   history: CampaignHistoryEntry[];
@@ -242,6 +246,94 @@ export function CampaignHistoryView(props: {
         ))}
       </ol>
     </details>
+  );
+}
+
+export function CampaignCommandDeck(props: {
+  campaignId: string;
+  revision: number;
+  hasCurrentScene: boolean;
+  busy: boolean;
+  readOnly: boolean;
+  onNavigate: (collection: CollectionKey) => void;
+}) {
+  const actions: ReadonlyArray<Readonly<{
+    collection: CollectionKey;
+    label: string;
+    description: string;
+    mutationEntry: boolean;
+  }>> = [
+    { collection: 'actors', label: 'Add Actor', description: 'Create a persistent character.', mutationEntry: true },
+    { collection: 'items', label: 'Add Item', description: 'Create or attach an object.', mutationEntry: true },
+    {
+      collection: 'scene',
+      label: props.hasCurrentScene ? 'Open Scene' : 'Start Scene',
+      description: props.hasCurrentScene ? 'Edit the present moment.' : 'Establish the present moment.',
+      mutationEntry: false,
+    },
+    { collection: 'history', label: 'Inspect History', description: 'Open immutable revisions.', mutationEntry: false },
+  ];
+
+  return (
+    <section className="command-deck" aria-labelledby="command-deck-heading">
+      <div className="command-deck__heading">
+        <div>
+          <p className="eyebrow">Next move</p>
+          <h4 id="command-deck-heading">Command Deck</h4>
+        </div>
+        <span>Revision {props.revision}</span>
+      </div>
+      <div className="command-deck__actions">
+        {actions.map(action => {
+          const disabled = props.busy || (props.readOnly && action.mutationEntry);
+          const route: WorkspaceRoute = {
+            campaignId: props.campaignId,
+            collection: action.collection,
+            recordId: null,
+            revision: props.readOnly ? props.revision : null,
+          };
+          return (
+            <a
+              key={action.collection}
+              href={workspaceHref(route)}
+              className={disabled ? 'command-card command-card--disabled' : 'command-card'}
+              aria-disabled={disabled || undefined}
+              onClick={event => {
+                event.preventDefault();
+                if (!disabled) props.onNavigate(action.collection);
+              }}
+            >
+              <strong>{action.label}</strong>
+              <span>{action.description}</span>
+            </a>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+export function WorkspaceRouteState(props: {
+  phase: 'loading' | 'error';
+  title: string;
+  message?: string;
+  onRetry?: () => void;
+}) {
+  const loading = props.phase === 'loading';
+  return (
+    <section
+      className={`route-state route-state--${props.phase}`}
+      aria-busy={loading}
+      aria-live="polite"
+      role={loading ? 'status' : 'alert'}
+    >
+      <p className="eyebrow">{loading ? 'Opening route' : 'Route unavailable'}</p>
+      <h3>{props.title}</h3>
+      <p>{props.message ?? 'Reading canonical Campaign truth from the companion.'}</p>
+      {!loading && props.onRetry ? (
+        <button type="button" onClick={props.onRetry}>Retry route</button>
+      ) : null}
+    </section>
   );
 }
 
@@ -587,6 +679,10 @@ export default function CampaignWorkspace() {
   const [pendingCanonical, setPendingCanonical] = useState<CanonicalUpdate | null>(null);
   const [syncState, setSyncState] = useState<SyncState>('idle');
   const [busy, setBusy] = useState(false);
+  const [routeLoad, setRouteLoad] = useState<RouteLoadState>(() => route.campaignId
+    ? { phase: 'loading', title: 'Loading Campaign' }
+    : { phase: 'idle' });
+  const [routeRetry, setRouteRetry] = useState(0);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState<RevisionConflict | null>(null);
@@ -608,8 +704,13 @@ export default function CampaignWorkspace() {
   const [joinedItemSummary, setJoinedItemSummary] = useState('');
 
   const selectedRevisionRef = useRef(0);
-  const displayed = historical ?? selected;
   const readOnly = route.revision !== null;
+  const routeCampaign = selected?.campaign.id === route.campaignId ? selected : null;
+  const displayed = readOnly
+    ? historical?.campaign.id === route.campaignId && historical.campaign.revision === route.revision
+      ? historical
+      : null
+    : routeCampaign;
 
   useEffect(() => {
     selectedRevisionRef.current = selected?.campaign.revision ?? 0;
@@ -651,12 +752,12 @@ export default function CampaignWorkspace() {
       setPendingCanonical(null);
       setConflict(null);
       setSyncState('idle');
+      setRouteLoad({ phase: 'idle' });
       return undefined;
     }
     if (selected?.campaign.id === route.campaignId) return undefined;
     let cancelled = false;
-    setBusy(true);
-    setError('');
+    setRouteLoad({ phase: 'loading', title: 'Loading Campaign' });
     void fetchCampaignSnapshot(route.campaignId).then(canonical => {
       if (cancelled) return;
       selectedRevisionRef.current = canonical.document.campaign.revision;
@@ -664,33 +765,43 @@ export default function CampaignWorkspace() {
       setHistory(canonical.history);
       setPendingCanonical(null);
       setConflict(null);
+      if (route.revision === null) setRouteLoad({ phase: 'idle' });
     }).catch(value => {
-      if (!cancelled) setError(value instanceof Error ? value.message : String(value));
-    }).finally(() => {
-      if (!cancelled) setBusy(false);
+      if (!cancelled) setRouteLoad({
+        phase: 'error',
+        title: 'Campaign route unavailable',
+        message: value instanceof Error ? value.message : String(value),
+      });
     });
     return () => { cancelled = true; };
-  }, [fetchCampaignSnapshot, route.campaignId, selected?.campaign.id]);
+  }, [fetchCampaignSnapshot, route.campaignId, route.revision, routeRetry, selected?.campaign.id]);
 
   useEffect(() => {
     if (!selected || route.revision === null) {
       setHistorical(null);
+      if (selected?.campaign.id === route.campaignId) setRouteLoad({ phase: 'idle' });
       return undefined;
     }
+    if (selected.campaign.id !== route.campaignId) return undefined;
     let cancelled = false;
-    setBusy(true);
-    setError('');
+    setHistorical(null);
+    setRouteLoad({ phase: 'loading', title: `Loading historical revision ${route.revision}` });
     void fetchJson<CampaignDocument>(
       `/api/campaigns/${encodeURIComponent(selected.campaign.id)}?revision=${route.revision}`,
     ).then(document => {
-      if (!cancelled) setHistorical(document);
+      if (!cancelled) {
+        setHistorical(document);
+        setRouteLoad({ phase: 'idle' });
+      }
     }).catch(value => {
-      if (!cancelled) setError(value instanceof Error ? value.message : String(value));
-    }).finally(() => {
-      if (!cancelled) setBusy(false);
+      if (!cancelled) setRouteLoad({
+        phase: 'error',
+        title: 'Historical revision unavailable',
+        message: value instanceof Error ? value.message : String(value),
+      });
     });
     return () => { cancelled = true; };
-  }, [route.revision, selected?.campaign.id]);
+  }, [route.campaignId, route.revision, routeRetry, selected?.campaign.id]);
 
   useEffect(() => {
     if (!selected) {
@@ -923,6 +1034,18 @@ export default function CampaignWorkspace() {
     ? displayed?.places.find(record => record.id === recordId) ?? null
     : null;
   const activeActors = displayed?.actors.filter(record => !record.archived) ?? [];
+  const retryRoute = () => {
+    setError('');
+    setRouteRetry(value => value + 1);
+  };
+  const waitingForDisplayedRoute = Boolean(
+    route.campaignId && !displayed && routeLoad.phase === 'idle',
+  );
+  const routeLoadingTitle = routeLoad.phase === 'loading'
+    ? routeLoad.title
+    : route.revision === null
+      ? 'Loading Campaign'
+      : `Loading historical revision ${route.revision}`;
 
   return (
     <section className="authority-panel" aria-labelledby="campaign-authority">
@@ -937,7 +1060,7 @@ export default function CampaignWorkspace() {
               {readOnly ? 'Historical' : 'Current'} revision {displayed.campaign.revision}
             </span>
             <span className={`sync-state sync-state--${syncState}`} role="status">{syncLabel(syncState)}</span>
-            <span className="pending-state" role="status">{busy ? 'Working…' : readOnly ? 'Read-only' : 'Ready'}</span>
+            <span className="pending-state" role="status">{routeLoad.phase === 'loading' ? 'Opening…' : busy ? 'Working…' : readOnly ? 'Read-only' : 'Ready'}</span>
           </div>
         ) : null}
       </div>
@@ -1005,7 +1128,16 @@ export default function CampaignWorkspace() {
         </aside>
 
         <div className="campaign-detail">
-          {displayed && selected ? (
+          {route.campaignId && (routeLoad.phase === 'loading' || waitingForDisplayedRoute) ? (
+            <WorkspaceRouteState phase="loading" title={routeLoadingTitle} />
+          ) : route.campaignId && routeLoad.phase === 'error' ? (
+            <WorkspaceRouteState
+              phase="error"
+              title={routeLoad.title}
+              message={routeLoad.message}
+              onRetry={retryRoute}
+            />
+          ) : displayed && selected ? (
             <>
               <div className="campaign-title-row">
                 <div>
@@ -1016,6 +1148,15 @@ export default function CampaignWorkspace() {
                   Reload current
                 </button>
               </div>
+
+              <CampaignCommandDeck
+                campaignId={displayed.campaign.id}
+                revision={displayed.campaign.revision}
+                hasCurrentScene={displayed.currentScene !== null}
+                busy={busy}
+                readOnly={readOnly}
+                onNavigate={navigateCollection}
+              />
 
               <CollectionNavigation route={route} document={displayed} onNavigate={navigate} />
 

@@ -7,8 +7,10 @@ import CampaignWorkspace from './CampaignWorkspace.js';
 import { buildStatusCards } from './status-model.js';
 
 export {
+  CampaignCommandDeck,
   CampaignHistoryView,
   RevisionConflictBanner,
+  WorkspaceRouteState,
   parseWorkspacePath,
 } from './CampaignWorkspace.js';
 
@@ -34,6 +36,9 @@ export function CampaignBookView(props: {
   children?: ReactNode;
 }) {
   const cards = buildStatusCards(props.snapshot.readiness);
+  const statusExpanded = props.snapshot.loading
+    || Boolean(props.snapshot.error)
+    || props.snapshot.readiness?.status !== 'ready';
   return (
     <main className="book-shell">
       <header className="book-header">
@@ -49,11 +54,14 @@ export function CampaignBookView(props: {
 
       {props.snapshot.error ? <p className="error-banner" role="alert">{props.snapshot.error}</p> : null}
 
-      <section aria-labelledby="system-status">
-        <div className="section-heading">
-          <h2 id="system-status">System status</h2>
-          <p>{props.snapshot.health ? `Companion alive · ${Math.round(props.snapshot.health.uptimeMs / 1000)}s uptime` : 'Waiting for companion health…'}</p>
-        </div>
+      <details className="system-status" open={statusExpanded}>
+        <summary>
+          <div className="section-heading">
+            <h2 id="system-status">System status</h2>
+            <p>{props.snapshot.health ? `Companion alive · ${Math.round(props.snapshot.health.uptimeMs / 1000)}s uptime` : 'Waiting for companion health…'}</p>
+          </div>
+          <span>{props.snapshot.readiness?.status ?? 'checking'}</span>
+        </summary>
         <div className="status-grid">
           {cards.map(card => (
             <article className={`status-card status-card--${card.tone}`} key={card.id}>
@@ -65,7 +73,7 @@ export function CampaignBookView(props: {
             </article>
           ))}
         </div>
-      </section>
+      </details>
 
       {props.children}
     </main>
