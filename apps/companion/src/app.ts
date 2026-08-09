@@ -31,6 +31,7 @@ import {
 } from './modules/narration/narration-service.js';
 import { registerNarrationRoutes, type NarrationHttpService } from './modules/narration/narration-routes.js';
 import { FetchLmStudioGateway } from './adapters/lm-studio/fetch-lm-studio-gateway.js';
+import { CampaignExpectedError } from './modules/campaign/campaign-error.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -48,6 +49,7 @@ export type BuildCompanionOptions = Readonly<{
   config: CompanionConfig;
   probeDependencies?: DependencyProbe;
   campaignEngine?: CampaignEngine;
+  campaignJournal?: SqliteCampaignJournal | null;
   legacyChatSource?: LegacyChatSource;
   narrationService?: NarrationHttpService;
   lmStudioGateway?: LmStudioGateway;
@@ -109,11 +111,23 @@ function httpStatus(error: unknown): number | undefined {
 export async function buildCompanion(options: BuildCompanionOptions): Promise<FastifyInstance> {
   await assertWorkspaceBuild(options.config);
   const startedAt = options.startedAt ?? new Date();
-  const ownsCampaignEngine = options.campaignEngine === undefined;
-  const campaignJournal = ownsCampaignEngine
-    ? await SqliteCampaignJournal.open(options.config.databasePath, options.config.snapshotInterval)
-    : null;
-  const campaignEngine = options.campaignEngine ?? new CampaignEngine(campaignJournal!);
+  let campaignStartupError: unknown;
+  let campaignJournal: SqliteCampaignJournal | null;
+  if (options.campaignJournal !== undefined) {
+    campaignJournal = options.campaignJournal;
+    if (campaignJournal === null) campaignStartupError = new Error('Campaign authority was deliberately unavailable.');
+  } else if (options.campaignEngine !== undefined) {
+    campaignJournal = null;
+  } else {
+    try {
+      campaignJournal = await SqliteCampaignJournal.open(options.config.databasePath, options.config.snapshotInterval);
+    } catch (error) {
+      campaignJournal = null;
+      campaignStartupError = error;
+    }
+  }
+  const ownsCampaignEngine = options.campaignEngine === undefined && campaignJournal !== null;
+  const campaignEngine = options.campaignEngine ?? (campaignJournal ? new CampaignEngine(campaignJournal) : null);
   const legacyImportService = campaignJournal
     ? new LegacyImportService(
         campaignJournal,
@@ -122,19 +136,43 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
       )
     : null;
   const contextService = campaignJournal ? new ContextService(campaignJournal) : null;
-  const narrationService = options.narrationService ?? (campaignJournal && contextService
-    ? new NarrationService({
-        authority: {
-          readBinding: bindingId => campaignJournal.readBinding(bindingId),
-          listNarratorModelProfiles: () => campaignJournal.listNarratorModelProfiles(),
-          plan: (request, signal) => contextService.plan(request, signal),
+  const unavailableMessage = `Campaign authority is unavailable: ${campaignStartupError instanceof Error ? campaignStartupError.message : 'SQLite did not open.'}`;
+  const narrationAuthority = campaignJournal && contextService
+    ? {
+        readBinding: (bindingId: string) => campaignJournal.readBinding(bindingId),
+        listNarratorModelProfiles: () => campaignJournal.listNarratorModelProfiles(),
+        plan: (request: Parameters<ContextService['plan']>[0], signal: AbortSignal) => contextService.plan(request, signal),
+      }
+    : {
+        async readBinding(_bindingId: string): Promise<never> {
+          throw new CampaignExpectedError('CAMPAIGN_STORE_UNAVAILABLE', unavailableMessage);
         },
-        inference: options.inferenceLane ?? new SerialInferenceLane(),
-        lmStudio: options.lmStudioGateway ?? new FetchLmStudioGateway(options.config.lmStudioBaseUrl),
-      })
-    : null);
+        async listNarratorModelProfiles(): Promise<never> {
+          throw new CampaignExpectedError('CAMPAIGN_STORE_UNAVAILABLE', unavailableMessage);
+        },
+        async plan(request: Parameters<ContextService['plan']>[0]) {
+          return {
+            ok: false as const,
+            problem: makeProblem({
+              code: 'CAMPAIGN_STORE_UNAVAILABLE', message: unavailableMessage, requestId: request.requestId,
+            }),
+          };
+        },
+      };
+  const narrationService = options.narrationService ?? new NarrationService({
+    authority: narrationAuthority,
+    inference: options.inferenceLane ?? new SerialInferenceLane(),
+    lmStudio: options.lmStudioGateway ?? new FetchLmStudioGateway(options.config.lmStudioBaseUrl),
+  });
   const probeDependencies = options.probeDependencies
-    ?? createDefaultDependencyProbe(options.config, () => campaignEngine.observation());
+    ?? createDefaultDependencyProbe(options.config, () => campaignEngine?.observation() ?? {
+      id: 'sqlite-runtime',
+      status: 'unavailable',
+      blocking: true,
+      message: unavailableMessage,
+      observedAt: new Date().toISOString(),
+      latencyMs: 0,
+    });
   const app = Fastify({
     logger: { level: options.config.logLevel },
     ajv: { customOptions: { removeAdditional: false } },
@@ -142,7 +180,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
     logController: new LogController({ disableRequestLogging: true }),
   });
 
-  if (ownsCampaignEngine) {
+  if (ownsCampaignEngine && campaignEngine) {
     app.addHook('onClose', async () => {
       await campaignEngine.close();
     });
@@ -180,10 +218,10 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
     return result;
   });
 
-  registerCampaignRoutes(app, campaignEngine);
+  if (campaignEngine) registerCampaignRoutes(app, campaignEngine);
   if (legacyImportService) registerLegacyImportRoutes(app, legacyImportService);
   if (contextService) registerContextRoutes(app, contextService);
-  if (narrationService) registerNarrationRoutes(app, narrationService);
+  registerNarrationRoutes(app, narrationService);
 
   app.get('/assets/*', async (request, reply) => {
     const relative = (request.params as { '*': string })['*'];

@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { ComponentObservation } from '@st-llm-rpg/wire';
+import {
+  PINNED_SILLYTAVERN_REVISION,
+  encodeNarrationExchange,
+  type ComponentObservation,
+} from '@st-llm-rpg/wire';
 import { buildCompanion, formatListenError } from '../src/app.js';
 import { readCompanionConfig } from '../src/config.js';
 
@@ -190,4 +194,67 @@ test('invalid configuration throws before server construction', () => {
   assert.throws(() => readCompanionConfig({ RPG_LM_STUDIO_URL: 'file:\/\/bad' }), /must use http or https/);
   assert.throws(() => readCompanionConfig({ RPG_SNAPSHOT_INTERVAL: '0' }), /must be an integer/);
   assert.throws(() => readCompanionConfig({ RPG_LOG_LEVEL: 'verbose' }), /must be one of/);
+});
+
+test('Campaign startup outage keeps explicit-unlinked narration alive and linked narration fail-closed', async t => {
+  const workspaceRoot = await workspaceFixture();
+  let upstreamCalls = 0;
+  const app = await buildCompanion({
+    config: config(workspaceRoot),
+    campaignJournal: null,
+    lmStudioGateway: {
+      models: async () => new Response('{"data":[{"id":"qwen-test"}]}'),
+      chat: async () => {
+        upstreamCalls += 1;
+        return new Response(JSON.stringify({
+          id: 'chatcmpl-outage', model: 'qwen-test',
+          choices: [{ message: { role: 'assistant', content: 'UNLINKED_OK' }, finish_reason: 'stop' }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      },
+    },
+  });
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  const ready = await app.inject({ method: 'GET', url: '/ready' });
+  assert.equal(ready.statusCode, 200);
+  assert.equal(ready.json().ready, false);
+  assert.equal(ready.json().components.find((component: { id: string }) => component.id === 'sqlite-runtime').status, 'unavailable');
+
+  const base = {
+    protocol: 'st-rpg.narration' as const, version: 1 as const,
+    locator: {
+      version: 1 as const, hostId: 'outage-host',
+      chat: { kind: 'character' as const, ownerId: 'Narrator.png', chatId: 'Outage Chat' },
+    },
+    bridge: { version: '0.2.0', sillyTavernRevision: PINNED_SILLYTAVERN_REVISION },
+  };
+  const payload = { model: 'qwen-test', stream: false, messages: [{ role: 'user', content: 'Hello' }] };
+  const linked = await app.inject({
+    method: 'POST', url: '/v1/chat/completions',
+    headers: { 'x-st-rpg-exchange': encodeNarrationExchange({
+      ...base,
+      requestId: '37e9c1c0-bbb1-4718-9049-f8182a878f86',
+      route: { kind: 'linked', bindingId: 'binding-1' }, generation: 'normal',
+    }) },
+    payload,
+  });
+  assert.equal(linked.statusCode, 503, linked.body);
+  assert.equal(linked.json().error.code, 'CAMPAIGN_STORE_UNAVAILABLE');
+  assert.equal(upstreamCalls, 0);
+
+  const unlinked = await app.inject({
+    method: 'POST', url: '/v1/chat/completions',
+    headers: { 'x-st-rpg-exchange': encodeNarrationExchange({
+      ...base,
+      requestId: '8ff16772-6f5b-49c3-8f22-b57b9040d8ee',
+      route: { kind: 'unlinked' }, generation: 'normal',
+    }) },
+    payload,
+  });
+  assert.equal(unlinked.statusCode, 200, unlinked.body);
+  assert.equal(unlinked.json().choices[0].message.content, 'UNLINKED_OK');
+  assert.equal(upstreamCalls, 1);
 });
