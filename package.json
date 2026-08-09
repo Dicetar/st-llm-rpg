@@ -16,6 +16,8 @@
     "build": "npm run build -w @st-llm-rpg/wire && npm run build -w @st-llm-rpg/workspace && npm run build -w @st-llm-rpg/companion",
     "typecheck": "npm run typecheck -w @st-llm-rpg/wire && npm run typecheck -w @st-llm-rpg/workspace && npm run typecheck -w @st-llm-rpg/companion",
     "start:companion": "npm run start -w @st-llm-rpg/companion",
+    "status:playable": "node tools/wayfinder-status.mjs",
+    "smoke:playable": "node tools/smoke-playable-release.mjs",
     "dev:companion": "npm run dev -w @st-llm-rpg/companion",
     "dev:workspace": "npm run dev -w @st-llm-rpg/workspace",
     "install:bridge": "powershell -NoProfile -ExecutionPolicy Bypass -File extension/st-rpg-bridge/install.ps1",
@@ -35,7 +37,8 @@
     "test:cutover-prototype": "node --test prototypes/migration-cutover-spike/prototype.test.mjs",
     "test:proxy-phone-evidence": "node --test prototypes/st-narrator-proxy-spike/run-script.test.mjs prototypes/st-narrator-proxy-spike/bridge/phone-evidence.test.mjs",
     "pretest": "npm run check:runtime",
-    "test": "npm run build && node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs tests/node-version-policy.test.mjs tests/repository-authority.test.mjs tests/bridge-boundary.test.mjs tests/bridge-wire.test.mjs && npm run test -w @st-llm-rpg/wire && npm run test -w @st-llm-rpg/companion && npm run test -w @st-llm-rpg/workspace"
+    "test": "npm run build && node --test --test-isolation=none extension/st-rpg-campaign/tests/*.test.mjs tests/node-version-policy.test.mjs tests/repository-authority.test.mjs tests/bridge-boundary.test.mjs tests/bridge-wire.test.mjs tests/wayfinder-entrypoint.test.mjs tests/wayfinder-status.test.mjs tests/playable-release-smoke.test.mjs && npm run test -w @st-llm-rpg/wire && npm run test -w @st-llm-rpg/companion && npm run test -w @st-llm-rpg/workspace",
+    "release:check": "npm run typecheck && npm test && node prototypes/st-worker-routing-spike/check-native-popup-surface.mjs && npm run smoke:playable"
   },
   "devDependencies": {
     "@types/node": "24.13.3",

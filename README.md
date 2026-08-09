@@ -4,10 +4,11 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 
 ## Status
 
+- **Playable preview:** `0.3.0-preview.1` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` launcher. The imported Campaign, linked narration, Campaign Book editing, Context Tray, immutable history, and working fallback are available now.
 - **Working product:** `extension/st-rpg-campaign` is the tested SillyTavern fallback used today.
 - **Durable companion authority:** issue #33 owns Campaign truth in SQLite, with immutable history, reconstruction, stale-write protection, verified backup/restore, and restart evidence.
 - **Context planning milestone:** issue #36 adds revision-pinned Context Plans, visibility, ordered per-chat pins, exact/Scene/FTS5/relation retrieval, token budgets, and the inspectable Context Tray.
-- **Narration routing in progress:** issue #37 now has the strict production bridge envelope, fail-closed linked admission, transparent explicit-unlinked forwarding, one serial inference lane, deterministic Context assembly, and atomic buffered delivery. Direct production LM Studio traces pass; real SillyTavern desktop/phone mode traces remain before closure.
+- **Narration routing preview:** issue #37 has the strict production bridge envelope, fail-closed linked admission, transparent explicit-unlinked forwarding, one serial inference lane, deterministic Context assembly, and atomic buffered delivery. Direct production LM Studio and pinned-ST backend traces pass; browser gesture/chat-history and physical-phone production traces remain before full acceptance.
 
 The planning phase is complete. Existing files under `prototypes/` are frozen decision evidence: do not extend them or treat them as production code.
 
@@ -17,22 +18,28 @@ The companion v1 contract is defined in `docs/spec/companion-v1-specification.md
 
 Use the recommended Node version from `.node-version`. Other Node releases in the supported `>=24.15.0 <25` range are accepted with a warning.
 
+Install dependencies once with `npm ci`, then double-click `Wayfinder.cmd`.
+
+It verifies/builds production assets when necessary, refreshes the production bridge, starts or reuses the correct companion on `:8002`, waits for Campaign readiness, and starts or reuses pinned SillyTavern on `:8001`. LM Studio remains externally managed; if it is absent, Campaign editing stays available and narration status is visibly degraded.
+
+Check the running stack without starting anything:
+
 ```powershell
-npm ci
-npm run typecheck
-npm test
-npm run start:companion
+.\Wayfinder.cmd status
+npm run smoke:playable
 ```
 
 Campaign Book is available locally at `http://127.0.0.1:8002/` and from Android on the trusted LAN/VPN at `http://<PC-IP>:8002/`.
 
-Install the launcher into the project-local SillyTavern instance:
+The launcher installs the production bridge automatically. To refresh it manually:
 
 ```powershell
 npm run install:bridge
 ```
 
 Before linked narration, save exactly one Narrator Model Profile for the model ID selected in SillyTavern. Use **Campaign Book → Context → Model profile**. Unlinked chats require no Campaign or profile, but still route explicitly through the running companion.
+
+See [`docs/playable-preview.md`](docs/playable-preview.md) for the shortest play path, recovery steps, fallback boundary, and known preview limits.
 
 ## Working fallback
 
@@ -44,10 +51,10 @@ Install it with:
 powershell -ExecutionPolicy Bypass -File extension/st-rpg-campaign/install.ps1
 ```
 
-Start SillyTavern with:
+Start the complete preview stack with:
 
 ```powershell
-.\Start-Local-SillyTavern.cmd
+.\Wayfinder.cmd
 ```
 
 Refresh the browser, open a character chat, and use the gold **R** launcher.
@@ -69,4 +76,5 @@ npm run check:runtime
 npm run typecheck
 npm test
 node prototypes/st-worker-routing-spike/check-native-popup-surface.mjs
+npm run smoke:playable
 ```

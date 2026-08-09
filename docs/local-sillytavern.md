@@ -8,17 +8,11 @@ The isolated development instance lives at `.runtime/SillyTavern` and is exclude
 - Source revision: `380e31e8c58d196969b6a0da74f431ba999c7e0a`
 - Source branch at installation: `staging`
 - Local URL: `http://localhost:8001`
-- RPG extension: `RPG Campaign Workspace 0.2.0`
+- RPG extensions: working fallback plus production `RPG Companion Bridge 0.2.0`
 
-Temporary v2 labs remain installed for reference but their standalone launchers are disabled:
+All temporary RPG spike extensions are retired from the live runtime. Their source and recoverable runtime copies remain as frozen evidence, but only the fallback and production bridge are installed.
 
-- Workspace C boundary spike;
-- Campaign metadata durability spike;
-- Context Capsule model-adherence lab.
-
-The Campaign Worker routing spike is retired. Production Workspace now owns its native-popup Story Sync service directly; the prototype source remains only as architectural evidence.
-
-Start it by double-clicking `Start-Local-SillyTavern.cmd`. The server runs in one visible window titled `SillyTavern RPG - localhost 8001`; closing that window stops this instance.
+Start the complete stack by double-clicking `Wayfinder.cmd`. `Start-Local-SillyTavern.cmd` remains a compatibility alias. The launcher verifies/builds the production companion, installs the bridge, starts or reuses the companion on `:8002`, and then starts or reuses SillyTavern on `:8001`.
 
 It can also be started from an already-visible PowerShell window:
 
@@ -27,11 +21,11 @@ powershell -ExecutionPolicy Bypass -File tools/start-local-sillytavern.ps1
 ```
 
 Pass `-NoBrowser` when starting it for diagnostics without opening a browser.
-Pass `-StatusOnly` to check whether the configured SillyTavern endpoint is already running without starting it.
+Pass `-StatusOnly` to check both SillyTavern and the companion without starting them, or run `Wayfinder.cmd status`.
 
 Hidden or detached startup is deliberately refused. `-NoBrowser` only suppresses browser launch; it does not hide the server console. Silent `-StatusOnly` checks remain allowed because they never start a server.
 
-The launcher checks the configured port before invoking Node. If this project-local SillyTavern is already healthy, it reports the existing PID and exits successfully instead of starting a second instance. If another application owns the port, it reports the owner and stops before SillyTavern can update packages or compile assets.
+The launcher first verifies Node, the pinned ST checkout, production assets, and the installed bridge. It then checks both owned ports before starting either server. If a correct current-build process is already healthy, it reports and reuses it. If another application or another project instance owns either port, it reports the exact owner and stops without terminating it. Companion logs and the launcher ownership record live under `.runtime/wayfinder/`.
 
 ## Migrated from the existing installation
 

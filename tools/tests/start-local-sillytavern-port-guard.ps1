@@ -10,8 +10,8 @@ if ($exitCode -ne 0) {
     throw "Launcher did not exit cleanly for an already-running project instance.`n$output"
 }
 
-if ($output -notmatch 'already running') {
-    throw "Launcher did not explain that SillyTavern is already running.`n$output"
+if ($output -notmatch '\[ready\] SillyTavern' -or $output -notmatch '\[ready\] RPG Companion') {
+    throw "Launcher did not report both owned services as ready.`n$output"
 }
 
-Write-Host 'PASS: existing SillyTavern is detected before a second startup.'
+Write-Host 'PASS: the status-only launcher reports the existing playable stack without a second startup.'
