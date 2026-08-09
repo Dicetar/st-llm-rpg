@@ -282,6 +282,7 @@ test('malformed, empty, failed, and disconnected upstream calls never produce a 
     },
     { response: new Response('model unavailable', { status: 503 }), message: /HTTP 503/ },
     { error: new Error('socket disconnected'), message: /socket disconnected/ },
+    { error: new DOMException('request timed out', 'TimeoutError'), message: /request timed out/ },
   ];
   for (const failure of cases) {
     const current = harness();
@@ -298,4 +299,75 @@ test('malformed, empty, failed, and disconnected upstream calls never produce a 
       failure.message,
     );
   }
+});
+
+test('Campaign and budget outages make zero linked calls while explicit unlinked bypass still calls once', async () => {
+  let calls = 0;
+  const service = new NarrationService({
+    authority: {
+      readBinding: async () => { throw new Error('Campaign database offline'); },
+      listNarratorModelProfiles: async () => [profile],
+      plan: async request => ({
+        ok: false,
+        problem: {
+          schema: 'st-rpg.problem', version: '1.0', code: 'CONTEXT_PINS_OVER_BUDGET',
+          message: 'Pins exceed budget.', requestId: request.requestId, retryable: false, actions: [],
+        },
+      }),
+    },
+    inference: new SerialInferenceLane(),
+    lmStudio: {
+      chat: async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'UNLINKED' } }] }));
+      },
+    },
+  });
+  await assert.rejects(service.respond(exchange, body, new AbortController().signal), /Campaign authority is unavailable/);
+  assert.equal(calls, 0);
+
+  let bypassBody = '';
+  await service.forwardUnlinked(
+    { ...exchange, route: { kind: 'unlinked' } },
+    body,
+    new AbortController().signal,
+    async response => { bypassBody = await response.text(); },
+  );
+  assert.equal(calls, 1);
+  assert.match(bypassBody, /UNLINKED/);
+
+  const budget = harness();
+  budget.service.authority.plan = async request => ({
+    ok: false,
+    problem: {
+      schema: 'st-rpg.problem', version: '1.0', code: 'CONTEXT_PINS_OVER_BUDGET',
+      message: 'Pins exceed budget.', requestId: request.requestId, retryable: false, actions: [],
+    },
+  });
+  await assert.rejects(budget.service.respond(exchange, body, new AbortController().signal), /Pins exceed budget/);
+  assert.equal(budget.calls.length, 0);
+});
+
+test('continue delivers only the new suffix and never repeats the saved assistant prefix', async () => {
+  const current = harness();
+  current.service.lmStudio.chat = async request => {
+    current.calls.push(structuredClone(request));
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-continue', model: profile.modelId,
+      choices: [{ message: { role: 'assistant', content: ' and closes the door.' }, finish_reason: 'stop' }],
+    }));
+  };
+  const result = await current.service.respond(
+    { ...exchange, generation: 'continue' },
+    {
+      ...body,
+      messages: [
+        { role: 'system', content: 'Narrate.' },
+        { role: 'assistant', content: 'Airi opens the wardrobe' },
+      ],
+    },
+    new AbortController().signal,
+  );
+  assert.equal(result.kind, 'linked');
+  if (result.kind === 'linked') assert.equal(result.content, ' and closes the door.');
 });
