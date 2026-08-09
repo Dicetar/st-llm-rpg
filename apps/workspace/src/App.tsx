@@ -13,6 +13,7 @@ export {
   WorkspaceRouteState,
   parseWorkspacePath,
 } from './CampaignWorkspace.js';
+export { ChatBindingsPanel, LegacyImportPreviewCard } from './LegacyImportPanel.js';
 
 type Snapshot = Readonly<{
   health: HealthDocument | null;

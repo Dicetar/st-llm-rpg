@@ -42,8 +42,8 @@ h4 { margin-bottom: 0.3rem; font-size: 1.35rem; }
 .system-status { border: 1px solid #4c4032; border-radius: 0.9rem; padding: 0.8rem 1rem; background: rgba(38, 32, 25, 0.68); }
 .system-status > summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 44px; cursor: pointer; list-style: none; }
 .system-status > summary::-webkit-details-marker { display: none; }
-.system-status > summary::before { content: '▸'; color: #d8aa63; }
-.system-status[open] > summary::before { content: '▾'; }
+.system-status > summary::before { content: '\25B8'; color: #d8aa63; }
+.system-status[open] > summary::before { content: '\25BE'; }
 .system-status > summary .section-heading { flex: 1; margin: 0; }
 .system-status > summary > span { border-radius: 999px; padding: 0.25rem 0.55rem; background: #211c16; color: #d9c7aa; font-size: 0.74rem; text-transform: uppercase; }
 .system-status .status-grid { margin-top: 0.9rem; }
@@ -111,6 +111,62 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .conflict-banner button, .canonical-update-banner button { flex: 0 0 auto; }
 .conflict-actions { display: flex; flex: 0 0 auto; gap: 0.55rem; flex-wrap: wrap; justify-content: flex-end; }
 .historical-note { border-left: 3px solid #98713b; padding: 0.75rem 1rem; background: rgba(89, 61, 29, 0.25); color: #e7d2b0; }
+
+.legacy-import-panel { margin: 0 0 1rem; border: 1px solid #80643e; border-radius: 0.9rem; background: rgba(38, 32, 25, 0.76); }
+.legacy-import-panel > summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 52px; padding: 0.7rem 0.9rem; cursor: pointer; list-style: none; }
+.legacy-import-panel > summary::-webkit-details-marker { display: none; }
+.legacy-import-panel > summary::before { content: '\25B8'; color: #d8aa63; }
+.legacy-import-panel[open] > summary::before { content: '\25BE'; }
+.legacy-import-panel > summary > span:first-of-type { display: grid; flex: 1; gap: 0.18rem; }
+.legacy-import-panel > summary small { color: #a99c89; font-weight: 400; }
+.legacy-import-panel > summary > span:last-child { border-radius: 999px; padding: 0.28rem 0.58rem; background: #211c16; color: #d9c7aa; font-size: 0.76rem; white-space: nowrap; }
+.legacy-import-panel__body { display: grid; gap: 1rem; border-top: 1px solid #4c4032; padding: 1rem; }
+.migration-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.migration-intro h3 { margin-bottom: 0.35rem; font-size: 1.45rem; }
+.migration-intro p:last-child { max-width: 48rem; margin: 0; color: #c9bca8; line-height: 1.5; }
+.legacy-source-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.75rem; }
+.legacy-source-form label, .legacy-apply-form label { display: grid; gap: 0.35rem; color: #d6c8b2; }
+.legacy-apply-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(16rem, 0.8fr); gap: 1rem; align-items: start; }
+.legacy-preview { min-width: 0; border: 1px solid #655542; border-radius: 0.8rem; padding: 0.9rem; background: #17130f; }
+.legacy-preview--invalid-source { border-color: #a9554e; }
+.legacy-preview--copied-source, .legacy-preview--divergent-source { border-color: #98713b; }
+.legacy-preview__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.legacy-preview__heading h4 { margin-bottom: 0; }
+.legacy-preview__heading > span { color: #d9c7aa; white-space: nowrap; }
+.legacy-counts { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.9rem 0; padding: 0; list-style: none; }
+.legacy-counts li { border: 1px solid #4c4032; border-radius: 999px; padding: 0.3rem 0.55rem; color: #b9ac98; font-size: 0.8rem; }
+.legacy-counts strong { color: #fff4df; }
+.preservation-note { margin: 0; border-left: 3px solid #47755a; padding: 0.65rem 0.75rem; background: rgba(40, 92, 59, 0.18); color: #cce7d4; line-height: 1.45; }
+.legacy-issues { margin-top: 0.8rem; }
+.legacy-issues summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: #e9bd72; }
+.legacy-issues ul { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+.legacy-issue { display: grid; gap: 0.2rem; border-left: 3px solid #98713b; padding: 0.55rem 0.7rem; background: rgba(89, 61, 29, 0.2); }
+.legacy-issue--error { border-left-color: #a9554e; background: rgba(114, 40, 34, 0.22); }
+.legacy-issue strong { color: #d9c7aa; font-size: 0.78rem; overflow-wrap: anywhere; }
+.legacy-issue span { color: #c9bca8; line-height: 1.4; }
+.legacy-apply-form { display: grid; gap: 0.75rem; border: 1px solid #4c4032; border-radius: 0.8rem; padding: 0.9rem; background: rgba(22, 18, 14, 0.62); }
+.binding-result { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-radius: 0.8rem; padding: 0.85rem; }
+.binding-result p { margin: 0.3rem 0 0; color: #c9bca8; line-height: 1.45; }
+.binding-result__actions { display: flex; flex: 0 0 auto; gap: 0.55rem; flex-wrap: wrap; }
+.binding-result--verified { border: 1px solid #47755a; background: rgba(40, 92, 59, 0.22); }
+.binding-result--blocked { border: 1px solid #a9554e; background: rgba(114, 40, 34, 0.22); }
+.chat-bindings-panel { margin: 0 0 1rem; border: 1px solid #4c4032; border-radius: 0.8rem; background: rgba(22, 18, 14, 0.48); }
+.chat-bindings-panel > summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 48px; padding: 0.7rem 0.85rem; cursor: pointer; list-style: none; }
+.chat-bindings-panel > summary::-webkit-details-marker { display: none; }
+.chat-bindings-panel > summary::before { content: '\25B8'; color: #d8aa63; }
+.chat-bindings-panel[open] > summary::before { content: '\25BE'; }
+.chat-bindings-panel > summary > span:first-of-type { display: grid; flex: 1; gap: 0.16rem; }
+.chat-bindings-panel > summary small { color: #a99c89; font-weight: 400; }
+.chat-bindings-panel > summary > span:last-child { color: #d9c7aa; font-size: 0.8rem; white-space: nowrap; }
+.chat-bindings-list { display: grid; gap: 0.65rem; border-top: 1px solid #4c4032; padding: 0.8rem; }
+.chat-binding { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; border-left: 3px solid #47755a; padding: 0.65rem 0.75rem; background: rgba(40, 92, 59, 0.16); }
+.chat-binding--blocked { border-left-color: #a9554e; background: rgba(114, 40, 34, 0.2); }
+.chat-binding--pending { border-left-color: #98713b; background: rgba(89, 61, 29, 0.2); }
+.chat-binding > div { min-width: 0; }
+.chat-binding p { margin: 0.25rem 0 0; color: #b9ac98; line-height: 1.4; overflow-wrap: anywhere; }
+.chat-binding .eyebrow { margin: 0 0 0.15rem; color: #d8aa63; }
+.chat-binding__problem { color: #ffd7d2 !important; }
+.chat-binding button { flex: 0 0 auto; }
 
 .command-deck { margin: 1rem 0; border: 1px solid #655542; border-radius: 0.9rem; padding: 0.9rem; background: linear-gradient(135deg, rgba(75, 55, 31, 0.72), rgba(33, 28, 22, 0.92)); }
 .command-deck__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
@@ -197,6 +253,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 @media (max-width: 900px) {
   .collection-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .command-deck__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .legacy-apply-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -209,6 +266,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .command-deck__actions { grid-template-columns: 1fr; }
   .record-actions { display: grid; grid-template-columns: 1fr; }
   .record-actions button, .conflict-banner button, .canonical-update-banner button, .historical-banner button { width: 100%; }
+  .migration-intro, .binding-result, .chat-binding { align-items: stretch; flex-direction: column; }
+  .legacy-source-form { grid-template-columns: 1fr; }
+  .legacy-source-form button, .binding-result button, .chat-binding button { width: 100%; }
+  .binding-result__actions { display: grid; grid-template-columns: 1fr; }
 }
 
 @media (max-width: 600px) {

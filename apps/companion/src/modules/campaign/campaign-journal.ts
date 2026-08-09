@@ -51,6 +51,7 @@ type CampaignJournalAppendBase = Readonly<{
 export type CampaignJournalAppend =
   | CampaignJournalAppendBase & Readonly<{
       kind: 'create';
+      baseKind: 'blank' | 'legacy_import';
       baseState: CampaignState;
     }>
   | CampaignJournalAppendBase & Readonly<{

@@ -53,6 +53,35 @@ type StoredBase = {
   state_hash: string;
 };
 
+type StoredBinding = {
+  binding_id: string;
+  campaign_id: string;
+  binding_revision: number;
+  campaign_anchor: number;
+  locator_json: string;
+  locator_fingerprint: string;
+  source_fingerprint: string;
+  content_fingerprint: string;
+  marker_state: 'pending' | 'verified' | 'blocked';
+  marker_problem: string | null;
+};
+
+type StoredBindingEvent = {
+  revision: number;
+  operation_kind: string;
+  operation_json: string;
+};
+
+type StoredLegacySource = {
+  source_fingerprint: string;
+  content_fingerprint: string;
+  locator_fingerprint: string;
+  campaign_id: string;
+  binding_id: string;
+  legacy_revision: number;
+  envelope_json: string;
+};
+
 function tableExists(database: DatabaseSync, table: string): boolean {
   return Boolean(database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table));
 }
@@ -141,6 +170,81 @@ export function verifyCampaignDatabase(database: DatabaseSync): void {
     ? database.prepare('SELECT * FROM campaigns').all() as CampaignRow[]
     : [];
   for (const campaign of campaigns) verifyCampaign(database, campaign);
+  verifyChatBindings(database);
+}
+
+function verifyChatBindings(database: DatabaseSync): void {
+  if (!tableExists(database, 'chat_bindings')) return;
+  if (!tableExists(database, 'chat_binding_events') || !tableExists(database, 'legacy_import_sources')) {
+    throw new Error('Chat Binding storage is incomplete.');
+  }
+  const bindings = database.prepare('SELECT * FROM chat_bindings ORDER BY binding_id').all() as StoredBinding[];
+  for (const binding of bindings) {
+    const campaign = database.prepare('SELECT current_revision FROM campaigns WHERE campaign_id = ?')
+      .get(binding.campaign_id) as { current_revision: number } | undefined;
+    if (!campaign || Number(binding.campaign_anchor) < 1 || Number(binding.campaign_anchor) > Number(campaign.current_revision)) {
+      throw new Error(`Chat Binding ${binding.binding_id} Campaign anchor verification failed.`);
+    }
+    const locator = parseJson<unknown>(binding.locator_json);
+    const locatorFingerprint = sha256(locator);
+    if (locatorFingerprint !== binding.locator_fingerprint) {
+      throw new Error(`Chat Binding ${binding.binding_id} locator fingerprint verification failed.`);
+    }
+    const events = database.prepare(`
+      SELECT revision, operation_kind, operation_json FROM chat_binding_events WHERE binding_id = ? ORDER BY revision
+    `).all(binding.binding_id) as StoredBindingEvent[];
+    if (events.length !== Number(binding.binding_revision)) {
+      throw new Error(`Chat Binding ${binding.binding_id} history revision count failed.`);
+    }
+    let markerState: StoredBinding['marker_state'] = 'pending';
+    let markerProblem: string | null = null;
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index]!;
+      if (Number(event.revision) !== index + 1) {
+        throw new Error(`Chat Binding ${binding.binding_id} history is not contiguous.`);
+      }
+      const operation = parseJson<Record<string, unknown>>(event.operation_json);
+      if (index === 0) {
+        if (event.operation_kind !== 'create_chat_binding' || operation.kind !== 'create_chat_binding'
+          || operation.campaignId !== binding.campaign_id
+          || Number(operation.campaignAnchor) !== Number(binding.campaign_anchor)
+          || canonicalJson(operation.locator) !== canonicalJson(locator)) {
+          throw new Error(`Chat Binding ${binding.binding_id} creation Event verification failed.`);
+        }
+        continue;
+      }
+      if (event.operation_kind !== 'reconcile_binding_marker' || operation.kind !== 'reconcile_binding_marker'
+        || !['verified', 'blocked'].includes(String(operation.state))) {
+        throw new Error(`Chat Binding ${binding.binding_id} reconciliation Event verification failed.`);
+      }
+      markerState = operation.state as 'verified' | 'blocked';
+      markerProblem = markerState === 'blocked' && typeof operation.problem === 'string'
+        ? operation.problem
+        : null;
+    }
+    if (markerState !== binding.marker_state || markerProblem !== binding.marker_problem) {
+      throw new Error(`Chat Binding ${binding.binding_id} head does not match immutable history.`);
+    }
+    const markerProblemValid = binding.marker_state === 'blocked'
+      ? Boolean(binding.marker_problem?.trim())
+      : binding.marker_problem === null;
+    if (!markerProblemValid) throw new Error(`Chat Binding ${binding.binding_id} marker state verification failed.`);
+
+    const source = database.prepare('SELECT * FROM legacy_import_sources WHERE source_fingerprint = ?')
+      .get(binding.source_fingerprint) as StoredLegacySource | undefined;
+    if (!source || source.binding_id !== binding.binding_id || source.campaign_id !== binding.campaign_id
+      || source.content_fingerprint !== binding.content_fingerprint
+      || source.locator_fingerprint !== binding.locator_fingerprint
+      || Number(source.legacy_revision) < 1) {
+      throw new Error(`Chat Binding ${binding.binding_id} preserved legacy source verification failed.`);
+    }
+    const envelope = parseJson<unknown>(source.envelope_json);
+    const contentFingerprint = sha256(envelope);
+    const sourceFingerprint = sha256({ contentFingerprint, locator });
+    if (contentFingerprint !== binding.content_fingerprint || sourceFingerprint !== binding.source_fingerprint) {
+      throw new Error(`Chat Binding ${binding.binding_id} source fingerprint verification failed.`);
+    }
+  }
 }
 
 function verifyCampaign(database: DatabaseSync, campaign: CampaignRow): void {

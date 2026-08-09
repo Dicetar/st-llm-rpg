@@ -174,6 +174,7 @@ export class CampaignEngine {
           };
           transaction.append({
             kind: 'create',
+            baseKind: 'blank',
             requestId,
             requestHash,
             operation,

@@ -20,6 +20,8 @@ import {
   type CampaignSummary,
   type Problem,
 } from '@st-llm-rpg/wire';
+import type { ChatBindingDocument } from '@st-llm-rpg/wire';
+import LegacyImportPanel, { ChatBindingsPanel } from './LegacyImportPanel.js';
 
 export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'scene' | 'history';
 
@@ -690,6 +692,7 @@ export default function CampaignWorkspace() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState<RevisionConflict | null>(null);
+  const [bindings, setBindings] = useState<readonly ChatBindingDocument[]>([]);
 
   const [campaignTitle, setCampaignTitle] = useState('');
   const [actorName, setActorName] = useState('');
@@ -734,6 +737,14 @@ export default function CampaignWorkspace() {
     return { document, history: entries };
   }, []);
 
+  const loadBindings = useCallback(async (campaignId: string) => {
+    const next = await fetchJson<ChatBindingDocument[]>(
+      `/api/campaigns/${encodeURIComponent(campaignId)}/chat-bindings`,
+    );
+    setBindings(next);
+    return next;
+  }, []);
+
   const openCampaign = useCallback(async (campaignId: string) => {
     const canonical = await fetchCampaignSnapshot(campaignId);
     selectedRevisionRef.current = canonical.document.campaign.revision;
@@ -747,6 +758,23 @@ export default function CampaignWorkspace() {
   useEffect(() => {
     loadCampaigns().catch(value => setError(value instanceof Error ? value.message : String(value)));
   }, [loadCampaigns]);
+
+  useEffect(() => {
+    if (!route.campaignId) {
+      setBindings([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setBindings([]);
+    void fetchJson<ChatBindingDocument[]>(
+      `/api/campaigns/${encodeURIComponent(route.campaignId)}/chat-bindings`,
+    ).then(next => {
+      if (!cancelled) setBindings(next);
+    }).catch(value => {
+      if (!cancelled) setError(value instanceof Error ? value.message : String(value));
+    });
+    return () => { cancelled = true; };
+  }, [route.campaignId]);
 
   useEffect(() => {
     if (!route.campaignId) {
@@ -1050,6 +1078,28 @@ export default function CampaignWorkspace() {
       ? 'Loading Campaign'
       : `Loading historical revision ${route.revision}`;
 
+  async function openImportedCampaign(campaignId: string, binding: ChatBindingDocument) {
+    await Promise.all([loadCampaigns(), openCampaign(campaignId), loadBindings(campaignId)]);
+    navigate({ campaignId, collection: 'actors', recordId: null, revision: null });
+    setMessage(binding.markerState === 'verified'
+      ? 'Imported Campaign opened. The SillyTavern Chat Binding marker was verified.'
+      : 'Imported Campaign opened. Its Chat Binding is blocked until the marker can be verified.');
+  }
+
+  async function retryBindingMarker(bindingId: string) {
+    await run(async () => {
+      const binding = await fetchJson<ChatBindingDocument>(
+        `/api/chat-bindings/${encodeURIComponent(bindingId)}/retry-marker`,
+        undefined,
+        { method: 'POST' },
+      );
+      setBindings(current => current.map(candidate => candidate.id === binding.id ? binding : candidate));
+      setMessage(binding.markerState === 'verified'
+        ? 'The SillyTavern Chat Binding marker is now verified.'
+        : 'The Campaign remains safe, but its SillyTavern marker is still blocked.');
+    });
+  }
+
   return (
     <section className="authority-panel" aria-labelledby="campaign-authority">
       <div className="section-heading">
@@ -1067,6 +1117,8 @@ export default function CampaignWorkspace() {
           </div>
         ) : null}
       </div>
+
+      <LegacyImportPanel onImported={openImportedCampaign} />
 
       {pendingCanonical && selected ? (
         <div className="canonical-update-banner" role="status">
@@ -1165,6 +1217,14 @@ export default function CampaignWorkspace() {
                 readOnly={readOnly}
                 onNavigate={navigateCollection}
               />
+
+              {!readOnly ? (
+                <ChatBindingsPanel
+                  bindings={bindings}
+                  busy={busy}
+                  onRetryMarker={bindingId => { void retryBindingMarker(bindingId); }}
+                />
+              ) : null}
 
               <CollectionNavigation route={route} document={displayed} onNavigate={navigate} />
 

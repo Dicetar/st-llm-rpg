@@ -9,6 +9,7 @@ import type {
   CampaignHistoryEntry,
   CampaignSummary,
   CampaignVerificationResult,
+  ChatBindingDocument,
 } from '@st-llm-rpg/wire';
 import { CAMPAIGN_AUTHORITY_MIGRATION, campaignMigrationChecksum } from '../../migrations/001-campaign-authority.js';
 import {
@@ -19,6 +20,10 @@ import {
   CAMPAIGN_CURRENT_PROJECTIONS_MIGRATION,
   campaignCurrentProjectionsMigrationChecksum,
 } from '../../migrations/003-campaign-current-projections.js';
+import {
+  CHAT_BINDINGS_MIGRATION,
+  chatBindingsMigrationChecksum,
+} from '../../migrations/004-chat-bindings.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -60,6 +65,14 @@ import {
   replaceCurrentCampaignProjections,
 } from './campaign-projections.js';
 import { reconstructCampaignState, verifyCampaignDatabase } from './campaign-verifier.js';
+import type {
+  LegacyBindingLink,
+  LegacyCampaignImport,
+  LegacyImportJournal,
+  LegacyImportLookup,
+  LegacyMarkerOutcome,
+  StoredLegacyImport,
+} from '../../modules/legacy-import/legacy-import-journal.js';
 
 const APPLICATION_ID = 0x52504733;
 const EVENT_SCHEMA_VERSION = 2;
@@ -70,6 +83,39 @@ const DEFAULT_TIMING_SAMPLE_LIMIT = 500;
 type StoredCommitReceipt = CampaignCommitReceipt & Readonly<{
   receiptSchemaVersion: 2;
 }>;
+
+type ChatBindingRow = Readonly<{
+  binding_id: string;
+  campaign_id: string;
+  binding_revision: number;
+  campaign_anchor: number;
+  locator_json: string;
+  locator_fingerprint: string;
+  source_fingerprint: string;
+  content_fingerprint: string;
+  marker_state: 'pending' | 'verified' | 'blocked';
+  marker_problem: string | null;
+  created_at: string;
+  updated_at: string;
+}>;
+
+function bindingDocument(row: ChatBindingRow): ChatBindingDocument {
+  return {
+    schema: 'st-rpg.chat-binding',
+    version: '1.0',
+    id: row.binding_id,
+    campaignId: row.campaign_id,
+    revision: Number(row.binding_revision),
+    campaignAnchor: Number(row.campaign_anchor),
+    locator: parseJson(row.locator_json),
+    sourceFingerprint: row.source_fingerprint,
+    contentFingerprint: row.content_fingerprint,
+    markerState: row.marker_state,
+    ...(row.marker_problem ? { markerProblem: row.marker_problem } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 export type CampaignJournalFaultPoint =
   | 'create.after-event'
@@ -88,7 +134,7 @@ export type CampaignJournalOptions = Readonly<{
   beforeRestoreActivation?: () => Promise<void>;
 }>;
 
-export class SqliteCampaignJournal implements CampaignJournal {
+export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJournal {
   readonly databasePath: string;
   readonly snapshotInterval: number;
   readonly timingSampleLimit: number;
@@ -229,6 +275,149 @@ export class SqliteCampaignJournal implements CampaignJournal {
       () => this.performRead(request),
       { allowMaintenanceFailure: true },
     );
+  }
+
+  async lookupLegacyImport(
+    sourceFingerprint: string,
+    contentFingerprint: string,
+    locatorFingerprint: string,
+  ): Promise<LegacyImportLookup> {
+    return this.serializeLifecycle(() => {
+      const exact = this.#database.prepare(
+        'SELECT * FROM chat_bindings WHERE source_fingerprint = ?',
+      ).get(sourceFingerprint) as ChatBindingRow | undefined;
+      const sameContent = this.#database.prepare(`
+        SELECT * FROM chat_bindings WHERE content_fingerprint = ? AND source_fingerprint <> ?
+        ORDER BY created_at, binding_id LIMIT 1
+      `).get(contentFingerprint, sourceFingerprint) as ChatBindingRow | undefined;
+      const sameLocator = this.#database.prepare(`
+        SELECT * FROM chat_bindings WHERE locator_fingerprint = ? AND source_fingerprint <> ?
+        ORDER BY updated_at DESC, binding_id LIMIT 1
+      `).get(locatorFingerprint, sourceFingerprint) as ChatBindingRow | undefined;
+      return {
+        exact: exact ? bindingDocument(exact) : null,
+        sameContent: sameContent ? bindingDocument(sameContent) : null,
+        sameLocator: sameLocator ? bindingDocument(sameLocator) : null,
+      };
+    }, { allowMaintenanceFailure: true });
+  }
+
+  async importLegacyCampaign(input: LegacyCampaignImport): Promise<StoredLegacyImport> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const exact = this.findBindingBySource(input.binding.sourceFingerprint);
+      if (exact) return this.storedLegacyImport(exact);
+      this.persistAppend(input.append);
+      this.persistLegacyBinding({
+        binding: input.binding,
+        locatorFingerprint: input.locatorFingerprint,
+        envelopeJson: input.envelopeJson,
+        legacyRevision: input.legacyRevision,
+        bindingEventId: input.bindingEventId,
+        requestId: input.append.requestId,
+        bindingOperation: input.bindingOperation,
+      });
+      return {
+        campaignId: input.append.commit.campaignId,
+        campaignRevision: input.append.commit.revision,
+        binding: input.binding,
+      };
+    })));
+  }
+
+  async linkLegacyBinding(input: LegacyBindingLink): Promise<StoredLegacyImport> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const exact = this.findBindingBySource(input.binding.sourceFingerprint);
+      if (exact) return this.storedLegacyImport(exact);
+      const campaign = this.requireCampaign(input.campaignId);
+      if (Number(campaign.current_revision) !== input.campaignRevision) {
+        throw new CampaignExpectedError(
+          'CAMPAIGN_REVISION_CONFLICT',
+          `Campaign changed from revision ${input.campaignRevision} to ${campaign.current_revision} before the Binding could be created.`,
+          { campaignId: input.campaignId, expectedRevision: input.campaignRevision, actualRevision: Number(campaign.current_revision) },
+        );
+      }
+      this.persistLegacyBinding({
+        binding: input.binding,
+        locatorFingerprint: input.locatorFingerprint,
+        envelopeJson: input.envelopeJson,
+        legacyRevision: input.legacyRevision,
+        bindingEventId: input.bindingEventId,
+        requestId: input.requestId,
+        bindingOperation: input.bindingOperation,
+      });
+      return { campaignId: input.campaignId, campaignRevision: input.campaignRevision, binding: input.binding };
+    })));
+  }
+
+  async readBinding(bindingId: string): Promise<ChatBindingDocument> {
+    return this.serializeLifecycle(() => {
+      const id = cleanIdentifier(bindingId, 'Binding ID');
+      const row = this.#database.prepare('SELECT * FROM chat_bindings WHERE binding_id = ?').get(id) as ChatBindingRow | undefined;
+      if (!row) throw new CampaignExpectedError('CHAT_BINDING_NOT_FOUND', `Chat Binding ${id} was not found.`, { bindingId: id });
+      return bindingDocument(row);
+    }, { allowMaintenanceFailure: true });
+  }
+
+  async listBindings(campaignId: string): Promise<readonly ChatBindingDocument[]> {
+    return this.serializeLifecycle(() => {
+      const id = cleanIdentifier(campaignId, 'Campaign ID');
+      this.requireCampaign(id);
+      const rows = this.#database.prepare(`
+        SELECT * FROM chat_bindings WHERE campaign_id = ? ORDER BY created_at, binding_id
+      `).all(id) as ChatBindingRow[];
+      return rows.map(bindingDocument);
+    }, { allowMaintenanceFailure: true });
+  }
+
+  async recordMarkerOutcome(input: LegacyMarkerOutcome): Promise<ChatBindingDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const id = cleanIdentifier(input.bindingId, 'Binding ID');
+      const current = this.findBindingById(id);
+      if (!current) {
+        throw new CampaignExpectedError('CHAT_BINDING_NOT_FOUND', `Chat Binding ${id} was not found.`, { bindingId: id });
+      }
+      const nextProblem = input.state === 'blocked'
+        ? String(input.problem ?? 'Marker verification failed.').slice(0, 1024)
+        : null;
+      if (current.marker_state === input.state && current.marker_problem === nextProblem) return bindingDocument(current);
+      if (Number(current.binding_revision) !== input.expectedRevision) {
+        throw new CampaignExpectedError(
+          'CAMPAIGN_REVISION_CONFLICT',
+          `Chat Binding changed from revision ${input.expectedRevision} to ${current.binding_revision} before marker reconciliation.`,
+          { bindingId: id, expectedRevision: input.expectedRevision, actualRevision: Number(current.binding_revision) },
+        );
+      }
+      const updatedAt = new Date().toISOString();
+      const result = this.#database.prepare(`
+        UPDATE chat_bindings
+        SET binding_revision = ?, marker_state = ?, marker_problem = ?, updated_at = ?
+        WHERE binding_id = ? AND binding_revision = ?
+      `).run(input.expectedRevision + 1, input.state, nextProblem, updatedAt, id, input.expectedRevision);
+      if (Number(result.changes) !== 1) {
+        throw new CampaignExpectedError('CAMPAIGN_REVISION_CONFLICT', 'Chat Binding marker reconciliation lost its revision race.', {
+          bindingId: id,
+          expectedRevision: input.expectedRevision,
+        });
+      }
+      this.#database.prepare(`
+        INSERT INTO chat_binding_events(binding_id, revision, event_id, request_id, operation_kind, operation_json, accepted_at)
+        VALUES (?, ?, ?, ?, 'reconcile_binding_marker', ?, ?)
+      `).run(
+        id,
+        input.expectedRevision + 1,
+        cleanIdentifier(input.eventId, 'Binding Event ID'),
+        cleanIdentifier(input.requestId, 'Binding request ID'),
+        canonicalJson({ kind: 'reconcile_binding_marker', state: input.state, problem: nextProblem }),
+        updatedAt,
+      );
+      return bindingDocument(this.findBindingById(id)!);
+    })));
+  }
+
+  async readCampaignRevision(campaignId: string): Promise<number> {
+    return this.serializeLifecycle(() => Number(this.requireCampaign(cleanIdentifier(campaignId, 'Campaign ID')).current_revision), {
+      allowMaintenanceFailure: true,
+    });
   }
 
   transact<T>(
@@ -429,6 +618,7 @@ export class SqliteCampaignJournal implements CampaignJournal {
       { ...CAMPAIGN_AUTHORITY_MIGRATION, checksum: campaignMigrationChecksum() },
       { ...CAMPAIGN_SUBJECT_EVENTS_MIGRATION, checksum: campaignSubjectEventsMigrationChecksum() },
       { ...CAMPAIGN_CURRENT_PROJECTIONS_MIGRATION, checksum: campaignCurrentProjectionsMigrationChecksum() },
+      { ...CHAT_BINDINGS_MIGRATION, checksum: chatBindingsMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
@@ -499,6 +689,74 @@ export class SqliteCampaignJournal implements CampaignJournal {
     return { requestHash: receipt.request_hash, commit };
   }
 
+  private findBindingById(bindingId: string): ChatBindingRow | undefined {
+    return this.#database.prepare('SELECT * FROM chat_bindings WHERE binding_id = ?').get(bindingId) as ChatBindingRow | undefined;
+  }
+
+  private findBindingBySource(sourceFingerprint: string): ChatBindingRow | undefined {
+    return this.#database.prepare('SELECT * FROM chat_bindings WHERE source_fingerprint = ?').get(sourceFingerprint) as ChatBindingRow | undefined;
+  }
+
+  private storedLegacyImport(row: ChatBindingRow): StoredLegacyImport {
+    const campaign = this.requireCampaign(row.campaign_id);
+    return {
+      campaignId: row.campaign_id,
+      campaignRevision: Number(campaign.current_revision),
+      binding: bindingDocument(row),
+    };
+  }
+
+  private persistLegacyBinding(input: {
+    binding: ChatBindingDocument;
+    locatorFingerprint: string;
+    envelopeJson: string;
+    legacyRevision: number;
+    bindingEventId: string;
+    requestId: string;
+    bindingOperation: unknown;
+  }): void {
+    const binding = input.binding;
+    this.#database.prepare(`
+      INSERT INTO chat_bindings(
+        binding_id, campaign_id, binding_revision, campaign_anchor, locator_json,
+        locator_fingerprint, source_fingerprint, content_fingerprint,
+        marker_state, marker_problem, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      binding.id,
+      binding.campaignId,
+      binding.revision,
+      binding.campaignAnchor,
+      canonicalJson(binding.locator),
+      input.locatorFingerprint,
+      binding.sourceFingerprint,
+      binding.contentFingerprint,
+      binding.markerState,
+      binding.markerProblem ?? null,
+      binding.createdAt,
+      binding.updatedAt,
+    );
+    this.#database.prepare(`
+      INSERT INTO chat_binding_events(binding_id, revision, event_id, request_id, operation_kind, operation_json, accepted_at)
+      VALUES (?, 1, ?, ?, 'create_chat_binding', ?, ?)
+    `).run(binding.id, input.bindingEventId, input.requestId, canonicalJson(input.bindingOperation), binding.createdAt);
+    this.#database.prepare(`
+      INSERT INTO legacy_import_sources(
+        source_fingerprint, content_fingerprint, locator_fingerprint, campaign_id,
+        binding_id, legacy_revision, envelope_json, imported_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      binding.sourceFingerprint,
+      binding.contentFingerprint,
+      input.locatorFingerprint,
+      binding.campaignId,
+      binding.id,
+      input.legacyRevision,
+      input.envelopeJson,
+      binding.createdAt,
+    );
+  }
+
   private findHead(campaignId: string): CampaignJournalHead | undefined {
     const row = this.#database.prepare('SELECT * FROM campaigns WHERE campaign_id = ?').get(campaignId) as CampaignRow | undefined;
     if (!row) return undefined;
@@ -523,7 +781,7 @@ export class SqliteCampaignJournal implements CampaignJournal {
         commit.committedAt,
         commit.committedAt,
       );
-      this.insertBase(commit.campaignId, 'blank', input.baseState, commit.committedAt);
+      this.insertBase(commit.campaignId, input.baseKind, input.baseState, commit.committedAt);
       this.insertSubjectEvent({
         campaignId: commit.campaignId,
         revision: commit.revision,
@@ -537,6 +795,7 @@ export class SqliteCampaignJournal implements CampaignJournal {
         eventHash: input.eventHash,
       });
       this.inject('create.after-event');
+      replaceCurrentCampaignProjections(this.#database, commit.campaignId, input.afterState);
     } else {
       const current = this.requireCampaign(commit.campaignId);
       this.insertSubjectEvent({

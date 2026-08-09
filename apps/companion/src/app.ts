@@ -1,5 +1,5 @@
 import { access, readFile, stat } from 'node:fs/promises';
-import { extname, resolve, sep } from 'node:path';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import Fastify, { LogController, type FastifyInstance, type FastifyReply } from 'fastify';
 import {
@@ -18,6 +18,9 @@ import { makeProblem, ProblemError } from './problem.js';
 import { CampaignEngine } from './modules/campaign/campaign-engine.js';
 import { registerCampaignRoutes } from './modules/campaign/campaign-routes.js';
 import { SqliteCampaignJournal } from './adapters/sqlite/campaign-journal.js';
+import { SillyTavernChatSource } from './adapters/sillytavern/sillytavern-chat-source.js';
+import { LegacyImportService, type LegacyChatSource } from './modules/legacy-import/legacy-import-service.js';
+import { registerLegacyImportRoutes } from './modules/legacy-import/legacy-import-routes.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -35,6 +38,7 @@ export type BuildCompanionOptions = Readonly<{
   config: CompanionConfig;
   probeDependencies?: DependencyProbe;
   campaignEngine?: CampaignEngine;
+  legacyChatSource?: LegacyChatSource;
   startedAt?: Date;
 }>;
 
@@ -93,10 +97,17 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   await assertWorkspaceBuild(options.config);
   const startedAt = options.startedAt ?? new Date();
   const ownsCampaignEngine = options.campaignEngine === undefined;
-  const campaignEngine = options.campaignEngine ?? new CampaignEngine(await SqliteCampaignJournal.open(
-    options.config.databasePath,
-    options.config.snapshotInterval,
-  ));
+  const campaignJournal = ownsCampaignEngine
+    ? await SqliteCampaignJournal.open(options.config.databasePath, options.config.snapshotInterval)
+    : null;
+  const campaignEngine = options.campaignEngine ?? new CampaignEngine(campaignJournal!);
+  const legacyImportService = campaignJournal
+    ? new LegacyImportService(
+        campaignJournal,
+        options.legacyChatSource ?? new SillyTavernChatSource(options.config.sillyTavernBaseUrl),
+        join(dirname(options.config.databasePath), 'backups'),
+      )
+    : null;
   const probeDependencies = options.probeDependencies
     ?? createDefaultDependencyProbe(options.config, () => campaignEngine.observation());
   const app = Fastify({
@@ -145,6 +156,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   });
 
   registerCampaignRoutes(app, campaignEngine);
+  if (legacyImportService) registerLegacyImportRoutes(app, legacyImportService);
 
   app.get('/assets/*', async (request, reply) => {
     const relative = (request.params as { '*': string })['*'];

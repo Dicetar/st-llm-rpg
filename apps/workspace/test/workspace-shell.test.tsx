@@ -6,8 +6,10 @@ import {
   CampaignCommandDeck,
   CampaignBookView,
   CampaignHistoryView,
+  ChatBindingsPanel,
   RevisionConflictBanner,
   WorkspaceRouteState,
+  LegacyImportPreviewCard,
   parseWorkspacePath,
 } from '../src/App.js';
 
@@ -118,6 +120,45 @@ test('Command Deck exposes the common Campaign actions without leaving the curre
   assert.match(html, /Revision 7/);
   assert.match(html, /\/campaigns\/campaign-1\/actors/);
   assert.match(html, /\/campaigns\/campaign-1\/history/);
+});
+
+test('legacy import preview makes preserved and unsupported data explicit before mutation', () => {
+  const html = renderToStaticMarkup(<LegacyImportPreviewCard
+    preview={{
+      schema: 'st-rpg.legacy-import-preview', version: '1.0', kind: 'new-import',
+      locator: { kind: 'character', chatId: 'Emberfall', avatar: 'Seraphine.png' },
+      sourceFingerprint: 'a'.repeat(64), contentFingerprint: 'b'.repeat(64),
+      title: 'Emberfall', legacyRevision: 7,
+      counts: { actors: 2, items: 1, quests: 1, places: 1, unsupported: 3 },
+      issues: [{ severity: 'warning', code: 'unsupported-record-kind', path: 'campaign.records[5]', message: 'Ability is preserved but not projected yet.' }],
+      decisions: ['create-campaign', 'cancel'], legacyMetadataPreserved: true,
+    }}
+  />);
+  assert.match(html, /Revision 7/);
+  assert.match(html, /<strong>2<\/strong> Actors/);
+  assert.match(html, /<strong>3<\/strong> preserved for later/);
+  assert.match(html, /Ability is preserved but not projected yet/);
+  assert.match(html, /Legacy metadata stays in SillyTavern/);
+});
+
+test('Chat Binding inspection stays available after the import result is gone', () => {
+  const html = renderToStaticMarkup(<ChatBindingsPanel
+    bindings={[{
+      schema: 'st-rpg.chat-binding', version: '1.0', id: 'binding-1', campaignId: 'campaign-1',
+      revision: 1, campaignAnchor: 7,
+      locator: { kind: 'character', chatId: 'Emberfall', avatar: 'Seraphine.png' },
+      sourceFingerprint: 'a'.repeat(64), contentFingerprint: 'b'.repeat(64),
+      markerState: 'blocked', markerProblem: 'SillyTavern was unavailable.',
+      createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z',
+    }]}
+    busy={false}
+    onRetryMarker={() => undefined}
+  />);
+  assert.match(html, /Linked SillyTavern chats/);
+  assert.match(html, /Emberfall/);
+  assert.match(html, /Campaign anchor 7/);
+  assert.match(html, /marker blocked/);
+  assert.match(html, /Retry marker/);
 });
 
 test('route state explains pending and failed navigation with an explicit retry', () => {

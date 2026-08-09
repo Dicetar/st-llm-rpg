@@ -2,6 +2,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
 export * from './campaign.js';
+export * from './legacy-import.js';
 
 export const WIRE_VERSION = '1.0' as const;
 export const COMPANION_SERVICE = 'st-rpg-companion' as const;
@@ -24,6 +25,12 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('CAMPAIGN_REQUEST_CONFLICT'),
   Type.Literal('CAMPAIGN_HISTORY_CORRUPT'),
   Type.Literal('CAMPAIGN_STORE_UNAVAILABLE'),
+  Type.Literal('SILLYTAVERN_CHAT_UNAVAILABLE'),
+  Type.Literal('LEGACY_METADATA_NOT_FOUND'),
+  Type.Literal('LEGACY_IMPORT_INVALID'),
+  Type.Literal('LEGACY_IMPORT_STALE'),
+  Type.Literal('LEGACY_IMPORT_COLLISION'),
+  Type.Literal('CHAT_BINDING_NOT_FOUND'),
   Type.Literal('NOT_FOUND'),
   Type.Literal('INTERNAL_ERROR'),
 ]);
