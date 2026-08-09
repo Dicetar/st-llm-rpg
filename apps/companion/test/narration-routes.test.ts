@@ -208,6 +208,57 @@ test('explicit unlinked route preserves upstream status, content type, and fragm
   assert.equal(calls, 1);
 });
 
+test('unlinked client disconnect after streamed headers does not send a second error response', async t => {
+  let observeAbort!: () => void;
+  const aborted = new Promise<void>(resolve => { observeAbort = resolve; });
+  const app = build({
+    respond: async () => { throw new Error('wrong route'); },
+    forwardUnlinked: async (_exchange, _body, signal, consume) => {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
+          signal.addEventListener('abort', () => {
+            observeAbort();
+            controller.error(new Error('client disconnected after headers'));
+          }, { once: true });
+        },
+      });
+      await consume(new Response(stream, {
+        status: 200, headers: { 'content-type': 'text/event-stream' },
+      }));
+    },
+    models: async () => new Response('{}'),
+  });
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  t.after(() => app.close());
+  const address = app.server.address();
+  assert.ok(address && typeof address === 'object');
+
+  const controller = new AbortController();
+  const response = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+    method: 'POST', signal: controller.signal,
+    headers: {
+      'content-type': 'application/json',
+      'x-st-rpg-exchange': encodeNarrationExchange({ ...linked, route: { kind: 'unlinked' } }),
+    },
+    body: JSON.stringify({ model: 'qwen-test', stream: true, messages: [{ role: 'user', content: 'Hello' }] }),
+  });
+  assert.equal(response.status, 200);
+  const reader = response.body!.getReader();
+  const first = await reader.read();
+  assert.match(new TextDecoder().decode(first.value), /partial/);
+  controller.abort();
+  await Promise.race([
+    aborted,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('server did not observe unlinked disconnect')), 1_000)),
+  ]);
+  await new Promise(resolve => setTimeout(resolve, 30));
+
+  const status = await app.inject({ method: 'GET', url: '/api/narration/status' });
+  assert.equal(status.statusCode, 200, status.body);
+  assert.equal(status.json().latest.state, 'cancelled');
+});
+
 test('narration status gives an unlinked upstream HTTP failure a concrete recovery action', async t => {
   const status = new NarrationStatus();
   const app = build({

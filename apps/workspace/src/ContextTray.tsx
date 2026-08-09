@@ -13,6 +13,7 @@ import type {
   NarratorVisibility,
   Problem,
 } from '@st-llm-rpg/wire';
+import { createUuid } from './browser-uuid.js';
 
 class ContextApiError extends Error {
   constructor(readonly problem: Problem | null, fallback: string) {
@@ -197,8 +198,8 @@ export function ContextTray(props: {
         {
           method: 'PUT',
           body: JSON.stringify({
-            requestId: crypto.randomUUID(),
-            eventId: crypto.randomUUID(),
+            requestId: createUuid(),
+            eventId: createUuid(),
             expectedBindingRevision: selectedBinding.revision,
             expectedContextFocusRevision: selectedBinding.contextFocusRevision ?? 1,
             pins: draftPins,
@@ -217,7 +218,7 @@ export function ContextTray(props: {
       const next = await fetchJson<ContextPlan>('/api/context-plans', {
         method: 'POST',
         body: JSON.stringify({
-          requestId: crypto.randomUUID(),
+          requestId: createUuid(),
           campaignId: props.document.campaign.id,
           campaignRevision: selectedBinding.campaignAnchor,
           bindingId: selectedBinding.id,

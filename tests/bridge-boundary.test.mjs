@@ -14,7 +14,9 @@ test('production bridge owns only launcher and transient narration routing', () 
   assert.match(source, /generateData\.chat_completion_source/);
   assert.match(source, /makeLast/);
   assert.match(source, /stLlmRpgBinding/);
-  assert.match(source, /crypto\.randomUUID/);
+  assert.match(source, /function createUuid/);
+  assert.match(source, /getRandomValues/);
+  assert.doesNotMatch(source, /requestId:\s*crypto\.randomUUID/);
   assert.doesNotMatch(source, /oai_settings\.custom_url\s*=/);
   assert.doesNotMatch(source, /saveMetadata/);
   assert.doesNotMatch(source, /setExtensionPrompt/);

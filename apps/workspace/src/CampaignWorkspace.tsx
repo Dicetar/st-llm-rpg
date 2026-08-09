@@ -24,6 +24,7 @@ import {
 import type { ChatBindingDocument } from '@st-llm-rpg/wire';
 import LegacyImportPanel, { ChatBindingsPanel } from './LegacyImportPanel.js';
 import { ContextTray } from './ContextTray.js';
+import { createUuid } from './browser-uuid.js';
 
 export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'scene' | 'context' | 'history';
 
@@ -165,7 +166,7 @@ async function fetchJson<T>(path: string, signal?: AbortSignal, init: RequestIni
 }
 
 function newRequestId(): string {
-  return crypto.randomUUID();
+  return createUuid();
 }
 
 function conflictFrom(problem: Problem | null, campaignId: string, expectedRevision: number): RevisionConflict | null {

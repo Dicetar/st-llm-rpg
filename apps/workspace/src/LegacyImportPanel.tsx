@@ -8,6 +8,7 @@ import type {
   LegacyImportResult,
   Problem,
 } from '@st-llm-rpg/wire';
+import { createUuid } from './browser-uuid.js';
 
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
@@ -178,7 +179,7 @@ export default function LegacyImportPanel(props: {
       const applied = await requestJson<LegacyImportResult>('/api/migrations/legacy-import', {
         method: 'POST',
         body: JSON.stringify({
-          requestId: crypto.randomUUID(),
+          requestId: createUuid(),
           locator: preview.locator,
           sourceFingerprint: preview.sourceFingerprint,
           decision,

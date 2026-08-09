@@ -1,13 +1,13 @@
 import { main_api } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { chat_completion_sources, oai_settings } from '/scripts/openai.js';
-import { bindingRoute, encodeNarrationExchange, mergeExchangeHeader } from './wire.js?v=0.2.0';
+import { bindingRoute, encodeNarrationExchange, mergeExchangeHeader } from './wire.js?v=0.2.1';
 
 const LAUNCHER_ID = 'st-rpg-companion-launcher';
 const SETTINGS_KEY = 'stRpgCompanionBridge';
 const BINDING_META_KEY = 'stLlmRpgBinding';
 const COMPANION_PORT = 8002;
-const BRIDGE_VERSION = '0.2.0';
+const BRIDGE_VERSION = '0.2.1';
 const SILLYTAVERN_REVISION = '380e31e8c58d196969b6a0da74f431ba999c7e0a';
 const GENERATION_TYPES = new Set(['normal', 'regenerate', 'continue', 'swipe', 'quiet', 'impersonate']);
 const LINKED_GENERATION_TYPES = new Set(['normal', 'regenerate', 'continue', 'swipe']);
@@ -24,10 +24,24 @@ function companionUrl(path = '/') {
   return `http://${hostname}:${COMPANION_PORT}${path}`;
 }
 
+function createUuid() {
+  const webCrypto = globalThis.crypto;
+  if (typeof webCrypto?.randomUUID === 'function') return webCrypto.randomUUID();
+  if (typeof webCrypto?.getRandomValues !== 'function') {
+    throw new Error('This browser cannot create secure RPG Companion request IDs. Update the browser or open SillyTavern through a secure origin.');
+  }
+  const bytes = new Uint8Array(16);
+  webCrypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function hostId() {
   const settings = extension_settings[SETTINGS_KEY] ??= {};
   if (typeof settings.hostId !== 'string' || !settings.hostId) {
-    settings.hostId = crypto.randomUUID();
+    settings.hostId = createUuid();
     context()?.saveSettingsDebounced?.();
   }
   return settings.hostId;
@@ -76,7 +90,7 @@ async function generationInterceptor(_chat, _contextSize, abort, type) {
     pendingExchange = {
       protocol: 'st-rpg.narration',
       version: 1,
-      requestId: crypto.randomUUID(),
+      requestId: createUuid(),
       route,
       generation,
       locator: currentLocator(),

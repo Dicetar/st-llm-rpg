@@ -223,7 +223,7 @@ export function registerNarrationRoutes(
         httpStatus: result.status,
         problem: result.problem,
       });
-      if (reply.sent) return reply;
+      if (reply.sent || reply.raw.headersSent || reply.raw.writableEnded || reply.raw.destroyed) return reply;
       return reply.code(result.status).send(openAiError(result.problem));
     } finally {
       cancel.dispose();
