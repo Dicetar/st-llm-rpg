@@ -42,6 +42,7 @@ class ContextLegacySource implements LegacyChatSource {
   async read(): Promise<LegacyChatSnapshot> {
     return {
       locator,
+      sourceContentFingerprint: 'a'.repeat(64),
       envelope: {
         envelopeVersion: 1,
         campaign: {

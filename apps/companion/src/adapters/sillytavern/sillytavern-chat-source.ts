@@ -8,7 +8,6 @@ import type {
   LegacyChatSnapshot,
 } from '../../modules/legacy-import/legacy-import-journal.js';
 import {
-  LegacyChatSourceExpectedError,
   type LegacyChatSource,
 } from '../../modules/legacy-import/legacy-import-service.js';
 
@@ -36,6 +35,23 @@ function string(value: unknown): string {
 
 function markerMatches(value: unknown, marker: LegacyBindingMarker): boolean {
   return canonicalJson(value) === canonicalJson(marker);
+}
+
+function contentWithoutBindingMarker(chat: readonly unknown[]): readonly unknown[] {
+  const next = structuredClone(chat);
+  const header = object(next[0]) as ChatHeader | null;
+  const metadata = object(header?.chat_metadata);
+  if (header && metadata) {
+    const nextMetadata = structuredClone(metadata);
+    delete nextMetadata.stLlmRpgBinding;
+    if (Object.keys(nextMetadata).length === 0) delete header.chat_metadata;
+    else header.chat_metadata = nextMetadata;
+  }
+  return next;
+}
+
+function sourceContentFingerprint(chat: readonly unknown[]): string {
+  return sha256(contentWithoutBindingMarker(chat));
 }
 
 export class SillyTavernChatSource implements LegacyChatSource {
@@ -81,35 +97,33 @@ export class SillyTavernChatSource implements LegacyChatSource {
   async read(locator: LegacyChatLocator): Promise<LegacyChatSnapshot> {
     const chat = await this.readChat(locator);
     const header = object(chat[0]) as ChatHeader | null;
-    const metadata = object(header?.chat_metadata);
-    if (!header || !metadata || metadata.stLlmRpgCampaign === undefined) {
-      throw new LegacyChatSourceExpectedError(
-        'LEGACY_METADATA_NOT_FOUND',
-        'The selected saved chat has no stLlmRpgCampaign legacy metadata.',
-      );
-    }
+    if (!header) throw new Error('The saved chat header is not an object.');
+    const metadata = object(header.chat_metadata) ?? {};
     return {
       locator,
-      envelope: structuredClone(metadata.stLlmRpgCampaign),
+      ...(metadata.stLlmRpgCampaign === undefined ? {} : { envelope: structuredClone(metadata.stLlmRpgCampaign) }),
+      ...(metadata.stLlmRpgBinding === undefined ? {} : { bindingMarker: structuredClone(metadata.stLlmRpgBinding) }),
+      sourceContentFingerprint: sourceContentFingerprint(chat),
       sourceState: structuredClone(chat),
     };
   }
 
   async writeMarker(snapshot: LegacyChatSnapshot, marker: LegacyBindingMarker) {
     const current = await this.read(snapshot.locator);
-    if (sha256(current.envelope) !== sha256(snapshot.envelope)) {
+    if (current.sourceContentFingerprint !== snapshot.sourceContentFingerprint) {
       throw new Error('The saved chat changed after preview; marker overwrite was blocked.');
     }
     const chat = current.sourceState;
     if (!Array.isArray(chat) || chat.length === 0) throw new Error('The saved chat could not be prepared for marker write.');
     const header = object(chat[0]) as ChatHeader | null;
-    const metadata = object(header?.chat_metadata);
-    if (!header || !metadata) throw new Error('The saved chat header has no metadata object.');
+    if (!header) throw new Error('The saved chat header is not an object.');
+    const metadata = object(header.chat_metadata) ?? {};
     const existing = metadata.stLlmRpgBinding;
     if (existing !== undefined && !markerMatches(existing, marker)) {
       throw new Error('The saved chat already contains a different Chat Binding marker.');
     }
-    const legacyBefore = canonicalJson(metadata.stLlmRpgCampaign);
+    const hadLegacyBefore = metadata.stLlmRpgCampaign !== undefined;
+    const legacyBefore = hadLegacyBefore ? canonicalJson(metadata.stLlmRpgCampaign) : '';
     const nextHeader: ChatHeader = {
       ...structuredClone(header),
       chat_metadata: { ...structuredClone(metadata), stLlmRpgBinding: marker },
@@ -122,8 +136,12 @@ export class SillyTavernChatSource implements LegacyChatSource {
     if (!readbackMetadata || !markerMatches(readbackMetadata.stLlmRpgBinding, marker)) {
       throw new Error('SillyTavern did not read back the expected Chat Binding marker.');
     }
-    if (canonicalJson(readbackMetadata.stLlmRpgCampaign) !== legacyBefore) {
+    const hasLegacyAfter = readbackMetadata.stLlmRpgCampaign !== undefined;
+    if (hasLegacyAfter !== hadLegacyBefore || (hadLegacyBefore && canonicalJson(readbackMetadata.stLlmRpgCampaign) !== legacyBefore)) {
       throw new Error('Legacy Campaign metadata changed during marker write; the Binding is blocked.');
+    }
+    if (sourceContentFingerprint(readback) !== snapshot.sourceContentFingerprint) {
+      throw new Error('Saved chat content changed during marker write; the Binding is blocked.');
     }
     return { verified: true as const, legacyMetadataPreserved: true as const };
   }

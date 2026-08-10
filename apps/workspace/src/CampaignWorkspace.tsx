@@ -1350,6 +1350,12 @@ export default function CampaignWorkspace() {
                 <ChatBindingsPanel
                   bindings={bindings}
                   busy={busy}
+                  campaignId={displayed.campaign.id}
+                  campaignRevision={displayed.campaign.revision}
+                  onLinked={binding => setBindings(current => [
+                    ...current.filter(candidate => candidate.id !== binding.id),
+                    binding,
+                  ])}
                   onRetryMarker={bindingId => { void retryBindingMarker(bindingId); }}
                 />
               ) : null}

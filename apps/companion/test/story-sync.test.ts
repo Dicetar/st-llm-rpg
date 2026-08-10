@@ -24,6 +24,7 @@ class StorySyncLegacySource implements LegacyChatSource {
   async read(): Promise<LegacyChatSnapshot> {
     return {
       locator,
+      sourceContentFingerprint: 'b'.repeat(64),
       envelope: {
         envelopeVersion: 1,
         campaign: {

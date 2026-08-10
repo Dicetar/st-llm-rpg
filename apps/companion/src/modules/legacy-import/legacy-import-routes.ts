@@ -2,12 +2,14 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   ApplyLegacyImportRequestSchema,
   ChatBindingDocumentSchema,
+  CreateChatBindingRequestSchema,
   LegacyChatListItemSchema,
   LegacyImportPreviewSchema,
   LegacyImportResultSchema,
   PreviewLegacyImportRequestSchema,
   ProblemSchema,
   type ApplyLegacyImportRequest,
+  type CreateChatBindingRequest,
   type PreviewLegacyImportRequest,
   type ProblemCode,
 } from '@st-llm-rpg/wire';
@@ -16,7 +18,7 @@ import type { LegacyImportService } from './legacy-import-service.js';
 
 function statusFor(code: ProblemCode): number {
   if (code === 'LEGACY_METADATA_NOT_FOUND' || code === 'CHAT_BINDING_NOT_FOUND') return 404;
-  if (code === 'LEGACY_IMPORT_STALE' || code === 'LEGACY_IMPORT_COLLISION' || code === 'CAMPAIGN_REVISION_CONFLICT') return 409;
+  if (code === 'LEGACY_IMPORT_STALE' || code === 'LEGACY_IMPORT_COLLISION' || code === 'CHAT_BINDING_COLLISION' || code === 'CAMPAIGN_REVISION_CONFLICT') return 409;
   if (code === 'SILLYTAVERN_CHAT_UNAVAILABLE') return 503;
   if (code === 'LEGACY_IMPORT_INVALID' || code === 'CAMPAIGN_VALIDATION_FAILED') return 400;
   return 503;
@@ -90,6 +92,28 @@ export function registerLegacyImportRoutes(app: FastifyInstance, service: Legacy
   }, async (request, reply) => {
     const { campaignId } = request.params as { campaignId: string };
     return send(reply, await service.bindings(campaignId, String(request.id)));
+  });
+
+  app.post('/api/campaigns/:campaignId/chat-bindings', {
+    schema: {
+      params: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['campaignId'],
+        properties: { campaignId: { type: 'string', minLength: 1, maxLength: 128 } },
+      },
+      body: CreateChatBindingRequestSchema,
+      response: {
+        201: ChatBindingDocumentSchema,
+        400: ProblemSchema,
+        404: ProblemSchema,
+        409: ProblemSchema,
+        503: ProblemSchema,
+      },
+    },
+  }, async (request, reply) => {
+    const { campaignId } = request.params as { campaignId: string };
+    return send(reply, await service.createBinding(campaignId, request.body as CreateChatBindingRequest), 201);
   });
 
   app.post('/api/chat-bindings/:bindingId/retry-marker', {

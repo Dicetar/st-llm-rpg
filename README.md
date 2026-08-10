@@ -4,7 +4,7 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 
 ## Status
 
-- **Playable preview:** `0.3.0-preview.10` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` supervisor. The imported Campaign, linked narration, Campaign Book editing, Context Tray, content-free narration status, recoverable atomic Story Sync Review Inbox, reviewable JSON addon inbox, verified backup/restore catalog, immutable history, staged compatibility verification, and explicit fallback/companion mode switch are available now.
+- **Playable preview:** `0.3.0-preview.11` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` supervisor. Blank or imported Campaigns can explicitly link saved SillyTavern chats in Campaign Book; linked narration, Campaign editing, Context Tray, content-free narration status, recoverable atomic Story Sync Review Inbox, reviewable JSON addon inbox, verified backup/restore catalog, immutable history, staged compatibility verification, and explicit fallback/companion mode switch are available now.
 - **Working product:** `extension/st-rpg-campaign` is the tested SillyTavern fallback used today.
 - **Durable companion authority:** issue #33 owns Campaign truth in SQLite, with immutable history, reconstruction, stale-write protection, verified backup/restore, and restart evidence.
 - **Context planning milestone:** issue #36 adds revision-pinned Context Plans, visibility, ordered per-chat pins, exact/Scene/FTS5/relation retrieval, token budgets, and the inspectable Context Tray.

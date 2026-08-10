@@ -90,6 +90,7 @@ import {
 } from './campaign-projections.js';
 import { reconstructCampaignState, verifyCampaignDatabase } from './campaign-verifier.js';
 import type {
+  ChatBindingCreate,
   LegacyBindingLink,
   LegacyCampaignImport,
   LegacyImportJournal,
@@ -488,6 +489,43 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
         requestId: input.requestId,
         bindingOperation: input.bindingOperation,
       });
+      return { campaignId: input.campaignId, campaignRevision: input.campaignRevision, binding: input.binding };
+    })));
+  }
+
+  async createChatBinding(input: ChatBindingCreate): Promise<StoredLegacyImport> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const exact = this.findBindingBySource(input.binding.sourceFingerprint);
+      if (exact) {
+        if (exact.campaign_id !== input.campaignId) {
+          throw new CampaignExpectedError(
+            'CHAT_BINDING_COLLISION',
+            'This SillyTavern chat is already linked to another Campaign.',
+            { bindingId: exact.binding_id, campaignId: exact.campaign_id },
+          );
+        }
+        return this.storedLegacyImport(exact);
+      }
+      const campaign = this.requireCampaign(input.campaignId);
+      if (Number(campaign.current_revision) !== input.campaignRevision) {
+        throw new CampaignExpectedError(
+          'CAMPAIGN_REVISION_CONFLICT',
+          `Campaign changed from revision ${input.campaignRevision} to ${campaign.current_revision} before the Binding could be created.`,
+          { campaignId: input.campaignId, expectedRevision: input.campaignRevision, actualRevision: Number(campaign.current_revision) },
+        );
+      }
+      const locatorCollision = this.#database.prepare(`
+        SELECT * FROM chat_bindings WHERE locator_fingerprint = ?
+        ORDER BY updated_at DESC, binding_id LIMIT 1
+      `).get(input.locatorFingerprint) as ChatBindingRow | undefined;
+      if (locatorCollision) {
+        throw new CampaignExpectedError(
+          'CHAT_BINDING_COLLISION',
+          'This SillyTavern chat already has a different Chat Binding.',
+          { bindingId: locatorCollision.binding_id, campaignId: locatorCollision.campaign_id },
+        );
+      }
+      this.persistBinding(input);
       return { campaignId: input.campaignId, campaignRevision: input.campaignRevision, binding: input.binding };
     })));
   }
@@ -1539,6 +1577,32 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
     bindingOperation: unknown;
   }): void {
     const binding = input.binding;
+    this.persistBinding(input);
+    this.#database.prepare(`
+      INSERT INTO legacy_import_sources(
+        source_fingerprint, content_fingerprint, locator_fingerprint, campaign_id,
+        binding_id, legacy_revision, envelope_json, imported_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      binding.sourceFingerprint,
+      binding.contentFingerprint,
+      input.locatorFingerprint,
+      binding.campaignId,
+      binding.id,
+      input.legacyRevision,
+      input.envelopeJson,
+      binding.createdAt,
+    );
+  }
+
+  private persistBinding(input: {
+    binding: ChatBindingDocument;
+    locatorFingerprint: string;
+    bindingEventId: string;
+    requestId: string;
+    bindingOperation: unknown;
+  }): void {
+    const binding = input.binding;
     this.#database.prepare(`
       INSERT INTO chat_bindings(
         binding_id, campaign_id, binding_revision, campaign_anchor, locator_json,
@@ -1565,21 +1629,6 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       INSERT INTO chat_binding_events(binding_id, revision, event_id, request_id, operation_kind, operation_json, accepted_at)
       VALUES (?, 1, ?, ?, 'create_chat_binding', ?, ?)
     `).run(binding.id, input.bindingEventId, input.requestId, canonicalJson(input.bindingOperation), binding.createdAt);
-    this.#database.prepare(`
-      INSERT INTO legacy_import_sources(
-        source_fingerprint, content_fingerprint, locator_fingerprint, campaign_id,
-        binding_id, legacy_revision, envelope_json, imported_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      binding.sourceFingerprint,
-      binding.contentFingerprint,
-      input.locatorFingerprint,
-      binding.campaignId,
-      binding.id,
-      input.legacyRevision,
-      input.envelopeJson,
-      binding.createdAt,
-    );
   }
 
   private findHead(campaignId: string): CampaignJournalHead | undefined {

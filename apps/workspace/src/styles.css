@@ -160,6 +160,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .chat-bindings-panel > summary > span:first-of-type { display: grid; flex: 1; gap: 0.16rem; }
 .chat-bindings-panel > summary small { color: #a99c89; font-weight: 400; }
 .chat-bindings-panel > summary > span:last-child { color: #d9c7aa; font-size: 0.8rem; white-space: nowrap; }
+.chat-link-form { border-top: 1px solid #4c4032; padding: 0.8rem; }
+.chat-link-form__actions { display: flex; align-items: center; gap: 0.55rem; }
+.chat-link-form .error-banner, .chat-link-form .success-banner, .chat-link-form .empty-state { grid-column: 1 / -1; margin: 0; }
 .chat-bindings-list { display: grid; gap: 0.65rem; border-top: 1px solid #4c4032; padding: 0.8rem; }
 .chat-binding { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; border-left: 3px solid #47755a; padding: 0.65rem 0.75rem; background: rgba(40, 92, 59, 0.16); }
 .chat-binding--blocked { border-left-color: #a9554e; background: rgba(114, 40, 34, 0.2); }
@@ -466,6 +469,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .record-actions button, .conflict-banner button, .canonical-update-banner button, .historical-banner button { width: 100%; }
   .migration-intro, .binding-result, .chat-binding { align-items: stretch; flex-direction: column; }
   .legacy-source-form { grid-template-columns: 1fr; }
+  .chat-link-form__actions { display: grid; grid-template-columns: 1fr 1fr; }
   .legacy-source-form button, .binding-result button, .chat-binding button { width: 100%; }
   .binding-result__actions { display: grid; grid-template-columns: 1fr; }
   .context-tray__grid, .context-profile-numbers, .context-facts { grid-template-columns: 1fr; }

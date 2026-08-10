@@ -78,4 +78,22 @@ test('SillyTavern adapter uses CSRF session, writes only additive marker, and ve
   const chatWithoutMarker = structuredClone(chat);
   delete (chatWithoutMarker[0] as { chat_metadata: Record<string, unknown> }).chat_metadata.stLlmRpgBinding;
   assert.deepEqual(chatWithoutMarker, chatBefore, 'the additive marker is the only saved-chat change');
+
+  const freshLocator = { kind: 'character' as const, chatId: 'Fresh Chat', avatar: 'Narrator.png' };
+  chat = [{ chat_metadata: {}, user_name: 'Player', character_name: 'Narrator' }];
+  const freshBefore = structuredClone(chat);
+  const freshSnapshot = await source.read(freshLocator);
+  assert.equal(freshSnapshot.envelope, undefined);
+  assert.match(freshSnapshot.sourceContentFingerprint, /^[a-f0-9]{64}$/);
+  await source.writeMarker(freshSnapshot, {
+    schema: 'st-rpg.chat-binding-marker', version: '1.0', bindingId: 'binding-fresh', campaignId: 'campaign-fresh',
+  });
+  const freshMetadata = (chat[0] as { chat_metadata: Record<string, unknown> }).chat_metadata;
+  assert.equal(freshMetadata.stLlmRpgCampaign, undefined);
+  assert.deepEqual(freshMetadata.stLlmRpgBinding, {
+    schema: 'st-rpg.chat-binding-marker', version: '1.0', bindingId: 'binding-fresh', campaignId: 'campaign-fresh',
+  });
+  const freshWithoutMarker = structuredClone(chat);
+  delete (freshWithoutMarker[0] as { chat_metadata: Record<string, unknown> }).chat_metadata.stLlmRpgBinding;
+  assert.deepEqual(freshWithoutMarker, freshBefore, 'fresh binding also changes only the additive marker');
 });

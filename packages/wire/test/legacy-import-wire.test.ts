@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Value } from '@sinclair/typebox/value';
 import {
+  CreateChatBindingRequestSchema,
   isChatBindingDocument,
   isLegacyImportPreview,
 } from '../src/index.js';
@@ -51,4 +53,15 @@ test('binding document exposes marker verification without conflating Campaign r
   assert.equal(isChatBindingDocument(binding), true);
   assert.equal(isChatBindingDocument({ ...binding, campaignAnchor: 0 }), false);
   assert.equal(isChatBindingDocument({ ...binding, markerState: 'unknown' }), false);
+});
+
+test('fresh Chat Binding request pins explicit Campaign revision and saved-chat locator', () => {
+  const request = {
+    requestId: 'link-fresh-chat',
+    expectedCampaignRevision: 7,
+    locator,
+  };
+  assert.equal(Value.Check(CreateChatBindingRequestSchema, request), true);
+  assert.equal(Value.Check(CreateChatBindingRequestSchema, { ...request, expectedCampaignRevision: 0 }), false);
+  assert.equal(Value.Check(CreateChatBindingRequestSchema, { ...request, automatic: true }), false);
 });

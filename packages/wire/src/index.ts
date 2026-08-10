@@ -37,6 +37,7 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('LEGACY_IMPORT_STALE'),
   Type.Literal('LEGACY_IMPORT_COLLISION'),
   Type.Literal('CHAT_BINDING_NOT_FOUND'),
+  Type.Literal('CHAT_BINDING_COLLISION'),
   Type.Literal('CONTEXT_CORE_OVER_BUDGET'),
   Type.Literal('CONTEXT_PINS_OVER_BUDGET'),
   Type.Literal('CONTEXT_STALE_PIN'),

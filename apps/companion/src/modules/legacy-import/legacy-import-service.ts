@@ -4,6 +4,7 @@ import type {
   ApplyLegacyImportRequest,
   CampaignSummary,
   ChatBindingDocument,
+  CreateChatBindingRequest,
   LegacyChatListItem,
   LegacyChatLocator,
   LegacyImportPreview,
@@ -148,6 +149,118 @@ export class LegacyImportService {
     }
   }
 
+  async createBinding(
+    campaignId: string,
+    request: CreateChatBindingRequest,
+  ): Promise<Outcome<ChatBindingDocument>> {
+    let snapshot: LegacyChatSnapshot;
+    try {
+      snapshot = await this.#source.read(request.locator);
+    } catch (error) {
+      return this.sourceProblem(request.requestId, error);
+    }
+    if (snapshot.envelope !== undefined) {
+      return failure(
+        request.requestId,
+        'CHAT_BINDING_COLLISION',
+        'This chat contains fallback Campaign data. Use "Import a fallback chat" so its RPG truth is reviewed before linking.',
+      );
+    }
+    if (!/^[a-f0-9]{64}$/.test(snapshot.sourceContentFingerprint)) {
+      return failure(
+        request.requestId,
+        'SILLYTAVERN_CHAT_UNAVAILABLE',
+        'SillyTavern did not provide a stable saved-chat fingerprint. The chat was not linked.',
+      );
+    }
+
+    const locatorFingerprint = sha256(request.locator);
+    const sourceFingerprint = sha256({ kind: 'sillytavern-chat-binding', locator: request.locator });
+    let lookup: LegacyImportLookup;
+    try {
+      lookup = await this.#journal.lookupLegacyImport(
+        sourceFingerprint,
+        snapshot.sourceContentFingerprint,
+        locatorFingerprint,
+      );
+    } catch (error) {
+      return this.bindingProblem(request.requestId, error);
+    }
+    const existing = lookup.exact ?? lookup.sameLocator;
+    if (existing) {
+      if (existing.campaignId !== campaignId) {
+        return failure(
+          request.requestId,
+          'CHAT_BINDING_COLLISION',
+          'This SillyTavern chat is already linked to another Campaign. Nothing changed.',
+          { bindingId: existing.id, campaignId: existing.campaignId },
+        );
+      }
+      if (existing.markerState === 'verified'
+        && canonicalJson(snapshot.bindingMarker) === canonicalJson(marker(existing))) {
+        return { ok: true, value: existing };
+      }
+      return this.retryMarker(existing.id, request.requestId);
+    }
+    if (snapshot.bindingMarker !== undefined) {
+      return failure(
+        request.requestId,
+        'CHAT_BINDING_COLLISION',
+        'This SillyTavern chat already carries an unknown Chat Binding marker. Nothing was overwritten.',
+      );
+    }
+
+    try {
+      const campaignRevision = await this.#journal.readCampaignRevision(campaignId);
+      if (campaignRevision !== request.expectedCampaignRevision) {
+        return failure(
+          request.requestId,
+          'CAMPAIGN_REVISION_CONFLICT',
+          `Campaign changed from revision ${request.expectedCampaignRevision} to ${campaignRevision}. Reload it before linking this chat.`,
+          { campaignId, expectedRevision: request.expectedCampaignRevision, actualRevision: campaignRevision },
+        );
+      }
+      const createdAt = new Date().toISOString();
+      const binding: ChatBindingDocument = {
+        schema: 'st-rpg.chat-binding',
+        version: '1.0',
+        id: randomUUID(),
+        campaignId,
+        revision: 1,
+        campaignAnchor: campaignRevision,
+        locator: request.locator,
+        sourceFingerprint,
+        contentFingerprint: snapshot.sourceContentFingerprint,
+        markerState: 'pending',
+        createdAt,
+        updatedAt: createdAt,
+      };
+      const stored = await this.#journal.createChatBinding({
+        requestId: request.requestId,
+        campaignId,
+        campaignRevision,
+        binding,
+        locatorFingerprint,
+        bindingEventId: randomUUID(),
+        bindingOperation: {
+          kind: 'create_chat_binding',
+          campaignId,
+          locator: request.locator,
+          campaignAnchor: campaignRevision,
+        },
+      });
+      try {
+        await this.#source.writeMarker(snapshot, marker(stored.binding));
+        return { ok: true, value: await this.recordMarkerOutcome(stored.binding, 'verified') };
+      } catch (error) {
+        const message = `Binding marker could not be verified: ${error instanceof Error ? error.message : String(error)}`;
+        return { ok: true, value: await this.recordMarkerOutcome(stored.binding, 'blocked', message) };
+      }
+    } catch (error) {
+      return this.bindingProblem(request.requestId, error);
+    }
+  }
+
   async retryMarker(bindingId: string, requestId: string): Promise<Outcome<ChatBindingDocument>> {
     let binding: ChatBindingDocument;
     try {
@@ -161,8 +274,15 @@ export class LegacyImportService {
     } catch (error) {
       return this.sourceProblem(requestId, error);
     }
-    if (sha256(snapshot.envelope) !== binding.contentFingerprint) {
-      const message = 'The saved chat Campaign changed after import. Marker retry was blocked; preview the chat again.';
+    const freshBinding = binding.sourceFingerprint === sha256({
+      kind: 'sillytavern-chat-binding',
+      locator: binding.locator,
+    });
+    const contentMatches = freshBinding
+      ? snapshot.envelope === undefined
+      : snapshot.envelope !== undefined && sha256(snapshot.envelope) === binding.contentFingerprint;
+    if (!contentMatches) {
+      const message = 'The saved chat Campaign changed after import. Marker retry was blocked; preview the fallback chat again.';
       try {
         return { ok: true, value: await this.recordMarkerOutcome(binding, 'blocked', message) };
       } catch (error) {
@@ -266,6 +386,12 @@ export class LegacyImportService {
       snapshot = await this.#source.read(locator);
     } catch (error) {
       throw new LegacySourceFailure(error);
+    }
+    if (snapshot.envelope === undefined) {
+      throw new LegacySourceFailure(new LegacyChatSourceExpectedError(
+        'LEGACY_METADATA_NOT_FOUND',
+        "The selected saved chat has no fallback Campaign metadata. Link it from the Campaign's Linked SillyTavern chats panel instead.",
+      ));
     }
     const inspection = inspectLegacyEnvelope(snapshot.envelope);
     const contentFingerprint = sha256(snapshot.envelope);
@@ -420,6 +546,17 @@ export class LegacyImportService {
       requestId,
       'CAMPAIGN_STORE_UNAVAILABLE',
       `Campaign authority could not complete the legacy import: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  private bindingProblem<T>(requestId: string, error: unknown): Outcome<T> {
+    if (error instanceof CampaignExpectedError) {
+      return failure(requestId, error.code, error.message, error.details);
+    }
+    return failure(
+      requestId,
+      'CAMPAIGN_STORE_UNAVAILABLE',
+      `Campaign authority could not create the Chat Binding: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 

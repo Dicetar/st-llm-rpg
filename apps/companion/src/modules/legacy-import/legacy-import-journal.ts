@@ -32,6 +32,16 @@ export type LegacyBindingLink = Readonly<{
   bindingOperation: unknown;
 }>;
 
+export type ChatBindingCreate = Readonly<{
+  requestId: string;
+  campaignId: string;
+  campaignRevision: number;
+  binding: ChatBindingDocument;
+  locatorFingerprint: string;
+  bindingEventId: string;
+  bindingOperation: unknown;
+}>;
+
 export type StoredLegacyImport = Readonly<{
   campaignId: string;
   campaignRevision: number;
@@ -51,6 +61,7 @@ export interface LegacyImportJournal {
   lookupLegacyImport(sourceFingerprint: string, contentFingerprint: string, locatorFingerprint: string): Promise<LegacyImportLookup>;
   importLegacyCampaign(input: LegacyCampaignImport): Promise<StoredLegacyImport>;
   linkLegacyBinding(input: LegacyBindingLink): Promise<StoredLegacyImport>;
+  createChatBinding(input: ChatBindingCreate): Promise<StoredLegacyImport>;
   readBinding(bindingId: string): Promise<ChatBindingDocument>;
   listBindings(campaignId: string): Promise<readonly ChatBindingDocument[]>;
   recordMarkerOutcome(input: LegacyMarkerOutcome): Promise<ChatBindingDocument>;
@@ -72,6 +83,8 @@ export type LegacySourceMarkerResult = Readonly<{
 
 export type LegacyChatSnapshot = Readonly<{
   locator: LegacyChatLocator;
-  envelope: unknown;
+  envelope?: unknown;
+  bindingMarker?: unknown;
+  sourceContentFingerprint: string;
   sourceState?: unknown;
 }>;

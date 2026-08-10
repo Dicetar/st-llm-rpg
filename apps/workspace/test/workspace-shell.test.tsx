@@ -259,6 +259,9 @@ test('Chat Binding inspection stays available after the import result is gone', 
       createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z',
     }]}
     busy={false}
+    campaignId="campaign-1"
+    campaignRevision={7}
+    onLinked={() => undefined}
     onRetryMarker={() => undefined}
   />);
   assert.match(html, /Linked SillyTavern chats/);
@@ -266,6 +269,8 @@ test('Chat Binding inspection stays available after the import result is gone', 
   assert.match(html, /Campaign anchor 7/);
   assert.match(html, /marker blocked/);
   assert.match(html, /Retry marker/);
+  assert.match(html, /Link a saved SillyTavern chat/);
+  assert.match(html, /Link chat/);
 });
 
 test('Context Tray keeps profile, ordered pins, planning evidence, and privacy in one routed surface', () => {

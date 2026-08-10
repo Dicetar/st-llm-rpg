@@ -100,6 +100,13 @@ export const ApplyLegacyImportRequestSchema = Type.Object({
 }, { additionalProperties: false });
 export type ApplyLegacyImportRequest = Static<typeof ApplyLegacyImportRequestSchema>;
 
+export const CreateChatBindingRequestSchema = Type.Object({
+  requestId: Identifier,
+  expectedCampaignRevision: Type.Integer({ minimum: 1 }),
+  locator: LegacyChatLocatorSchema,
+}, { additionalProperties: false });
+export type CreateChatBindingRequest = Static<typeof CreateChatBindingRequestSchema>;
+
 export const ChatBindingDocumentSchema = Type.Object({
   schema: Type.Literal('st-rpg.chat-binding'),
   version: Type.Literal('1.0'),

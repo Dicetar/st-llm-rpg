@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.10` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains preserved. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
+Version `0.3.0-preview.11` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains preserved. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
 
 ## Start
 
@@ -15,9 +15,9 @@ Run `Wayfinder.cmd status` for a read-only stack report. `Wayfinder.cmd stop` dr
 
 ## Play path
 
-The currently imported and linked Campaign is ready for use:
+Create or open a Campaign, then make its chat link explicit:
 
-1. In Campaign Book, select the Campaign.
+1. In Campaign Book, select the Campaign. Expand **Linked SillyTavern chats**, choose a saved chat without fallback Campaign metadata, and press **Link chat**. SQLite accepts one Binding Event first; the companion then writes and reads back only the small SillyTavern Binding marker. Chats with fallback RPG data stay in the separate reviewed import path.
 2. Edit Actors, Items, Quests, Places, and the Current Scene. Each accepted edit advances immutable Campaign history; stale tabs cannot overwrite a newer revision.
 3. Open Context Tray. Confirm the linked chat, exact narrator model profile, automatic budget, and any manual pins. Use **Build Context Plan** for an inspectable dry run with no model call.
 4. In SillyTavern, select the same exact model ID as the saved narrator profile and chat normally. The bridge routes linked generations through one deterministic Context Plan and one LM Studio call. The complete answer is withheld until accepted, so Stop cannot leave partial companion text.
@@ -27,7 +27,7 @@ The currently imported and linked Campaign is ready for use:
 8. Open **Backups and Restore** in Campaign Book. Today’s verified daily backup appears automatically. Create labelled backups before risky edits; **Preview restore** verifies file identity, hash, and Campaign history before the destructive restore action becomes available. Restore creates another verified safety backup first.
 9. To bulk-author outside the browser, edit `campaign-content/*.json`, open **JSON addon inbox**, choose the target Campaign, and preview. Apply is enabled only for a blocker-free exact manifest diff; it creates a verified pre-import backup and one Campaign revision.
 
-An existing fallback chat can be imported through **Import a fallback chat**. Import is previewed, backed up, and explicit; legacy metadata stays intact. Creating a brand-new Campaign works, but creating a brand-new chat binding without legacy import is not yet part of this preview.
+An existing fallback chat can be imported through **Import a fallback chat**. Import is previewed, backed up, and explicit; legacy metadata stays intact. A fresh saved chat is linked directly inside the selected Campaign's **Linked SillyTavern chats** block. Linking is never automatic.
 
 ## What is usable now
 
@@ -35,6 +35,7 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - create, edit, and archive Actors, Items, Quests, and Places;
 - editable Current Scene and read-only historical revisions;
 - explicit legacy import and verified Chat Binding marker;
+- explicit fresh-chat linking for blank or existing Campaigns, with collision checks and marker readback;
 - deterministic exact, Scene, FTS, and relation Context planning with ordered manual pins;
 - exact narrator model profiles and token budgets;
 - linked normal, regenerate, continue, swipe, and Stop proxy behavior at the server seam;
@@ -63,7 +64,6 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - The additional physical Android production-bridge rerun was explicitly deferred; do not infer that it passed. Sanitized desktop evidence is in `docs/evidence/production-narration-desktop-2026-08-09.json`.
 - The supervisor, backup/restore, and same-pin staged update path have live desktop evidence in `docs/evidence/production-compatibility-stage-desktop-2026-08-10.json`. A real changed-pin switch plus injected post-switch rollback remains a cutover acceptance gate.
 - The fallback-to-companion desktop round-trip, verified backup/export/divergence report, owned shutdown, verified-Binding admission, and preserved inactive extension slots have sanitized evidence in `docs/evidence/production-mode-roundtrip-desktop-2026-08-10.json`.
-- New blank Campaigns cannot yet create a fresh Chat Binding from Campaign Book; use the already-linked Campaign or import an existing fallback chat.
 - Live Story Sync remains model-dependent. A conservative real-model desktop trace passed the human-review safety boundary; sanitized evidence lives in `docs/evidence/production-story-sync-desktop-2026-08-10.json`. Physical Android review remains deferred, not passed.
 - Rich addon coverage beyond Actors, Items, active/completed Quests, Places, and the simplified current Scene; full real-campaign mode-switch evidence; and final changed-pin rollback evidence remain active #39/#40 work. Addon files with unsupported fields show explicit warnings.
 - LM Studio model loading and unloading remains manual by design.

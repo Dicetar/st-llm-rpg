@@ -9,6 +9,7 @@ import { SqliteCampaignJournal } from '../src/adapters/sqlite/campaign-journal.j
 import { buildCompanion } from '../src/app.js';
 import { readCompanionConfig } from '../src/config.js';
 import { inspectLegacyEnvelope } from '../src/modules/legacy-import/legacy-envelope.js';
+import { sha256 } from '../src/modules/campaign/campaign-state.js';
 import {
   LegacyImportService,
   type LegacyChatSnapshot,
@@ -64,10 +65,13 @@ test('malformed legacy envelope produces a previewable validation report instead
 });
 
 const firstLocator: LegacyChatLocator = { kind: 'character', chatId: 'Emberfall - 1', avatar: 'Seraphine.png' };
+const freshLocator: LegacyChatLocator = { kind: 'character', chatId: 'Fresh Adventure', avatar: 'Seraphine.png' };
 
 class FakeLegacySource implements LegacyChatSource {
   envelope: unknown = legacyEnvelope();
   markerFailure = '';
+  freshContentRevision = 0;
+  freshBindingMarker: unknown;
   readonly markers: unknown[] = [];
 
   async list() {
@@ -79,16 +83,35 @@ class FakeLegacySource implements LegacyChatSource {
       lastModified: '2026-08-09T12:00:00.000Z',
       hasLegacyCampaign: true,
       legacyRevision: 7,
+    }, {
+      locator: freshLocator,
+      title: freshLocator.chatId,
+      fileSize: '1 KB',
+      messageCount: 0,
+      lastModified: '2026-08-09T13:00:00.000Z',
+      hasLegacyCampaign: false,
     }];
   }
 
   async read(locator: LegacyChatLocator): Promise<LegacyChatSnapshot> {
-    return { locator, envelope: structuredClone(this.envelope) };
+    if (locator.chatId === freshLocator.chatId) {
+      return {
+        locator,
+        ...(this.freshBindingMarker === undefined ? {} : { bindingMarker: structuredClone(this.freshBindingMarker) }),
+        sourceContentFingerprint: sha256({ locator, messagesRevision: this.freshContentRevision }),
+      };
+    }
+    return {
+      locator,
+      envelope: structuredClone(this.envelope),
+      sourceContentFingerprint: sha256({ locator, envelope: this.envelope }),
+    };
   }
 
-  async writeMarker(_snapshot: LegacyChatSnapshot, marker: unknown) {
+  async writeMarker(snapshot: LegacyChatSnapshot, marker: unknown) {
     if (this.markerFailure) throw new Error(this.markerFailure);
     this.markers.push(structuredClone(marker));
+    if (snapshot.locator.chatId === freshLocator.chatId) this.freshBindingMarker = structuredClone(marker);
     return { verified: true as const, legacyMetadataPreserved: true as const };
   }
 }
@@ -223,6 +246,46 @@ test('legacy migration HTTP boundary lists, previews, imports, and exposes Bindi
   });
   assert.equal(campaignBindings.statusCode, 200, campaignBindings.body);
   assert.equal(campaignBindings.json()[0].id, applied.json().binding.id);
+
+  const created = await app.inject({
+    method: 'POST', url: '/api/campaigns', payload: { requestId: 'fresh-campaign', title: 'Fresh Campaign' },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  source.markerFailure = 'first fresh marker save unavailable';
+  const linked = await app.inject({
+    method: 'POST',
+    url: `/api/campaigns/${created.json().campaignId}/chat-bindings`,
+    payload: {
+      requestId: 'fresh-chat-binding',
+      expectedCampaignRevision: created.json().revision,
+      locator: freshLocator,
+    },
+  });
+  assert.equal(linked.statusCode, 201, linked.body);
+  assert.equal(linked.json().markerState, 'blocked');
+  assert.equal(linked.json().revision, 2);
+  assert.equal(linked.json().campaignAnchor, 1);
+  source.markerFailure = '';
+  source.freshContentRevision = 1;
+  const retriedFresh = await app.inject({
+    method: 'POST', url: `/api/chat-bindings/${linked.json().id}/retry-marker`,
+  });
+  assert.equal(retriedFresh.statusCode, 200, retriedFresh.body);
+  assert.equal(retriedFresh.json().markerState, 'verified');
+  assert.equal(retriedFresh.json().revision, 3);
+  assert.equal((source.freshBindingMarker as { bindingId?: string }).bindingId, linked.json().id);
+  const linkedAgain = await app.inject({
+    method: 'POST',
+    url: `/api/campaigns/${created.json().campaignId}/chat-bindings`,
+    payload: {
+      requestId: 'fresh-chat-binding-repeat',
+      expectedCampaignRevision: created.json().revision,
+      locator: freshLocator,
+    },
+  });
+  assert.equal(linkedAgain.statusCode, 201, linkedAgain.body);
+  assert.equal(linkedAgain.json().id, linked.json().id);
+  assert.equal(linkedAgain.json().revision, 3);
   const missingRetry = await app.inject({
     method: 'POST', url: '/api/chat-bindings/missing-binding/retry-marker',
   });

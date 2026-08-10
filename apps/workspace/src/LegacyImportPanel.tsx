@@ -79,14 +79,117 @@ export function ChatBindingsPanel(props: {
   bindings: readonly ChatBindingDocument[];
   busy: boolean;
   onRetryMarker: (bindingId: string) => void;
+  campaignId?: string;
+  campaignRevision?: number;
+  onLinked?: (binding: ChatBindingDocument) => void;
 }) {
+  const [chats, setChats] = useState<readonly LegacyChatListItem[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState('');
+  const [loadingChats, setLoadingChats] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState('');
+  const [linkMessage, setLinkMessage] = useState('');
   const attention = props.bindings.filter(binding => binding.markerState !== 'verified').length;
+  const boundLocators = useMemo(
+    () => new Set(props.bindings.map(binding => JSON.stringify(binding.locator))),
+    [props.bindings],
+  );
+  const availableChats = useMemo(
+    () => chats.filter(chat => !chat.hasLegacyCampaign && !boundLocators.has(JSON.stringify(chat.locator))),
+    [boundLocators, chats],
+  );
+  const selected = selectedIndex === '' ? null : availableChats[Number(selectedIndex)] ?? null;
+
+  async function loadChats() {
+    if (!props.campaignId) return;
+    setLoadingChats(true);
+    setLinkError('');
+    try {
+      setChats(await requestJson<LegacyChatListItem[]>('/api/migrations/legacy-chats'));
+      setSelectedIndex('');
+    } catch (value) {
+      setLinkError(value instanceof Error ? value.message : String(value));
+    } finally {
+      setLoadingChats(false);
+    }
+  }
+
+  useEffect(() => {
+    setLinkMessage('');
+    setLinkError('');
+    void loadChats();
+    // Refresh on Campaign switch. Further saved-chat reads stay explicit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.campaignId]);
+
+  async function linkChat(event: FormEvent) {
+    event.preventDefault();
+    if (!props.campaignId || !props.campaignRevision || !selected) return;
+    setLinking(true);
+    setLinkError('');
+    setLinkMessage('');
+    try {
+      const binding = await requestJson<ChatBindingDocument>(
+        `/api/campaigns/${encodeURIComponent(props.campaignId)}/chat-bindings`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            requestId: createUuid(),
+            expectedCampaignRevision: props.campaignRevision,
+            locator: selected.locator,
+          }),
+        },
+      );
+      props.onLinked?.(binding);
+      setLinkMessage(binding.markerState === 'verified'
+        ? `${selected.title} is linked and verified.`
+        : `${selected.title} is linked, but its marker needs attention.`);
+      await loadChats();
+    } catch (value) {
+      setLinkError(value instanceof Error ? value.message : String(value));
+    } finally {
+      setLinking(false);
+    }
+  }
+
   return (
-    <details className="chat-bindings-panel" open={attention > 0}>
+    <details className="chat-bindings-panel" open={attention > 0 || props.bindings.length === 0}>
       <summary>
         <span><strong>Linked SillyTavern chats</strong><small>Durable Campaign ownership and source markers</small></span>
         <span>{props.bindings.length}{attention > 0 ? ` · ${attention} needs attention` : ''}</span>
       </summary>
+      {props.campaignId && props.campaignRevision ? (
+        <form className="legacy-source-form chat-link-form" onSubmit={linkChat}>
+          <label>
+            <span>Link a saved SillyTavern chat</span>
+            <select
+              value={selectedIndex}
+              onChange={event => setSelectedIndex(event.target.value)}
+              disabled={props.busy || linking || loadingChats}
+            >
+              <option value="">{loadingChats ? 'Reading saved chats…' : 'Choose an unlinked chat'}</option>
+              {availableChats.map((chat, index) => (
+                <option key={`${chat.locator.kind}:${chat.locator.chatId}:${index}`} value={index}>
+                  {chat.title} · {chat.messageCount} messages
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="chat-link-form__actions">
+            <button type="submit" disabled={props.busy || linking || loadingChats || !selected}>
+              {linking ? 'Linking…' : 'Link chat'}
+            </button>
+            <button type="button" className="button-secondary" disabled={props.busy || linking || loadingChats} onClick={() => { void loadChats(); }}>
+              Refresh chats
+            </button>
+          </div>
+          {linkError ? <p className="error-banner" role="alert">{linkError}</p> : null}
+          {linkMessage ? <p className="success-banner" role="status">{linkMessage}</p> : null}
+          {!loadingChats && chats.length > 0 && availableChats.length === 0 ? (
+            <p className="empty-state">No unlinked chats without fallback Campaign data were found.</p>
+          ) : null}
+        </form>
+      ) : null}
       <div className="chat-bindings-list">
         {props.bindings.map(binding => (
           <article className={`chat-binding chat-binding--${binding.markerState}`} key={binding.id}>
