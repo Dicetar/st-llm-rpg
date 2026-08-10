@@ -54,6 +54,7 @@ async function main() {
   const companionBase = options.companionUrl.replace(/\/$/, '');
   let stVersion;
   let campaignId = '';
+  let runtimeMode = 'parallel';
 
   await check('stack', async () => {
     const [version, health, readiness] = await Promise.all([
@@ -95,6 +96,23 @@ async function main() {
       throw new Error('Compatibility lock does not enumerate the installed bridge surface.');
     }
     return `Compatibility lock pins ST ${String(lock.sillyTavern.revision).slice(0, 9)}, bridge ${lock.bridge.version}, and API ${lock.companion.httpApi}.`;
+  });
+
+  await check('runtime-mode', async () => {
+    try {
+      const mode = JSON.parse(await readFile(join(options.root, '.runtime', 'wayfinder', 'runtime-mode.json'), 'utf8'));
+      if (mode.schema !== 'st-rpg.wayfinder-mode' || mode.version !== '1.0'
+        || !['parallel', 'companion', 'fallback'].includes(mode.mode)) {
+        throw new Error('Runtime mode record is invalid.');
+      }
+      runtimeMode = mode.mode;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (runtimeMode === 'fallback') {
+      throw new Error('Playable companion smoke requires companion or parallel mode; run Wayfinder.cmd companion first.');
+    }
+    return `Wayfinder extension authority is ${runtimeMode}.`;
   });
 
   await check('workspace', async () => {
@@ -183,9 +201,13 @@ async function main() {
 
   const installedRoot = join(options.root, '.runtime', 'SillyTavern', 'public', 'scripts', 'extensions', 'third-party');
   await check('fallback', async () => {
-    const info = await stat(join(installedRoot, 'st-rpg-campaign'));
-    if (!info.isDirectory()) throw new Error('Fallback extension path is not a directory.');
-    return 'Working fallback extension remains installed.';
+    const source = await stat(join(options.root, 'extension', 'st-rpg-campaign'));
+    if (!source.isDirectory()) throw new Error('Fallback extension source is not preserved.');
+    const active = await stat(join(installedRoot, 'st-rpg-campaign')).then(info => info.isDirectory()).catch(() => false);
+    const inactive = await stat(join(options.root, '.runtime', 'wayfinder', 'inactive-extensions', 'st-rpg-campaign'))
+      .then(info => info.isDirectory()).catch(() => false);
+    if (!active && !inactive) throw new Error('Fallback extension has neither an active nor preserved runtime copy.');
+    return `Working fallback extension remains preserved (${active ? 'active' : 'inactive companion-mode slot'}).`;
   });
 
   await check('prototype-runtime', async () => {

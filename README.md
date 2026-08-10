@@ -4,7 +4,7 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 
 ## Status
 
-- **Playable preview:** `0.3.0-preview.9` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` supervisor. The imported Campaign, linked narration, Campaign Book editing, Context Tray, content-free narration status, recoverable atomic Story Sync Review Inbox, reviewable JSON addon inbox, verified backup/restore catalog, immutable history, staged compatibility verification, and working fallback are available now.
+- **Playable preview:** `0.3.0-preview.10` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` supervisor. The imported Campaign, linked narration, Campaign Book editing, Context Tray, content-free narration status, recoverable atomic Story Sync Review Inbox, reviewable JSON addon inbox, verified backup/restore catalog, immutable history, staged compatibility verification, and explicit fallback/companion mode switch are available now.
 - **Working product:** `extension/st-rpg-campaign` is the tested SillyTavern fallback used today.
 - **Durable companion authority:** issue #33 owns Campaign truth in SQLite, with immutable history, reconstruction, stale-write protection, verified backup/restore, and restart evidence.
 - **Context planning milestone:** issue #36 adds revision-pinned Context Plans, visibility, ordered per-chat pins, exact/Scene/FTS5/relation retrieval, token budgets, and the inspectable Context Tray.
@@ -15,6 +15,7 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 - **JSON addon inbox:** Companion watches `campaign-content`, rescans the complete directory, persists and resumes exact manifest-bound import candidates, displays creates/updates/warnings/blockers, and applies only an explicitly reviewed diff after a verified backup. Missing addon rows never delete accepted Campaign truth.
 - **Visible supervisor:** `Wayfinder.cmd` now owns explicit `start`, `status`, `stop`, `companion`, `backup`, and confirmed `restore` commands. Process records bind PID, creation time, executable path, command hash, role, and run identity. Stop drains only an identity-matched Companion and never kills an unknown port owner or user-managed LM Studio.
 - **Pinned compatibility updates:** `Wayfinder.cmd update-compatibility` creates a verified Campaign backup, builds the reviewed SillyTavern revision beside the active runtime, installs and checks both RPG extensions, and proves isolated startup before any switch. A needed switch preserves the previous runtime and rolls back automatically if post-switch verification fails.
+- **Explicit authority modes:** `Wayfinder.cmd fallback` first creates a verified SQLite backup, full Campaign/history/Binding JSON export, and divergence report, then disables the thin bridge and keeps legacy metadata untouched. `Wayfinder.cmd companion` requires a verified Chat Binding, restores the bridge, and never claims to merge fallback play.
 
 The planning phase is complete. Existing files under `prototypes/` are frozen decision evidence: do not extend them or treat them as production code.
 
@@ -43,9 +44,11 @@ Operational commands:
 .\Wayfinder.cmd restore
 .\Wayfinder.cmd restore backup-... --confirm
 .\Wayfinder.cmd update-compatibility
+.\Wayfinder.cmd fallback
+.\Wayfinder.cmd companion
 ```
 
-`restore` without an ID lists available verified backups. Without `--confirm`, it requires an exact typed confirmation. `update-compatibility` never pulls project source or mutates active SillyTavern in place; it only realizes the versions already reviewed in `compatibility.lock.json`. `fallback` still fails safely without changing runtime state while its divergence workflow remains active #39 work.
+`restore` without an ID lists available verified backups. Without `--confirm`, it requires an exact typed confirmation. `update-compatibility` never pulls project source or mutates active SillyTavern in place; it only realizes the versions already reviewed in `compatibility.lock.json`. `fallback` requires typed confirmation; use `--confirm` only for scripted operation. `--emergency` permits fallback after failed backup/export but never deletes SQLite. In fallback mode, select LM Studio directly in SillyTavern and refresh; companion mode uses the proxy again for verified linked chats.
 
 Campaign Book is available locally at `http://127.0.0.1:8002/` and from Android on the trusted LAN/VPN at `http://<PC-IP>:8002/`.
 

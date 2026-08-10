@@ -54,6 +54,27 @@ test('compatibility update is staged beside active ST and preserves rollback bef
   assert.match(fallbackInstaller, /TargetRoot/);
 });
 
+test('fallback and companion modes preserve both authorities and require explicit safety evidence', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const [supervisor, modeTool, launcher] = await Promise.all([
+    readFile('tools/wayfinder.ps1', 'utf8'),
+    readFile('tools/wayfinder-mode.mjs', 'utf8'),
+    readFile('tools/start-local-sillytavern.ps1', 'utf8'),
+  ]);
+  assert.match(supervisor, /Type FALLBACK/);
+  assert.match(supervisor, /--emergency/);
+  assert.match(supervisor, /Stop-OwnedProcess 'companion'/);
+  assert.match(modeTool, /api\/operations\/backups/);
+  assert.match(modeTool, /companion-export/);
+  assert.match(modeTool, /fallback-divergence/);
+  assert.match(modeTool, /marker_state = 'verified'/);
+  assert.match(modeTool, /inactive-extensions/);
+  assert.match(modeTool, /never merged automatically/);
+  assert.doesNotMatch(modeTool, /rm\([^\n]*projectRoot[^\n]*extension/);
+  assert.match(launcher, /extensionMode -eq 'fallback'/);
+  assert.match(launcher, /Companion remains stopped/);
+});
+
 test('Wayfinder batch entrypoint preserves a PowerShell startup failure', async t => {
   const fakeBin = await mkdtemp(join(tmpdir(), 'wayfinder-powershell-'));
   await writeFile(join(fakeBin, 'powershell.cmd'), '@echo fake PowerShell failure\r\n@exit /b 23\r\n');

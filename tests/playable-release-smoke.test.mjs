@@ -36,6 +36,7 @@ async function writeTree(root) {
       writeFile(join(installed, name), `same-${name}`),
     ]);
   }
+  await mkdir(join(root, 'extension', 'st-rpg-campaign'), { recursive: true });
   await mkdir(join(installedRoot, 'st-rpg-campaign'), { recursive: true });
   await mkdir(join(root, '.runtime', 'companion'), { recursive: true });
   await writeFile(join(root, '.runtime', 'companion', 'campaigns.sqlite'), 'fixture');
@@ -125,6 +126,7 @@ test('playable preview smoke proves the installed bridge, fallback, Campaign dat
     ['stack', 'pass'],
     ['pinned-sillytavern', 'pass'],
     ['compatibility-lock', 'pass'],
+    ['runtime-mode', 'pass'],
     ['workspace', 'pass'],
     ['narration-status', 'pass'],
     ['backup-catalog', 'pass'],

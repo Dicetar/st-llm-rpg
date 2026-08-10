@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.9` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
+Version `0.3.0-preview.10` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains preserved. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
 
 ## Start
 
@@ -47,6 +47,7 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - watched JSON addon directory, manual convergence scan, restart-resumable manifest-bound diff, explicit backed-up atomic apply, and additive no-delete behavior;
 - visible start/status/stop/companion/backup/restore commands, identity-bound process ownership, graceful Companion drain, and unknown-owner refusal;
 - reviewed compatibility lock, verified pre-update backup, staged dependency/extension checks, isolated startup, preserved previous runtime, and automatic post-switch rollback;
+- explicit fallback/companion authority modes with verified pre-fallback backup, complete current/history/Binding JSON export, divergence report, verified-Binding admission, and preserved inactive extension copies;
 
 ## Recovery and fallback
 
@@ -54,7 +55,8 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - Companion logs are under `.runtime/wayfinder/logs/`.
 - Campaign truth is `.runtime/companion/campaigns.sqlite`; verified backup files and manifests are under `.runtime/companion/backups/`. Prefer Campaign Book controls over moving these files manually.
 - If Campaign authority is unavailable, linked chats fail closed and never silently narrate without Campaign context. Explicit-unlinked chats remain usable while the companion host and LM Studio are healthy.
-- To use the old fallback, open the gold **R** workspace in SillyTavern. After making companion-only edits, fallback and SQLite histories are divergent; there is no silent reverse synchronization.
+- Run `Wayfinder.cmd fallback`, read the divergence warning, and type `FALLBACK`. Wayfinder verifies a backup and export before it disables the bridge and stops only its own Companion process. Refresh SillyTavern, select a direct LM Studio endpoint such as `http://127.0.0.1:1234/v1`, then open the gold **R** workspace. After making companion-only edits, fallback and SQLite histories are divergent; there is no silent reverse synchronization.
+- Run `Wayfinder.cmd companion` to restore the thin bridge and Companion stack. At least one verified Chat Binding is required. Changes made while using fallback are not imported or merged automatically.
 
 ## Preview limits
 
@@ -62,5 +64,5 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - The supervisor, backup/restore, and same-pin staged update path have live desktop evidence in `docs/evidence/production-compatibility-stage-desktop-2026-08-10.json`. A real changed-pin switch plus injected post-switch rollback remains a cutover acceptance gate.
 - New blank Campaigns cannot yet create a fresh Chat Binding from Campaign Book; use the already-linked Campaign or import an existing fallback chat.
 - Live Story Sync remains model-dependent. A conservative real-model desktop trace passed the human-review safety boundary; sanitized evidence lives in `docs/evidence/production-story-sync-desktop-2026-08-10.json`. Physical Android review remains deferred, not passed.
-- Rich addon coverage beyond Actors, Items, active/completed Quests, Places, and the simplified current Scene; functional fallback/companion mode switching; and final changed-pin rollback evidence remain active #39/#40 work. Addon files with unsupported fields show explicit warnings.
+- Rich addon coverage beyond Actors, Items, active/completed Quests, Places, and the simplified current Scene; full real-campaign mode-switch evidence; and final changed-pin rollback evidence remain active #39/#40 work. Addon files with unsupported fields show explicit warnings.
 - LM Studio model loading and unloading remains manual by design.

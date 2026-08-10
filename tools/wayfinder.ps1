@@ -16,6 +16,7 @@ $stateRoot = Join-Path $projectRoot '.runtime\wayfinder'
 $companionRecordPath = Join-Path $stateRoot 'companion-process.json'
 $sillyTavernRecordPath = Join-Path $stateRoot 'sillytavern-process.json'
 $compatibilityUpdater = Join-Path $PSScriptRoot 'update-sillytavern-compatibility.ps1'
+$modeTool = Join-Path $PSScriptRoot 'wayfinder-mode.mjs'
 $companionUrl = 'http://127.0.0.1:8002'
 $companionPort = 8002
 $sillyTavernPort = 8001
@@ -190,10 +191,58 @@ function Invoke-Restore([string[]]$Arguments) {
     Write-Host 'Reload Campaign Book on every open device/tab.'
 }
 
+function Invoke-ModeTool([string[]]$Arguments) {
+    $output = @(& node $modeTool @Arguments)
+    if ($LASTEXITCODE -ne 0) { throw "Wayfinder mode command failed. No further mode transition was attempted." }
+    if ($output.Count -ne 1) { throw 'Wayfinder mode command returned an invalid receipt.' }
+    try { return ([string]$output[0] | ConvertFrom-Json) }
+    catch { throw "Wayfinder mode command returned invalid JSON. $($_.Exception.Message)" }
+}
+
+function Invoke-FallbackMode([string[]]$Arguments) {
+    $confirmed = $Arguments -contains '--confirm'
+    $emergency = $Arguments -contains '--emergency'
+    $noBrowser = $Arguments -contains '--no-browser' -or $Arguments -contains '-NoBrowser'
+    $unknown = @($Arguments | Where-Object { $_ -notin @('--confirm', '--emergency', '--no-browser', '-NoBrowser') })
+    if ($unknown.Count -gt 0) { throw "Unknown fallback argument: $($unknown -join ' ')" }
+
+    Write-Warning 'Fallback uses retained legacy chat metadata. Any further fallback play diverges from SQLite Campaign history and is never merged automatically.'
+    if ($emergency) {
+        Write-Warning 'Emergency override permits switching only if verified backup/export fails. Existing SQLite files are still preserved.'
+    }
+    if (-not $confirmed) {
+        $answer = Read-Host 'Type FALLBACK to create safety evidence and switch extension authority'
+        if ($answer -cne 'FALLBACK') { throw 'Fallback cancelled; runtime mode was not changed.' }
+    }
+
+    $modeArguments = @('fallback', '--root', $projectRoot, '--companion-url', $companionUrl)
+    if ($emergency) { $modeArguments += '--emergency' }
+    $receipt = Invoke-ModeTool $modeArguments
+    Write-Host "Fallback extension authority activated. Divergence report: $($receipt.mode.divergenceReport)"
+    if ($receipt.mode.backupId) { Write-Host "Verified backup: $($receipt.mode.backupId)" }
+    if ($receipt.mode.exportPath) { Write-Host "Companion JSON export: $($receipt.mode.exportPath)" }
+    Stop-OwnedProcess 'companion' $companionRecordPath $companionPort
+    Write-Host 'In SillyTavern, select a direct LM Studio OpenAI-compatible endpoint such as http://127.0.0.1:1234/v1, refresh the page, then open the gold R Workspace.'
+    $startArguments = if ($noBrowser) { @('-NoBrowser') } else { @() }
+    Invoke-Start $startArguments
+}
+
+function Invoke-CompanionMode([string[]]$Arguments) {
+    $launcherArguments = @()
+    foreach ($argument in $Arguments) {
+        if ($argument -ieq '--no-browser' -or $argument -ieq '-NoBrowser') { $launcherArguments += '-NoBrowser' }
+        else { throw "Unknown companion argument: $argument" }
+    }
+    $receipt = Invoke-ModeTool @('companion', '--root', $projectRoot)
+    Write-Host "Companion extension authority activated with $($receipt.mode.verifiedBindingCount) verified Chat Binding(s)."
+    Write-Warning $receipt.mode.warning
+    Invoke-Start $launcherArguments
+}
+
 $normalizedCommand = if ([string]::IsNullOrWhiteSpace($Command)) { 'start' } else { $Command.Trim().ToLowerInvariant() }
 switch ($normalizedCommand) {
     'start' { Invoke-Start $CommandArguments }
-    'companion' { Invoke-Start $CommandArguments }
+    'companion' { Invoke-CompanionMode $CommandArguments }
     'status' { Invoke-Status }
     'stop' {
         Stop-OwnedProcess 'companion' $companionRecordPath $companionPort
@@ -201,7 +250,7 @@ switch ($normalizedCommand) {
     }
     'backup' { Invoke-Backup $CommandArguments }
     'restore' { Invoke-Restore $CommandArguments }
-    'fallback' { throw 'Fallback switching is not shipped yet. The tested fallback remains installed and companion data was not changed.' }
+    'fallback' { Invoke-FallbackMode $CommandArguments }
     'update-compatibility' {
         if ($CommandArguments.Count -gt 0) { throw "Unknown update-compatibility argument: $($CommandArguments -join ' ')" }
         & powershell -NoProfile -ExecutionPolicy Bypass -File $compatibilityUpdater
@@ -209,7 +258,7 @@ switch ($normalizedCommand) {
     }
     'help' {
         Write-Host 'Wayfinder.cmd [start|status|stop|companion|backup [label]|restore <backup-id> [--confirm]|fallback|update-compatibility]'
-        Write-Host 'fallback currently fails safely until its divergence workflow ships.'
+        Write-Host 'fallback requires typed confirmation (or --confirm); --emergency only bypasses failed safety backup/export.'
     }
     default { throw "Unknown Wayfinder command: $Command" }
 }

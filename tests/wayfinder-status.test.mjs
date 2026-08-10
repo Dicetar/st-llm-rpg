@@ -73,6 +73,7 @@ test('status accepts a ready Campaign stack when only LM Studio is degraded', as
 
   const result = await runStatus([
     '--json',
+    '--mode', 'parallel',
     '--st-url', st.baseUrl,
     '--companion-url', companion.baseUrl,
   ]);
@@ -80,6 +81,7 @@ test('status accepts a ready Campaign stack when only LM Studio is degraded', as
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), {
     ok: true,
+    mode: 'parallel',
     sillyTavern: {
       status: 'ready',
       version: '1.18.0',
@@ -115,6 +117,7 @@ test('status identifies an unavailable companion without hiding the healthy Sill
 
   const result = await runStatus([
     '--json',
+    '--mode', 'parallel',
     '--st-url', st.baseUrl,
     '--companion-url', companionUrl,
   ]);
@@ -123,6 +126,7 @@ test('status identifies an unavailable companion without hiding the healthy Sill
   assert.equal(result.stderr, '');
   assert.deepEqual(JSON.parse(result.stdout), {
     ok: false,
+    mode: 'parallel',
     sillyTavern: {
       status: 'ready',
       version: '1.18.0',
@@ -153,10 +157,33 @@ test('status rejects an unpinned SillyTavern revision instead of calling it read
   t.after(() => Promise.all([st.close(), companion.close()]));
 
   const result = await runStatus([
-    '--json', '--st-url', st.baseUrl, '--companion-url', companion.baseUrl,
+    '--json', '--mode', 'parallel', '--st-url', st.baseUrl, '--companion-url', companion.baseUrl,
   ]);
 
   assert.equal(result.code, 1);
   assert.equal(JSON.parse(result.stdout).sillyTavern.status, 'incompatible');
   assert.match(JSON.parse(result.stdout).sillyTavern.message, /expected pinned revision 380e31e8c/i);
+});
+
+test('fallback status stays ready when pinned SillyTavern is available and Companion is intentionally stopped', async t => {
+  const st = await startFixture({
+    '/version': {
+      agent: 'SillyTavern:1.18.0:Cohee#1207',
+      pkgVersion: '1.18.0',
+      gitRevision: '380e31e8c',
+    },
+  });
+  const absentCompanion = await startFixture({});
+  const companionUrl = absentCompanion.baseUrl;
+  await absentCompanion.close();
+  t.after(() => st.close());
+
+  const result = await runStatus([
+    '--json', '--mode', 'fallback', '--st-url', st.baseUrl, '--companion-url', companionUrl,
+  ]);
+  const document = JSON.parse(result.stdout);
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(document.ok, true);
+  assert.equal(document.mode, 'fallback');
+  assert.equal(document.companion.status, 'unavailable');
 });

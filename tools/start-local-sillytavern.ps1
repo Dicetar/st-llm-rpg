@@ -190,6 +190,71 @@ function Stop-LauncherOwnedCompanion([object]$Process, [string]$Entry, [string]$
     }
 }
 
+function Start-FallbackSillyTavern(
+    [string]$RuntimeRoot,
+    [string]$ServerEntry,
+    [string]$ConfigPath,
+    [string]$StatusTool,
+    [string]$SillyTavernRecord,
+    [object]$Release,
+    [object]$NodeCommand,
+    [string]$RunId,
+    [bool]$NoBrowser
+) {
+    $portMatch = Select-String -LiteralPath $ConfigPath -Pattern '^port:\s*(\d+)\s*$' | Select-Object -First 1
+    if (-not $portMatch) { throw "Could not determine the SillyTavern port from: $ConfigPath" }
+    $listenPort = [int]$portMatch.Matches[0].Groups[1].Value
+    $versionUrl = "http://127.0.0.1:$listenPort/version"
+    $runningVersion = Read-JsonEndpoint $versionUrl
+    if ($runningVersion -and $runningVersion.agent -like 'SillyTavern:*') {
+        $owners = @(Get-PortOwners $listenPort)
+        $owner = $owners | Where-Object { Test-SillyTavernOwner $_ $ServerEntry } | Select-Object -First 1
+        if (-not $owner) {
+            throw "Port $listenPort answers as SillyTavern but is not the pinned project process. $(Format-PortOwners $owners)"
+        }
+        $servedRevision = [string]$runningVersion.gitRevision
+        if ($servedRevision.Length -lt 7 -or -not ([string]$Release.pinnedSillyTavernRevision).StartsWith($servedRevision)) {
+            throw "Running SillyTavern reports revision $servedRevision; Wayfinder requires $($Release.pinnedSillyTavernRevision)."
+        }
+        Write-Host "SillyTavern $($runningVersion.pkgVersion) is already running in fallback mode on port $listenPort (PID $($owner.ProcessId))."
+        & $NodeCommand.Source $StatusTool
+        if ($LASTEXITCODE -ne 0) { throw 'The fallback stack failed its status check.' }
+        if (-not $NoBrowser) { Start-Process "http://localhost:$listenPort/" }
+        return
+    }
+
+    $owners = @(Get-PortOwners $listenPort)
+    if ($owners.Count -gt 0) {
+        throw "Port $listenPort is already used by another process. $(Format-PortOwners $owners)"
+    }
+    if (-not (Test-VisibleConsoleWindow)) {
+        throw 'Hidden startup is blocked. Start fallback with Wayfinder.cmd so the server console stays visible.'
+    }
+    try { $Host.UI.RawUI.WindowTitle = "Wayfinder RPG - fallback SillyTavern $listenPort" } catch {}
+    $serverArguments = @($ServerEntry)
+    if ($NoBrowser) { $serverArguments += '--browserLaunchEnabled=false' }
+    $quotedArguments = @($serverArguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } })
+    $process = $null
+    try {
+        Write-Host "Starting pinned SillyTavern in fallback mode on port $listenPort. Companion remains stopped."
+        $process = Start-Process -FilePath $NodeCommand.Source -ArgumentList $quotedArguments `
+            -WorkingDirectory $RuntimeRoot -NoNewWindow -PassThru
+        Write-ProcessOwnershipRecord $process 'sillytavern' $ServerEntry $SillyTavernRecord $RunId
+        Wait-Process -Id $process.Id
+        $process.Refresh()
+        if ($process.ExitCode -ne 0) { throw "SillyTavern exited with code $($process.ExitCode)" }
+    }
+    finally {
+        if ($process -and -not (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $SillyTavernRecord)) {
+            try {
+                $record = Get-Content -Raw -LiteralPath $SillyTavernRecord | ConvertFrom-Json
+                if ($record.processId -eq $process.Id) { Remove-Item -LiteralPath $SillyTavernRecord -Force }
+            }
+            catch { Write-Warning "Could not clean the SillyTavern ownership record at $SillyTavernRecord." }
+        }
+    }
+}
+
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $runtimeRoot = Join-Path $projectRoot '.runtime\SillyTavern'
 $serverEntry = Join-Path $runtimeRoot 'server.js'
@@ -198,6 +263,7 @@ $companionEntry = Join-Path $projectRoot 'apps\companion\dist\main.js'
 $workspaceEntry = Join-Path $projectRoot 'apps\workspace\dist\index.html'
 $wireEntry = Join-Path $projectRoot 'packages\wire\dist\index.js'
 $bridgeInstaller = Join-Path $projectRoot 'extension\st-rpg-bridge\install.ps1'
+$modeTool = Join-Path $projectRoot 'tools\wayfinder-mode.mjs'
 $statusTool = Join-Path $projectRoot 'tools\wayfinder-status.mjs'
 $releasePath = Join-Path $projectRoot 'release.json'
 $companionPort = 8002
@@ -220,8 +286,8 @@ if (-not (Test-Path -LiteralPath $serverEntry -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
     throw "Project-local SillyTavern configuration is missing at: $configPath"
 }
-if (-not (Test-Path -LiteralPath $bridgeInstaller -PathType Leaf)) {
-    throw "RPG Companion Bridge installer is missing at: $bridgeInstaller"
+if (-not (Test-Path -LiteralPath $modeTool -PathType Leaf)) {
+    throw "Wayfinder mode tool is missing at: $modeTool"
 }
 if (-not (Test-Path -LiteralPath $releasePath -PathType Leaf)) {
     throw "Wayfinder release metadata is missing at: $releasePath"
@@ -238,6 +304,16 @@ if ($LASTEXITCODE -ne 0 -or -not $runtimeRevision.Trim()) {
 $runtimeRevision = $runtimeRevision.Trim()
 if ($runtimeRevision -ne [string]$release.pinnedSillyTavernRevision) {
     throw "Project-local SillyTavern is at $runtimeRevision; Wayfinder requires pinned revision $($release.pinnedSillyTavernRevision)."
+}
+
+$modeOutput = @(& $nodeCommand.Source $modeTool apply-current --root $projectRoot)
+if ($LASTEXITCODE -ne 0 -or $modeOutput.Count -ne 1) { throw 'Could not apply the selected Wayfinder extension mode.' }
+try { $extensionMode = [string](([string]$modeOutput[0] | ConvertFrom-Json).mode) }
+catch { throw "Wayfinder extension mode receipt was invalid. $($_.Exception.Message)" }
+if ($extensionMode -eq 'fallback') {
+    Start-FallbackSillyTavern $runtimeRoot $serverEntry $configPath $statusTool $sillyTavernRecord `
+        $release $nodeCommand $launcherRunId ([bool]$NoBrowser)
+    return
 }
 
 $buildOutputs = @($wireEntry, $workspaceEntry, $companionEntry)
@@ -257,8 +333,6 @@ if (Test-BuildRequired $projectRoot $buildOutputs $buildStamp) {
         gitRevision = (& git -C $projectRoot rev-parse HEAD 2>$null)
     } | ConvertTo-Json | Set-Content -LiteralPath $buildStamp -Encoding UTF8
 }
-
-& $bridgeInstaller
 
 $portMatch = Select-String -LiteralPath $configPath -Pattern '^port:\s*(\d+)\s*$' | Select-Object -First 1
 if (-not $portMatch) { throw "Could not determine the SillyTavern port from: $configPath" }

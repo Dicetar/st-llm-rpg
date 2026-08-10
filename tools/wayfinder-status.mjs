@@ -6,12 +6,14 @@ const DEFAULT_ST_URL = 'http://127.0.0.1:8001';
 const DEFAULT_COMPANION_URL = 'http://127.0.0.1:8002';
 const RELEASE = JSON.parse(readFileSync(new URL('../release.json', import.meta.url), 'utf8'));
 const PINNED_ST_REVISION = String(RELEASE.pinnedSillyTavernRevision);
+const DEFAULT_MODE_PATH = new URL('../.runtime/wayfinder/runtime-mode.json', import.meta.url);
 
 function parseArguments(arguments_) {
   const options = {
     json: false,
     stUrl: DEFAULT_ST_URL,
     companionUrl: DEFAULT_COMPANION_URL,
+    mode: null,
   };
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
@@ -21,12 +23,32 @@ function parseArguments(arguments_) {
       options.stUrl = arguments_[++index];
     } else if (argument === '--companion-url') {
       options.companionUrl = arguments_[++index];
+    } else if (argument === '--mode') {
+      options.mode = arguments_[++index];
     } else {
       throw new Error(`Unknown argument: ${argument}`);
     }
   }
   if (!options.stUrl || !options.companionUrl) throw new Error('Status URLs cannot be empty.');
+  if (options.mode !== null && !['parallel', 'companion', 'fallback'].includes(options.mode)) {
+    throw new Error(`Unknown Wayfinder mode: ${options.mode}`);
+  }
   return options;
+}
+
+function inspectMode(options) {
+  if (options.mode) return options.mode;
+  try {
+    const document = JSON.parse(readFileSync(DEFAULT_MODE_PATH, 'utf8'));
+    if (document.schema !== 'st-rpg.wayfinder-mode' || document.version !== '1.0'
+      || !['parallel', 'companion', 'fallback'].includes(document.mode)) {
+      throw new Error('invalid mode document');
+    }
+    return document.mode;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return 'parallel';
+    throw new Error(`Wayfinder mode record is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function readJson(url) {
@@ -89,6 +111,7 @@ async function inspectCompanion(options) {
 }
 
 async function inspectStack(options) {
+  const mode = inspectMode(options);
   const [sillyTavernResult, companionResult] = await Promise.allSettled([
     inspectSillyTavern(options),
     inspectCompanion(options),
@@ -109,7 +132,8 @@ async function inspectStack(options) {
         message: `RPG Companion is not reachable at ${options.companionUrl}.`,
       };
   return {
-    ok: sillyTavern.status === 'ready' && companion.ready,
+    ok: sillyTavern.status === 'ready' && (mode === 'fallback' || companion.ready),
+    mode,
     sillyTavern,
     companion,
     components: companionResult.status === 'fulfilled' ? companionResult.value.components : [],
@@ -118,6 +142,7 @@ async function inspectStack(options) {
 
 function renderHuman(result) {
   const lines = [
+    `[mode] Wayfinder authority: ${result.mode}.`,
     `[${result.sillyTavern.status}] SillyTavern ${result.sillyTavern.version} (${result.sillyTavern.revision}): ${result.sillyTavern.message}`,
     `[${result.companion.status}] RPG Companion: ${result.companion.message}`,
   ];

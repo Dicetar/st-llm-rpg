@@ -33,11 +33,17 @@ The visible supervisor command surface is:
 .\Wayfinder.cmd backup Optional-label
 .\Wayfinder.cmd restore [backup-id] [--confirm]
 .\Wayfinder.cmd update-compatibility
+.\Wayfinder.cmd fallback
+.\Wayfinder.cmd companion
 ```
 
 Wayfinder records process creation time, executable path, command hash, PID, role, and run identity. `stop` refuses a changed identity and leaves any listener without a matching ownership record untouched. LM Studio is observed but never owned or stopped.
 
 `update-compatibility` realizes the checked-in `compatibility.lock.json`; it does not update project source. It first obtains a verified Companion backup, clones the active ST runtime into `.runtime/SillyTavern.next`, checks out the exact reviewed revision, installs dependencies and both RPG extensions, runs the locked compatibility checks, and starts that runtime on isolated port `18001`. Only a fully verified stage can replace the stopped active runtime. The old runtime remains at `.runtime/SillyTavern.previous`, and a failed post-switch smoke restores it automatically.
+
+`fallback` requires an explicit warning acknowledgement. Before switching it creates a verified SQLite backup, exports every current Campaign with its immutable history and Chat Bindings, and records a divergence report under `.runtime/wayfinder/`. It then moves the bridge runtime copy outside SillyTavern's extension scan, activates the fallback copy, and stops only a Companion process whose complete Wayfinder identity still matches. Project extension sources, SQLite, exports, legacy chat metadata, and inactive runtime copies remain intact. `--emergency` exists only for an explicitly accepted backup/export outage.
+
+`companion` requires at least one verified Chat Binding in SQLite, restores the bridge runtime copy, preserves the fallback copy outside the extension scan, and starts the normal Companion stack. It does not merge changes made in fallback mode. Refresh open SillyTavern tabs after either mode switch.
 
 Hidden or detached startup is deliberately refused. `-NoBrowser` only suppresses browser launch; it does not hide the server console. Silent `-StatusOnly` checks remain allowed because they never start a server.
 
