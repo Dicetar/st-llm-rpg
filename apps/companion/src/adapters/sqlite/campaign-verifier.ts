@@ -240,6 +240,11 @@ function verifyChatBindings(database: DatabaseSync): void {
         contextFocusRevision += 1;
         continue;
       }
+      if (event.operation_kind === 'follow_campaign_head' && operation.kind === 'follow_campaign_head'
+        && Number.isInteger(Number(operation.campaignAnchor)) && Number(operation.campaignAnchor) >= 1) {
+        campaignAnchor = Number(operation.campaignAnchor);
+        continue;
+      }
       if (event.operation_kind === 'set_sync_boundary' && operation.kind === 'set_sync_boundary'
         && typeof operation.boundary === 'object' && operation.boundary !== null
         && Number.isInteger(Number((operation.boundary as Record<string, unknown>).throughMessageIndex))

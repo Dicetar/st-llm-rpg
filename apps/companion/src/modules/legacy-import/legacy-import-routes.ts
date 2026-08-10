@@ -3,6 +3,7 @@ import {
   ApplyLegacyImportRequestSchema,
   ChatBindingDocumentSchema,
   CreateChatBindingRequestSchema,
+  FollowCampaignHeadRequestSchema,
   LegacyChatListItemSchema,
   LegacyImportPreviewSchema,
   LegacyImportResultSchema,
@@ -10,6 +11,7 @@ import {
   ProblemSchema,
   type ApplyLegacyImportRequest,
   type CreateChatBindingRequest,
+  type FollowCampaignHeadRequest,
   type PreviewLegacyImportRequest,
   type ProblemCode,
 } from '@st-llm-rpg/wire';
@@ -92,6 +94,27 @@ export function registerLegacyImportRoutes(app: FastifyInstance, service: Legacy
   }, async (request, reply) => {
     const { campaignId } = request.params as { campaignId: string };
     return send(reply, await service.bindings(campaignId, String(request.id)));
+  });
+
+  app.post('/api/chat-bindings/:bindingId/follow-campaign-head', {
+    schema: {
+      params: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['bindingId'],
+        properties: { bindingId: { type: 'string', minLength: 1, maxLength: 128 } },
+      },
+      body: FollowCampaignHeadRequestSchema,
+      response: {
+        200: ChatBindingDocumentSchema,
+        404: ProblemSchema,
+        409: ProblemSchema,
+        503: ProblemSchema,
+      },
+    },
+  }, async (request, reply) => {
+    const { bindingId } = request.params as { bindingId: string };
+    return send(reply, await service.followCampaignHead(bindingId, request.body as FollowCampaignHeadRequest));
   });
 
   app.post('/api/campaigns/:campaignId/chat-bindings', {

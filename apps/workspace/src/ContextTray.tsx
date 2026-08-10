@@ -226,6 +226,28 @@ export function ContextTray(props: {
     });
   }
 
+  async function followCampaignHead() {
+    if (!selectedBinding || !mismatch) return;
+    await perform(async () => {
+      const updated = await fetchJson<ChatBindingDocument>(
+        `/api/chat-bindings/${encodeURIComponent(selectedBinding.id)}/follow-campaign-head`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            requestId: createUuid(),
+            eventId: createUuid(),
+            expectedBindingRevision: selectedBinding.revision,
+            expectedCampaignAnchor: selectedBinding.campaignAnchor,
+            targetCampaignRevision: props.document.campaign.revision,
+          }),
+        },
+      );
+      props.onBindingChanged(updated);
+      setPlan(null);
+      props.onStatus(`Chat Binding now follows Campaign revision ${updated.campaignAnchor}.`);
+    });
+  }
+
   async function buildPlan() {
     if (!selectedBinding || !selectedProfile) return;
     await perform(async () => {
@@ -280,7 +302,15 @@ export function ContextTray(props: {
               </dl>
             ) : null}
             {mismatch ? (
-              <p className="context-warning" role="alert">This Binding is anchored to revision {selectedBinding?.campaignAnchor}, while Campaign head is {props.document.campaign.revision}. Reconcile the Binding before narration.</p>
+              <div className="context-warning context-reconcile" role="alert">
+                <p>This Binding is anchored to revision {selectedBinding?.campaignAnchor}, while Campaign head is {props.document.campaign.revision}. Narration remains blocked until you choose.</p>
+                {!props.readOnly ? (
+                  <button type="button" onClick={() => { void followCampaignHead(); }} disabled={controlsBusy}>
+                    Follow current Campaign · revision {props.document.campaign.revision}
+                  </button>
+                ) : null}
+                <small>This advances only this chat&apos;s Campaign Anchor and records a Binding Event. It never follows automatically.</small>
+              </div>
             ) : null}
           </section>
 

@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.14` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains preserved. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
+Version `0.3.0-preview.15` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains preserved. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
 
 ## Start
 
@@ -19,7 +19,7 @@ Create or open a Campaign, then make its chat link explicit:
 
 1. In Campaign Book, select the Campaign. Expand **Linked SillyTavern chats**, choose a saved chat without fallback Campaign metadata, and press **Link chat**. SQLite accepts one Binding Event first; the companion then writes and reads back only the small SillyTavern Binding marker. Chats with fallback RPG data stay in the separate reviewed import path.
 2. Edit Actors, Items, Abilities, directed Relationships, Quests, Places, and the Current Scene. An Ability page keeps its reusable definition and every Actor's learned/prepared/enabled/use state together. An Actor page creates and edits incoming or outgoing Relationships in the same block. Each accepted edit advances immutable Campaign history; stale tabs cannot overwrite a newer revision.
-3. Open Context Tray. Confirm the linked chat, exact narrator model profile, automatic budget, and any manual pins. Use **Build Context Plan** for an inspectable dry run with no model call.
+3. Open Context Tray. If this chat is behind Campaign head after an edit, narration stays blocked until you explicitly choose **Follow current Campaign**; the choice advances only that chat's Campaign Anchor and creates a Binding Event. Confirm the exact narrator model profile, automatic budget, and any manual pins. Use **Build Context Plan** for an inspectable dry run with no model call.
 4. In SillyTavern, select the same exact model ID as the saved narrator profile and chat normally. The bridge routes linked generations through one deterministic Context Plan and one LM Studio call. The complete answer is withheld until accepted, so Stop cannot leave partial companion text.
 5. Open **Narration status** in Campaign Book when a reply fails. It shows active requests and only the latest outcome, elapsed time, a safe error message, and concrete recovery guidance. It never stores prompts, generated prose, or request history and resets when the Companion restarts.
 6. Open **Review Inbox** and save the separate Campaign Worker model ID. In a linked SillyTavern chat, choose **Sync Story** from the extensions menu. The Companion analyzes only the bounded unseen range and opens editable, evidence-linked proposals. Accept or reject every Proposal, then choose **Finalize review**. Accepted changes become one Campaign revision and the same SQLite transaction advances only that chat's Sync Boundary.
@@ -37,6 +37,7 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - editable Current Scene and read-only historical revisions;
 - explicit legacy import and verified Chat Binding marker;
 - explicit fresh-chat linking for blank or existing Campaigns, with collision checks and marker readback;
+- visible Binding mismatch detection and explicit per-chat **Follow current Campaign** without automatic anchor movement;
 - deterministic exact, Scene, FTS, and relation Context planning with ordered manual pins;
 - exact narrator model profiles and token budgets;
 - linked normal, regenerate, continue, swipe, and Stop proxy behavior at the server seam;
@@ -67,5 +68,6 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - Actual-host authority/resource evidence is in `docs/evidence/production-campaign-authority-desktop-2026-08-10.json` and `docs/evidence/production-cutover-performance-desktop-2026-08-10.json`: 100-sample Campaign commit, Workspace load, Context Plan, and Companion pre-model targets pass; exactly one fake upstream boundary call occurred per measured linked request. The fake boundary deliberately excludes inference and does not replace the separate real-LM narration evidence.
 - The fallback-to-companion desktop round-trip, verified backup/export/divergence report, owned shutdown, verified-Binding admission, and preserved inactive extension slots have sanitized evidence in `docs/evidence/production-mode-roundtrip-desktop-2026-08-10.json`.
 - Live Story Sync remains model-dependent. A conservative real-model desktop trace passed the human-review safety boundary; sanitized evidence lives in `docs/evidence/production-story-sync-desktop-2026-08-10.json`. Physical Android review remains deferred, not passed.
-- Rich addon coverage beyond Actors, Items, Abilities, Relationships, active/completed Quests, Places, and the simplified current Scene, plus the final representative real-campaign continued-play trace, remain active #40 work. Addon files with unsupported fields show explicit warnings.
+- The representative saved-chat desktop cutover trace passes in `docs/evidence/production-real-campaign-cutover-desktop-2026-08-10.json`: verified backup, Campaign Book edit and attachment, explicit Binding reconciliation, exact retrieval, real-model linked narration, restart, and continued readback. It contains no prompt or generated prose.
+- Rich addon coverage beyond Actors, Items, Abilities, Relationships, active/completed Quests, Places, and the simplified current Scene remains future work. Addon files with unsupported fields show explicit warnings.
 - LM Studio model loading and unloading remains manual by design.

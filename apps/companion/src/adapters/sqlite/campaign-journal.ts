@@ -10,6 +10,7 @@ import type {
   CampaignSummary,
   CampaignVerificationResult,
   ChatBindingDocument,
+  FollowCampaignHeadRequest,
   NarratorModelProfile,
   NarratorVisibility,
   PreflightContextRequest,
@@ -638,6 +639,79 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       `).all(id) as ChatBindingRow[];
       return rows.map(bindingDocument);
     }, { allowMaintenanceFailure: true });
+  }
+
+  async followCampaignHead(
+    input: FollowCampaignHeadRequest & Readonly<{ bindingId: string }>,
+  ): Promise<ChatBindingDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const bindingId = cleanIdentifier(input.bindingId, 'Binding ID');
+      const current = this.findBindingById(bindingId);
+      if (!current) {
+        throw new CampaignExpectedError('CHAT_BINDING_NOT_FOUND', `Chat Binding ${bindingId} was not found.`, { bindingId });
+      }
+      const campaign = this.requireCampaign(current.campaign_id);
+      const currentRevision = Number(campaign.current_revision);
+      if (input.targetCampaignRevision !== currentRevision) {
+        throw new CampaignExpectedError(
+          'CAMPAIGN_REVISION_CONFLICT',
+          `Campaign head is revision ${currentRevision}, not requested revision ${input.targetCampaignRevision}. Reload before following it.`,
+          { campaignId: current.campaign_id, expectedRevision: input.targetCampaignRevision, actualRevision: currentRevision },
+        );
+      }
+      if (
+        Number(current.binding_revision) !== input.expectedBindingRevision
+        || Number(current.campaign_anchor) !== input.expectedCampaignAnchor
+      ) {
+        throw new CampaignExpectedError(
+          'CAMPAIGN_REVISION_CONFLICT',
+          'Chat Binding changed before it could follow the current Campaign. Reload and choose again.',
+          {
+            bindingId,
+            expectedBindingRevision: input.expectedBindingRevision,
+            actualBindingRevision: Number(current.binding_revision),
+            expectedCampaignAnchor: input.expectedCampaignAnchor,
+            actualCampaignAnchor: Number(current.campaign_anchor),
+          },
+        );
+      }
+      if (input.expectedCampaignAnchor === currentRevision) return bindingDocument(current);
+
+      const nextBindingRevision = input.expectedBindingRevision + 1;
+      const updatedAt = new Date().toISOString();
+      const operation = { kind: 'follow_campaign_head', campaignAnchor: currentRevision };
+      const updated = this.#database.prepare(`
+        UPDATE chat_bindings
+        SET binding_revision = ?, campaign_anchor = ?, updated_at = ?
+        WHERE binding_id = ? AND binding_revision = ? AND campaign_anchor = ?
+      `).run(
+        nextBindingRevision,
+        currentRevision,
+        updatedAt,
+        bindingId,
+        input.expectedBindingRevision,
+        input.expectedCampaignAnchor,
+      );
+      if (Number(updated.changes) !== 1) {
+        throw new CampaignExpectedError(
+          'CAMPAIGN_REVISION_CONFLICT',
+          'Chat Binding changed before it could follow the current Campaign. Nothing changed.',
+          { bindingId },
+        );
+      }
+      this.#database.prepare(`
+        INSERT INTO chat_binding_events(binding_id, revision, event_id, request_id, operation_kind, operation_json, accepted_at)
+        VALUES (?, ?, ?, ?, 'follow_campaign_head', ?, ?)
+      `).run(
+        bindingId,
+        nextBindingRevision,
+        cleanIdentifier(input.eventId, 'Binding Event ID'),
+        cleanIdentifier(input.requestId, 'Binding request ID'),
+        canonicalJson(operation),
+        updatedAt,
+      );
+      return bindingDocument(this.findBindingById(bindingId)!);
+    })));
   }
 
   async recordMarkerOutcome(input: LegacyMarkerOutcome): Promise<ChatBindingDocument> {

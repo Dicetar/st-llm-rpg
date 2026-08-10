@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash, randomUUID } from 'node:crypto';
-import { cp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { resolve, join, relative, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -85,12 +85,60 @@ async function validateExtensionSource(sourceRoot, name) {
   }
 }
 
+async function extensionFileMap(root, prefix = '') {
+  const result = new Map();
+  const entries = await readdir(join(root, prefix), { withFileTypes: true });
+  for (const entry of entries) {
+    const key = prefix ? join(prefix, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      const nested = await extensionFileMap(root, key);
+      if (!nested) return null;
+      for (const [nestedKey, value] of nested) result.set(nestedKey, value);
+    } else if (entry.isFile()) {
+      result.set(key, createHash('sha256').update(await readFile(join(root, key))).digest('hex'));
+    } else {
+      return null;
+    }
+  }
+  return result;
+}
+
+async function extensionMatches(source, active) {
+  if (!await exists(active)) return false;
+  const [sourceFiles, activeFiles] = await Promise.all([
+    extensionFileMap(source),
+    extensionFileMap(active),
+  ]);
+  if (!sourceFiles || !activeFiles || sourceFiles.size !== activeFiles.size) return false;
+  for (const [path, hash] of sourceFiles) {
+    if (activeFiles.get(path) !== hash) return false;
+  }
+  return true;
+}
+
+async function removeAbandonedNextDirectories(target, name) {
+  const pattern = new RegExp(`^\\.${name}\\.[0-9a-f-]{36}\\.next$`, 'i');
+  for (const entry of await readdir(target.activeRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !pattern.test(entry.name)) continue;
+    const candidate = join(target.activeRoot, entry.name);
+    assertChild(target.activeRoot, candidate);
+    await rm(candidate, { recursive: true, force: true });
+  }
+}
+
 async function installActiveExtension(target, name) {
   const source = join(target.projectRoot, 'extension', name);
   const active = join(target.activeRoot, name);
+  const inactive = join(target.inactiveRoot, name);
+  assertChild(target.activeRoot, active);
+  assertChild(target.inactiveRoot, inactive);
+  if (await extensionMatches(source, active)) {
+    await removeAbandonedNextDirectories(target, name);
+    if (await exists(inactive)) await rm(inactive, { recursive: true, force: true });
+    return;
+  }
   const staged = join(target.activeRoot, `.${name}.${randomUUID()}.next`);
   const previous = join(target.activeRoot, `.${name}.${randomUUID()}.previous`);
-  assertChild(target.activeRoot, active);
   assertChild(target.activeRoot, staged);
   assertChild(target.activeRoot, previous);
   await cp(source, staged, { recursive: true, force: true });
@@ -103,8 +151,6 @@ async function installActiveExtension(target, name) {
     throw error;
   }
   if (hadActive && await exists(previous)) await rm(previous, { recursive: true, force: true });
-  const inactive = join(target.inactiveRoot, name);
-  assertChild(target.inactiveRoot, inactive);
   if (await exists(inactive)) await rm(inactive, { recursive: true, force: true });
 }
 

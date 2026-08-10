@@ -51,6 +51,19 @@ test('extension slot activates only the selected authority while preserving both
   assert.equal(await exists(join(root, '.runtime', 'wayfinder', 'inactive-extensions', 'st-rpg-campaign')), true);
 });
 
+test('applying the current mode reuses an exact active extension directory', async t => {
+  const root = await createRoot();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await activateRuntimeExtensions(root, 'companion');
+  const active = join(root, '.runtime', 'SillyTavern', 'public', 'scripts', 'extensions', 'third-party', 'st-rpg-bridge');
+  const before = await stat(active);
+
+  await activateRuntimeExtensions(root, 'companion');
+
+  const after = await stat(active);
+  assert.equal(after.ino, before.ino, 'an exact active directory is not renamed or replaced');
+});
+
 test('fallback mode creates verified backup/export/divergence evidence before disabling the bridge', async t => {
   const root = await createRoot();
   t.after(() => rm(root, { recursive: true, force: true }));

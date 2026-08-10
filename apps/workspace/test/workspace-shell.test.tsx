@@ -330,6 +330,34 @@ test('Context Tray keeps profile, ordered pins, planning evidence, and privacy i
   assert.match(html, /Build Context Plan/);
 });
 
+test('Context Tray offers an explicit Follow current Campaign action for a Binding mismatch', () => {
+  const html = renderToStaticMarkup(<ContextTray
+    document={{
+      campaign: {
+        id: 'campaign-1', title: 'House Harcourt', status: 'active', revision: 8,
+        createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-10T12:00:00.000Z',
+      },
+      actors: [], items: [], quests: [], places: [], abilities: [], relationships: [], currentScene: null,
+    }}
+    bindings={[{
+      schema: 'st-rpg.chat-binding', version: '1.0', id: 'binding-1', campaignId: 'campaign-1',
+      revision: 3, campaignAnchor: 7, contextFocusRevision: 1, pins: [],
+      locator: { kind: 'character', chatId: 'Harcourt', avatar: 'Narrator.png' },
+      sourceFingerprint: 'a'.repeat(64), contentFingerprint: 'b'.repeat(64), markerState: 'verified',
+      createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z',
+    }]}
+    busy={false}
+    readOnly={false}
+    onBindingChanged={() => undefined}
+    onStatus={() => undefined}
+    onError={() => undefined}
+  />);
+  assert.match(html, /anchored to revision 7/);
+  assert.match(html, /Follow current Campaign/);
+  assert.match(html, /revision 8/);
+  assert.match(html, /never follows automatically/i);
+});
+
 test('Record editor exposes repeatable aliases and Narrator Visibility beside ordinary fields', () => {
   const html = renderToStaticMarkup(<RecordEditor
     kind="actor"

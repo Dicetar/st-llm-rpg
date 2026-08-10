@@ -110,6 +110,15 @@ export const CreateChatBindingRequestSchema = Type.Object({
 }, { additionalProperties: false });
 export type CreateChatBindingRequest = Static<typeof CreateChatBindingRequestSchema>;
 
+export const FollowCampaignHeadRequestSchema = Type.Object({
+  requestId: Identifier,
+  eventId: Identifier,
+  expectedBindingRevision: Type.Integer({ minimum: 1 }),
+  expectedCampaignAnchor: Type.Integer({ minimum: 1 }),
+  targetCampaignRevision: Type.Integer({ minimum: 1 }),
+}, { additionalProperties: false });
+export type FollowCampaignHeadRequest = Static<typeof FollowCampaignHeadRequestSchema>;
+
 export const ChatBindingDocumentSchema = Type.Object({
   schema: Type.Literal('st-rpg.chat-binding'),
   version: Type.Literal('1.0'),

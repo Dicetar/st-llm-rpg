@@ -296,6 +296,49 @@ test('legacy migration HTTP boundary lists, previews, imports, and exposes Bindi
   assert.equal(missingRetry.statusCode, 404, missingRetry.body);
   assert.equal(missingRetry.json().code, 'CHAT_BINDING_NOT_FOUND');
 
+  const advanced = await app.inject({
+    method: 'POST',
+    url: `/api/campaigns/${created.json().campaignId}/operations`,
+    payload: {
+      requestId: 'fresh-campaign-advance',
+      expectedRevision: 1,
+      operation: { kind: 'create_actor', actor: { name: 'Follow Trace Actor' } },
+    },
+  });
+  assert.equal(advanced.statusCode, 200, advanced.body);
+  assert.equal(advanced.json().revision, 2);
+  const stillAnchored = await app.inject({ method: 'GET', url: `/api/chat-bindings/${linked.json().id}` });
+  assert.equal(stillAnchored.json().campaignAnchor, 1, 'Campaign edits never move a Binding automatically');
+
+  const followed = await app.inject({
+    method: 'POST',
+    url: `/api/chat-bindings/${linked.json().id}/follow-campaign-head`,
+    payload: {
+      requestId: 'follow-current-campaign',
+      eventId: 'follow-current-campaign-event',
+      expectedBindingRevision: 3,
+      expectedCampaignAnchor: 1,
+      targetCampaignRevision: 2,
+    },
+  });
+  assert.equal(followed.statusCode, 200, followed.body);
+  assert.equal(followed.json().revision, 4);
+  assert.equal(followed.json().campaignAnchor, 2);
+
+  const staleFollow = await app.inject({
+    method: 'POST',
+    url: `/api/chat-bindings/${linked.json().id}/follow-campaign-head`,
+    payload: {
+      requestId: 'stale-follow-current-campaign',
+      eventId: 'stale-follow-current-campaign-event',
+      expectedBindingRevision: 3,
+      expectedCampaignAnchor: 1,
+      targetCampaignRevision: 2,
+    },
+  });
+  assert.equal(staleFollow.statusCode, 409, staleFollow.body);
+  assert.equal(staleFollow.json().code, 'CAMPAIGN_REVISION_CONFLICT');
+
   await app.close();
   app = await buildCompanion({ config, legacyChatSource: source });
   const afterRestart = await app.inject({
@@ -304,6 +347,8 @@ test('legacy migration HTTP boundary lists, previews, imports, and exposes Bindi
   assert.equal(afterRestart.statusCode, 200, afterRestart.body);
   assert.equal(afterRestart.json()[0].id, linked.json().id);
   assert.equal(afterRestart.json()[0].markerState, 'verified');
+  assert.equal(afterRestart.json()[0].revision, 4);
+  assert.equal(afterRestart.json()[0].campaignAnchor, 2);
 });
 
 test('changed and copied sources require current explicit choices', async t => {

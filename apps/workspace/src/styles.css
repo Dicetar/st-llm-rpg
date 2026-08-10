@@ -307,6 +307,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .context-facts dt { color: #998c79; font-size: 0.74rem; }
 .context-facts dd { margin: 0.2rem 0 0; color: #fff4df; overflow-wrap: anywhere; }
 .context-warning { margin: 0; border-left: 3px solid #98713b; padding: 0.65rem 0.75rem; background: rgba(89, 61, 29, 0.22); color: #f0d6ad; line-height: 1.45; }
+.context-reconcile { display: grid; gap: 0.65rem; }
+.context-reconcile p { margin: 0; }
+.context-reconcile small { color: #a99c89; }
+.context-reconcile button { justify-self: start; }
 .context-pins { grid-column: 1 / -1; }
 .context-record-choices { display: grid; gap: 0.5rem; }
 .context-record-choice { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; min-width: 0; min-height: 52px; border: 1px solid #3f352a; border-radius: 0.65rem; padding: 0.55rem 0.65rem; background: #17130f; }

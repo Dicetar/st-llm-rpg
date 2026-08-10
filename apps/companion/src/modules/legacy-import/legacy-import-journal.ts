@@ -1,5 +1,6 @@
 import type {
   ChatBindingDocument,
+  FollowCampaignHeadRequest,
   LegacyChatLocator,
 } from '@st-llm-rpg/wire';
 import type { CampaignJournalAppend } from '../campaign/campaign-journal.js';
@@ -57,6 +58,10 @@ export type LegacyMarkerOutcome = Readonly<{
   requestId: string;
 }>;
 
+export type FollowCampaignHead = FollowCampaignHeadRequest & Readonly<{
+  bindingId: string;
+}>;
+
 export interface LegacyImportJournal {
   lookupLegacyImport(sourceFingerprint: string, contentFingerprint: string, locatorFingerprint: string): Promise<LegacyImportLookup>;
   importLegacyCampaign(input: LegacyCampaignImport): Promise<StoredLegacyImport>;
@@ -64,6 +69,7 @@ export interface LegacyImportJournal {
   createChatBinding(input: ChatBindingCreate): Promise<StoredLegacyImport>;
   readBinding(bindingId: string): Promise<ChatBindingDocument>;
   listBindings(campaignId: string): Promise<readonly ChatBindingDocument[]>;
+  followCampaignHead(input: FollowCampaignHead): Promise<ChatBindingDocument>;
   recordMarkerOutcome(input: LegacyMarkerOutcome): Promise<ChatBindingDocument>;
   backup(request: { destinationPath: string }): Promise<{ destinationPath: string }>;
   readCampaignRevision(campaignId: string): Promise<number>;

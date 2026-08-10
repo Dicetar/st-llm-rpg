@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Value } from '@sinclair/typebox/value';
 import {
   CreateChatBindingRequestSchema,
+  FollowCampaignHeadRequestSchema,
   isChatBindingDocument,
   isLegacyImportPreview,
 } from '../src/index.js';
@@ -64,4 +65,18 @@ test('fresh Chat Binding request pins explicit Campaign revision and saved-chat 
   assert.equal(Value.Check(CreateChatBindingRequestSchema, request), true);
   assert.equal(Value.Check(CreateChatBindingRequestSchema, { ...request, expectedCampaignRevision: 0 }), false);
   assert.equal(Value.Check(CreateChatBindingRequestSchema, { ...request, automatic: true }), false);
+});
+
+test('Follow current Campaign requires exact Binding and Anchor expectations', () => {
+  const request = {
+    requestId: 'follow-request-1',
+    eventId: 'follow-event-1',
+    expectedBindingRevision: 3,
+    expectedCampaignAnchor: 7,
+    targetCampaignRevision: 9,
+  };
+  assert.equal(Value.Check(FollowCampaignHeadRequestSchema, request), true);
+  assert.equal(Value.Check(FollowCampaignHeadRequestSchema, { ...request, expectedBindingRevision: 0 }), false);
+  assert.equal(Value.Check(FollowCampaignHeadRequestSchema, { ...request, targetCampaignRevision: 0 }), false);
+  assert.equal(Value.Check(FollowCampaignHeadRequestSchema, { ...request, automatic: true }), false);
 });

@@ -5,6 +5,7 @@ import type {
   CampaignSummary,
   ChatBindingDocument,
   CreateChatBindingRequest,
+  FollowCampaignHeadRequest,
   LegacyChatListItem,
   LegacyChatLocator,
   LegacyImportPreview,
@@ -146,6 +147,17 @@ export class LegacyImportService {
       return { ok: true, value: await this.#journal.listBindings(campaignId) };
     } catch (error) {
       return this.problem(requestId, error);
+    }
+  }
+
+  async followCampaignHead(
+    bindingId: string,
+    request: FollowCampaignHeadRequest,
+  ): Promise<Outcome<ChatBindingDocument>> {
+    try {
+      return { ok: true, value: await this.#journal.followCampaignHead({ ...request, bindingId }) };
+    } catch (error) {
+      return this.bindingProblem(request.requestId, error);
     }
   }
 
