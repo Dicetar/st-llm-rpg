@@ -160,10 +160,10 @@ if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) { throw "Compatibili
 if (-not (Test-Path -LiteralPath $releasePath -PathType Leaf)) { throw "Release metadata is missing: $releasePath" }
 if (-not (Test-Path -LiteralPath (Join-Path $activeRoot '.git'))) { throw "Active SillyTavern is not a project-local Git runtime: $activeRoot" }
 
-$dirty = [string](& git -C $projectRoot status --porcelain)
+$dirty = @(& git -C $projectRoot status --porcelain) -join "`n"
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the project worktree.' }
 if ($dirty.Trim()) { throw 'Project worktree is dirty. Commit or stash project changes before compatibility update.' }
-$runtimeDirty = [string](& git -C $activeRoot status --porcelain --untracked-files=no)
+$runtimeDirty = @(& git -C $activeRoot status --porcelain --untracked-files=no) -join "`n"
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the active SillyTavern runtime.' }
 if ($runtimeDirty.Trim()) { throw 'Active SillyTavern has tracked modifications. Update refused; user runtime state was untouched.' }
 
