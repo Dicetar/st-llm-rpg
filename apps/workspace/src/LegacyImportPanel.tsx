@@ -51,6 +51,7 @@ export function LegacyImportPreviewCard(props: { preview: LegacyImportPreview })
         <li><strong>{counts.places}</strong> Places</li>
         <li><strong>{counts.abilities}</strong> Abilities</li>
         <li><strong>{counts.learnedAbilities}</strong> learned</li>
+        <li><strong>{counts.relationships}</strong> relationships</li>
         <li><strong>{counts.unsupported}</strong> preserved for later</li>
       </ul>
       <p className="preservation-note">Legacy metadata stays in SillyTavern. Import adds a small Binding marker only after SQLite backup and commit.</p>

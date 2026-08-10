@@ -69,6 +69,10 @@ test('Campaign documents and commits validate routed record collections', () => 
     learnedAbilities: [{
       id: 'learned-1', abilityId: 'ability-1', actorId: 'actor-1', prepared: true, enabled: true, archived: false,
     }],
+    relationships: [{
+      id: 'relationship-1', sourceActorId: 'actor-1', targetActorId: 'actor-2', kind: 'ally',
+      status: 'active', notes: 'They trust each other.', archived: false,
+    }],
     currentScene: null,
   };
   const commit = {

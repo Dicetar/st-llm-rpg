@@ -74,6 +74,7 @@ export const LegacyImportPreviewSchema = Type.Object({
     places: Type.Integer({ minimum: 0 }),
     abilities: Type.Integer({ minimum: 0 }),
     learnedAbilities: Type.Integer({ minimum: 0 }),
+    relationships: Type.Integer({ minimum: 0 }),
     unsupported: Type.Integer({ minimum: 0 }),
   }, { additionalProperties: false }),
   issues: Type.Array(LegacyImportIssueSchema, { maxItems: 512 }),

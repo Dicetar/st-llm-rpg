@@ -8,6 +8,7 @@ import type {
   CampaignOperation,
   CampaignPlace,
   CampaignQuest,
+  CampaignRelationship,
   CampaignScene,
   CampaignSummary,
   NarratorVisibility,
@@ -22,11 +23,12 @@ export type CampaignState = {
   places?: Record<string, CampaignPlace>;
   abilities?: Record<string, CampaignAbility>;
   learnedAbilities?: Record<string, CampaignLearnedAbility>;
+  relationships?: Record<string, CampaignRelationship>;
   currentScene: CampaignScene | null;
 };
 
-export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'ability' | 'learned_ability' | 'current_scene';
-export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignAbility | CampaignLearnedAbility | CampaignScene | null;
+export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'ability' | 'learned_ability' | 'relationship' | 'current_scene';
+export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignAbility | CampaignLearnedAbility | CampaignRelationship | CampaignScene | null;
 export type CampaignSubjectChange = Readonly<{
   subjectKind: CampaignSubjectKind;
   subjectId: string;
@@ -64,6 +66,7 @@ export function normalizeCampaignState(state: CampaignState): CampaignState {
     places: state.places ?? {},
     abilities: state.abilities ?? {},
     learnedAbilities: state.learnedAbilities ?? {},
+    relationships: state.relationships ?? {},
   };
 }
 
@@ -102,6 +105,7 @@ export function asDocument(state: CampaignState): CampaignDocument {
     places: Object.values(state.places ?? {}).sort(byName),
     abilities: Object.values(state.abilities ?? {}).sort(byName),
     learnedAbilities: Object.values(state.learnedAbilities ?? {}).sort((left, right) => left.id.localeCompare(right.id)),
+    relationships: Object.values(state.relationships ?? {}).sort((left, right) => left.id.localeCompare(right.id)),
     currentScene: state.currentScene ? structuredClone(state.currentScene) : null,
   };
 }
@@ -112,6 +116,7 @@ export function normalizeCampaignDocument(document: CampaignDocument): CampaignD
     places?: CampaignPlace[];
     abilities?: CampaignAbility[];
     learnedAbilities?: CampaignLearnedAbility[];
+    relationships?: CampaignRelationship[];
   };
   return {
     ...document,
@@ -119,6 +124,7 @@ export function normalizeCampaignDocument(document: CampaignDocument): CampaignD
     places: legacy.places ?? [],
     abilities: legacy.abilities ?? [],
     learnedAbilities: legacy.learnedAbilities ?? [],
+    relationships: legacy.relationships ?? [],
   };
 }
 
@@ -145,6 +151,7 @@ function recordIdExists(state: CampaignState, id: string): boolean {
     || state.places?.[id]
     || state.abilities?.[id]
     || state.learnedAbilities?.[id]
+    || state.relationships?.[id]
     || state.currentScene?.id === id,
   );
 }
@@ -209,6 +216,52 @@ function requireLearnedAbility(state: CampaignState, learnedAbilityId: string): 
   const learned = state.learnedAbilities?.[id];
   if (!learned) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Learned Ability ${id} was not found.`, { learnedAbilityId: id });
   return learned;
+}
+
+function requireRelationship(state: CampaignState, relationshipId: string): CampaignRelationship {
+  const id = cleanIdentifier(relationshipId, 'Relationship ID');
+  const relationship = state.relationships?.[id];
+  if (!relationship) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Relationship ${id} was not found.`, { relationshipId: id });
+  return relationship;
+}
+
+function requireActiveRelationshipActor(state: CampaignState, actorId: string): CampaignActor {
+  const actor = requireActor(state, actorId);
+  if (actor.archived) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Archived Actor ${actor.id} cannot be used in an active Relationship.`, { actorId: actor.id });
+  }
+  return actor;
+}
+
+function requireRelationshipEndpoints(state: CampaignState, sourceActorId: string, targetActorId: string): readonly [string, string] {
+  const source = requireActiveRelationshipActor(state, sourceActorId).id;
+  const target = requireActiveRelationshipActor(state, targetActorId).id;
+  if (source === target) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'A Relationship must connect two different Actors.', { sourceActorId: source, targetActorId: target });
+  }
+  return [source, target];
+}
+
+function requireUniqueRelationship(
+  state: CampaignState,
+  sourceActorId: string,
+  targetActorId: string,
+  relationshipKind: string,
+  exceptId?: string,
+): void {
+  const normalizedKind = relationshipKind.normalize('NFKC').toLocaleLowerCase('en-US');
+  const duplicate = Object.values(state.relationships ?? {}).find(candidate => (
+    candidate.id !== exceptId
+    && !candidate.archived
+    && candidate.sourceActorId === sourceActorId
+    && candidate.targetActorId === targetActorId
+    && candidate.kind.normalize('NFKC').toLocaleLowerCase('en-US') === normalizedKind
+  ));
+  if (duplicate) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'This directed Relationship already exists.', {
+      sourceActorId, targetActorId, relationshipKind, relationshipId: duplicate.id,
+    });
+  }
 }
 
 function cleanUses(
@@ -335,6 +388,7 @@ export function subjectImageAt(
   if (subjectKind === 'place') return structuredClone(state.places?.[subjectId] ?? null);
   if (subjectKind === 'ability') return structuredClone(state.abilities?.[subjectId] ?? null);
   if (subjectKind === 'learned_ability') return structuredClone(state.learnedAbilities?.[subjectId] ?? null);
+  if (subjectKind === 'relationship') return structuredClone(state.relationships?.[subjectId] ?? null);
   return structuredClone(state.currentScene);
 }
 
@@ -366,6 +420,8 @@ export function subjectChangesForOperation(
             ? 'place'
             : operation.kind.includes('learned_ability')
               ? 'learned_ability'
+              : operation.kind.includes('relationship')
+                ? 'relationship'
               : operation.kind.includes('ability')
                 ? 'ability'
             : 'actor';
@@ -418,6 +474,12 @@ export function applySubjectChanges(
       state.learnedAbilities ??= {};
       if (change.afterImage === null) delete state.learnedAbilities[change.subjectId];
       else state.learnedAbilities[change.subjectId] = structuredClone(change.afterImage as CampaignLearnedAbility);
+      continue;
+    }
+    if (change.subjectKind === 'relationship') {
+      state.relationships ??= {};
+      if (change.afterImage === null) delete state.relationships[change.subjectId];
+      else state.relationships[change.subjectId] = structuredClone(change.afterImage as CampaignRelationship);
       continue;
     }
     state.currentScene = change.afterImage === null
@@ -685,6 +747,59 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     state.learnedAbilities ??= {};
     state.learnedAbilities[learned.id] = { ...learned, archived: operation.archived };
     return [learned.id];
+  }
+  if (operation.kind === 'create_relationship') {
+    const id = requireUnusedId(state, operation.relationship.id, 'Relationship ID');
+    const [sourceActorId, targetActorId] = requireRelationshipEndpoints(
+      state,
+      operation.relationship.sourceActorId,
+      operation.relationship.targetActorId,
+    );
+    const relationshipKind = cleanText(operation.relationship.kind, 'Relationship kind', 160);
+    requireUniqueRelationship(state, sourceActorId, targetActorId, relationshipKind);
+    state.relationships ??= {};
+    state.relationships[id] = {
+      id,
+      sourceActorId,
+      targetActorId,
+      kind: relationshipKind,
+      status: operation.relationship.status ?? 'active',
+      notes: cleanOptionalText(operation.relationship.notes, 'Relationship notes', 4000),
+      visibility: cleanVisibility(operation.relationship.visibility),
+      archived: false,
+    };
+    return [id];
+  }
+  if (operation.kind === 'update_relationship') {
+    const relationship = requireRelationship(state, operation.relationshipId);
+    const [sourceActorId, targetActorId] = requireRelationshipEndpoints(
+      state,
+      operation.sourceActorId,
+      operation.targetActorId,
+    );
+    const relationshipKind = cleanText(operation.relationshipKind, 'Relationship kind', 160);
+    requireUniqueRelationship(state, sourceActorId, targetActorId, relationshipKind, relationship.id);
+    state.relationships ??= {};
+    state.relationships[relationship.id] = {
+      ...relationship,
+      sourceActorId,
+      targetActorId,
+      kind: relationshipKind,
+      status: operation.status,
+      notes: cleanOptionalText(operation.notes, 'Relationship notes', 4000),
+      visibility: operation.visibility ?? relationship.visibility ?? 'known',
+    };
+    return [relationship.id];
+  }
+  if (operation.kind === 'set_relationship_archived') {
+    const relationship = requireRelationship(state, operation.relationshipId);
+    if (!operation.archived) {
+      requireRelationshipEndpoints(state, relationship.sourceActorId, relationship.targetActorId);
+      requireUniqueRelationship(state, relationship.sourceActorId, relationship.targetActorId, relationship.kind, relationship.id);
+    }
+    state.relationships ??= {};
+    state.relationships[relationship.id] = { ...relationship, archived: operation.archived };
+    return [relationship.id];
   }
   if (operation.kind === 'set_current_scene') {
     const id = operation.scene.id ? cleanIdentifier(operation.scene.id, 'Scene ID') : state.currentScene?.id ?? randomUUID();

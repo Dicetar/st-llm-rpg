@@ -14,6 +14,7 @@ export type LegacyEnvelopeInspection = Readonly<{
     places: number;
     abilities: number;
     learnedAbilities: number;
+    relationships: number;
     unsupported: number;
   }>;
   issues: readonly LegacyImportIssue[];
@@ -70,13 +71,14 @@ export function inspectLegacyEnvelope(
   if (rawTitle.length > 160) warning('title-truncated', 'campaign.title', 'Campaign title exceeds 160 characters and will be truncated in Campaign Book.');
 
   const records = Array.isArray(campaign?.records) ? campaign.records : [];
-  const counts = { actors: 0, items: 0, quests: 0, places: 0, abilities: 0, learnedAbilities: 0, unsupported: 0 };
+  const counts = { actors: 0, items: 0, quests: 0, places: 0, abilities: 0, learnedAbilities: 0, relationships: 0, unsupported: 0 };
   const actors: CampaignState['actors'] = {};
   const items: CampaignState['items'] = {};
   const quests: NonNullable<CampaignState['quests']> = {};
   const places: NonNullable<CampaignState['places']> = {};
   const abilities: NonNullable<CampaignState['abilities']> = {};
   const learnedAbilities: NonNullable<CampaignState['learnedAbilities']> = {};
+  const relationships: NonNullable<CampaignState['relationships']> = {};
   const allIds = new Set<string>();
   const supportedKinds = new Set(['actor', 'item', 'quest', 'place', 'ability']);
 
@@ -162,6 +164,41 @@ export function inspectLegacyEnvelope(
     };
   });
 
+  const relationshipEntries = Array.isArray(campaign?.relationships) ? campaign.relationships : [];
+  relationshipEntries.forEach((raw, index) => {
+    const relationship = object(raw);
+    const path = `campaign.relationships[${index}]`;
+    const id = text(relationship?.id);
+    const sourceActorId = text(relationship?.sourceActorId);
+    const targetActorId = text(relationship?.targetActorId);
+    const relationshipKind = bounded(relationship?.relationshipKind ?? relationship?.kind, 160);
+    if (!validId(id) || allIds.has(id)) {
+      error('relationship-id-invalid', `${path}.id`, 'Relationship ID is invalid or duplicated.');
+      return;
+    }
+    allIds.add(id);
+    if (!actors[sourceActorId] || !actors[targetActorId]) {
+      warning('relationship-link-missing', path, 'Relationship refers to an Actor that is not projected.');
+      return;
+    }
+    if (sourceActorId === targetActorId || !relationshipKind) {
+      error('relationship-invalid', path, 'Relationship requires two different Actors and a kind.');
+      return;
+    }
+    const rawStatus = text(relationship?.status);
+    const status = ['active', 'strained', 'dormant', 'ended', 'other'].includes(rawStatus) ? rawStatus as 'active' | 'strained' | 'dormant' | 'ended' | 'other' : 'active';
+    counts.relationships += 1;
+    relationships[id] = {
+      id,
+      sourceActorId,
+      targetActorId,
+      kind: relationshipKind,
+      status,
+      notes: bounded(relationship?.notes, 4000),
+      archived: relationship?.archivedAt !== null && relationship?.archivedAt !== undefined && relationship?.archivedAt !== '',
+    };
+  });
+
   const possessions = Array.isArray(campaign?.possessions) ? campaign.possessions : [];
   possessions.forEach((raw, index) => {
     const possession = object(raw);
@@ -183,7 +220,6 @@ export function inspectLegacyEnvelope(
   });
 
   const unsupportedCollections: Array<readonly [string, unknown, string]> = [
-    ['relationships', campaign?.relationships, 'unsupported-relationship'],
     ['sceneArchives', campaign?.sceneArchives, 'unsupported-scene-archive'],
     ['proposals', campaign?.proposals, 'unsupported-proposal'],
   ];
@@ -233,6 +269,7 @@ export function inspectLegacyEnvelope(
       places,
       abilities,
       learnedAbilities,
+      relationships,
       currentScene,
     },
   };

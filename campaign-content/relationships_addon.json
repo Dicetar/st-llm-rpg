@@ -1,4 +1,4 @@
 {
-  "_comment": "Add directed Relationships. source and target use People addon ids or $player.",
+  "_comment": "Add directed Relationships. Production Companion source/target use People addon ids; use sourceActorId/targetActorId for existing canonical Actors. The fallback additionally accepts $player.",
   "relationships": []
 }

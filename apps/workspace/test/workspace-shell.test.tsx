@@ -14,6 +14,7 @@ import {
   NarrationStatusPanel,
   RecordEditor,
   LearnedAbilitiesPanel,
+  RelationshipsPanel,
   SceneEditor,
   StorySyncReviewInboxView,
   BackupPanelView,
@@ -174,6 +175,9 @@ test('workspace URLs identify Campaign, collection, record, and historical revis
       revision: null,
     },
   );
+  assert.deepEqual(parseWorkspacePath('/campaigns/campaign-1/relationships'), {
+    campaignId: 'campaign-1', collection: 'relationships', recordId: null, revision: null,
+  });
   assert.deepEqual(
     parseWorkspacePath('/campaigns/campaign-1/not-a-collection'),
     {
@@ -233,6 +237,7 @@ test('Command Deck exposes the common Campaign actions without leaving the curre
   assert.match(html, /Add Actor/);
   assert.match(html, /Add Item/);
   assert.match(html, /Add Ability/);
+  assert.match(html, /Add Relationship/);
   assert.match(html, /Start Scene/);
   assert.match(html, /Inspect History/);
   assert.match(html, /Revision 7/);
@@ -247,15 +252,16 @@ test('legacy import preview makes preserved and unsupported data explicit before
       locator: { kind: 'character', chatId: 'Emberfall', avatar: 'Seraphine.png' },
       sourceFingerprint: 'a'.repeat(64), contentFingerprint: 'b'.repeat(64),
       title: 'Emberfall', legacyRevision: 7,
-      counts: { actors: 2, items: 1, quests: 1, places: 1, abilities: 1, learnedAbilities: 1, unsupported: 1 },
-      issues: [{ severity: 'warning', code: 'unsupported-relationship', path: 'campaign.relationships', message: 'Relationship is preserved but not projected yet.' }],
+      counts: { actors: 2, items: 1, quests: 1, places: 1, abilities: 1, learnedAbilities: 1, relationships: 1, unsupported: 1 },
+      issues: [{ severity: 'warning', code: 'unsupported-scene-archive', path: 'campaign.sceneArchives', message: 'Scene Archive is preserved but not projected yet.' }],
       decisions: ['create-campaign', 'cancel'], legacyMetadataPreserved: true,
     }}
   />);
   assert.match(html, /Revision 7/);
   assert.match(html, /<strong>2<\/strong> Actors/);
+  assert.match(html, /<strong>1<\/strong> relationships/);
   assert.match(html, /<strong>1<\/strong> preserved for later/);
-  assert.match(html, /Relationship is preserved but not projected yet/);
+  assert.match(html, /Scene Archive is preserved but not projected yet/);
   assert.match(html, /Legacy metadata stays in SillyTavern/);
 });
 
@@ -291,9 +297,11 @@ test('Context Tray keeps profile, ordered pins, planning evidence, and privacy i
         id: 'campaign-1', title: 'House Harcourt', status: 'active', revision: 7,
         createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z',
       },
-      actors: [{ id: 'actor-lavir', name: 'Lavir', summary: 'A noble.', archived: false, visibility: 'known' }],
+      actors: [{ id: 'actor-lavir', name: 'Lavir', summary: 'A noble.', archived: false, visibility: 'known' }, { id: 'actor-mara', name: 'Mara', summary: 'An investigator.', archived: false, visibility: 'known' }],
       items: [{ id: 'item-private', name: 'Private Ledger', summary: 'Never sent.', archived: false, visibility: 'campaign_private' }],
-      quests: [], places: [], currentScene: null,
+      quests: [], places: [], abilities: [{ id: 'ability-hand', name: 'Mage Hand', summary: 'Moves objects.', category: 'spell', archived: false }],
+      relationships: [{ id: 'relationship-patron', sourceActorId: 'actor-lavir', targetActorId: 'actor-mara', kind: 'patron', status: 'active', notes: '', archived: false }],
+      currentScene: null,
     }}
     bindings={[{
       schema: 'st-rpg.chat-binding', version: '1.0', id: 'binding-1', campaignId: 'campaign-1',
@@ -312,6 +320,8 @@ test('Context Tray keeps profile, ordered pins, planning evidence, and privacy i
   assert.match(html, /Narrator model profile/);
   assert.match(html, /Ordered manual pins/);
   assert.match(html, /Private Ledger/);
+  assert.match(html, /Mage Hand/);
+  assert.match(html, /Lavir → Mara: patron/);
   assert.match(html, /Campaign Private/);
   assert.match(html, /Safety margin/);
   assert.match(html, /Automatic Record limit/);
@@ -368,6 +378,35 @@ test('Ability editor keeps learned Actor state and add action in the same block'
   assert.match(html, /Add Actor/);
   assert.match(html, /Mara/);
   assert.match(html, /Uses left/);
+  assert.match(html, /Remove/);
+});
+
+test('Actor-local Relationships editor creates, edits, and removes directed links in the same block', () => {
+  const actors = [
+    { id: 'actor-lavir', name: 'Lavir', summary: '', archived: false },
+    { id: 'actor-mara', name: 'Mara', summary: '', archived: false },
+  ];
+  const html = renderToStaticMarkup(<RelationshipsPanel
+    focusActorId="actor-lavir"
+    actors={actors}
+    relationships={[{
+      id: 'relationship-patron', sourceActorId: 'actor-lavir', targetActorId: 'actor-mara',
+      kind: 'patron', status: 'strained', notes: 'Lavir expects proof.', visibility: 'known', archived: false,
+    }]}
+    busy={false}
+    readOnly={false}
+    onCreate={async () => undefined}
+    onSave={async () => undefined}
+    onArchive={async () => undefined}
+  />);
+  assert.match(html, /Relationships/);
+  assert.match(html, /This Actor → other/);
+  assert.match(html, /Other → this Actor/);
+  assert.match(html, /Add Relationship/);
+  assert.match(html, /patron/);
+  assert.match(html, /Strained/);
+  assert.match(html, /Lavir expects proof/);
+  assert.match(html, /Save Relationship/);
   assert.match(html, /Remove/);
 });
 
@@ -443,6 +482,7 @@ test('Story Sync Review Inbox keeps worker setup and structured editable proposa
   assert.match(html, /Lavir reveals the locked gallery/);
   assert.match(html, /Record type/);
   assert.match(html, /New Ability/);
+  assert.match(html, /New Relationship/);
   assert.match(html, /Actor summary/);
   assert.match(html, /Accept/);
   assert.match(html, /Reject/);

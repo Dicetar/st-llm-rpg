@@ -21,6 +21,8 @@ type SupportedOperationKind =
   | 'update_place'
   | 'create_ability'
   | 'update_ability'
+  | 'create_relationship'
+  | 'update_relationship'
   | 'set_current_scene';
 
 const ACTIVE_JOB_STATES = new Set(['queued', 'waiting-for-lane', 'running', 'parsing', 'repairing']);
@@ -28,6 +30,7 @@ const SUPPORTED_KINDS: readonly SupportedOperationKind[] = [
   'create_actor', 'update_actor', 'create_item', 'update_item', 'create_quest',
   'update_quest', 'create_place', 'update_place', 'set_current_scene',
   'create_ability', 'update_ability',
+  'create_relationship', 'update_relationship',
 ];
 
 function kindLabel(kind: string): string {
@@ -36,6 +39,7 @@ function kindLabel(kind: string): string {
     update_item: 'Update Item', create_quest: 'New Quest', update_quest: 'Update Quest',
     create_place: 'New Place', update_place: 'Update Place', set_current_scene: 'Current Scene',
     create_ability: 'New Ability', update_ability: 'Update Ability',
+    create_relationship: 'New Relationship', update_relationship: 'Update Relationship',
   } as Record<string, string>)[kind] ?? kind.replaceAll('_', ' ');
 }
 
@@ -45,6 +49,8 @@ function blankOperation(kind: SupportedOperationKind, campaign: CampaignDocument
   const quest = campaign.quests.find(record => !record.archived);
   const place = campaign.places.find(record => !record.archived);
   const ability = (campaign.abilities ?? []).find(record => !record.archived);
+  const otherActor = campaign.actors.find(record => !record.archived && record.id !== actor?.id);
+  const relationship = (campaign.relationships ?? []).find(record => !record.archived);
   switch (kind) {
     case 'create_actor': return { kind, actor: { name: '', summary: '' } };
     case 'update_actor': return { kind, actorId: actor?.id ?? '', name: actor?.name ?? '', summary: actor?.summary ?? '' };
@@ -56,6 +62,8 @@ function blankOperation(kind: SupportedOperationKind, campaign: CampaignDocument
     case 'update_place': return { kind, placeId: place?.id ?? '', name: place?.name ?? '', summary: place?.summary ?? '' };
     case 'create_ability': return { kind, ability: { name: '', summary: '', category: 'other' } };
     case 'update_ability': return { kind, abilityId: ability?.id ?? '', name: ability?.name ?? '', summary: ability?.summary ?? '', category: ability?.category ?? 'other' };
+    case 'create_relationship': return { kind, relationship: { sourceActorId: actor?.id ?? '', targetActorId: otherActor?.id ?? '', kind: '', status: 'active', notes: '' } };
+    case 'update_relationship': return { kind, relationshipId: relationship?.id ?? '', sourceActorId: relationship?.sourceActorId ?? actor?.id ?? '', targetActorId: relationship?.targetActorId ?? otherActor?.id ?? '', relationshipKind: relationship?.kind ?? '', status: relationship?.status ?? 'active', notes: relationship?.notes ?? '' };
     case 'set_current_scene': {
       const placeId = campaign.currentScene?.placeId ?? place?.id;
       return {
@@ -102,6 +110,7 @@ function OperationEditor(props: {
   const questOptions = props.campaign.quests.filter(record => !record.archived);
   const placeOptions = props.campaign.places.filter(record => !record.archived);
   const abilityOptions = (props.campaign.abilities ?? []).filter(record => !record.archived);
+  const relationshipOptions = (props.campaign.relationships ?? []).filter(record => !record.archived);
 
   return <fieldset className="story-operation-editor">
     <legend>Campaign change</legend>
@@ -191,6 +200,25 @@ function OperationEditor(props: {
       <CommonFields name={operation.name} summary={operation.summary} nameLabel="Ability name" summaryLabel="Ability summary" disabled={props.disabled}
         onName={name => props.onChange({ ...operation, name })} onSummary={summary => props.onChange({ ...operation, summary })} />
       <label><span>Category</span><select value={operation.category} disabled={props.disabled} onChange={event => props.onChange({ ...operation, category: event.target.value as 'spell' | 'skill' | 'feat' | 'other' })}><option value="spell">Spell</option><option value="skill">Skill</option><option value="feat">Feat</option><option value="other">Other</option></select></label>
+    </> : null}
+    {operation?.kind === 'create_relationship' ? <>
+      <label><span>From Actor</span><select value={operation.relationship.sourceActorId} disabled={props.disabled} onChange={event => props.onChange({ ...operation, relationship: { ...operation.relationship, sourceActorId: event.target.value } })}><option value="" disabled>Choose Actor</option>{actorOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+      <label><span>To Actor</span><select value={operation.relationship.targetActorId} disabled={props.disabled} onChange={event => props.onChange({ ...operation, relationship: { ...operation.relationship, targetActorId: event.target.value } })}><option value="" disabled>Choose Actor</option>{actorOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+      <CommonFields name={operation.relationship.kind} summary={operation.relationship.notes ?? ''} nameLabel="Relationship kind" summaryLabel="Relationship notes" disabled={props.disabled}
+        onName={relationshipKind => props.onChange({ ...operation, relationship: { ...operation.relationship, kind: relationshipKind } })}
+        onSummary={notes => props.onChange({ ...operation, relationship: { ...operation.relationship, notes } })} />
+      <label><span>Status</span><select value={operation.relationship.status ?? 'active'} disabled={props.disabled} onChange={event => props.onChange({ ...operation, relationship: { ...operation.relationship, status: event.target.value as 'active' | 'strained' | 'dormant' | 'ended' | 'other' } })}><option value="active">Active</option><option value="strained">Strained</option><option value="dormant">Dormant</option><option value="ended">Ended</option><option value="other">Other</option></select></label>
+    </> : null}
+    {operation?.kind === 'update_relationship' ? <>
+      <label><span>Relationship</span><select value={operation.relationshipId} disabled={props.disabled} onChange={event => {
+        const record = relationshipOptions.find(candidate => candidate.id === event.target.value);
+        props.onChange({ ...operation, relationshipId: event.target.value, sourceActorId: record?.sourceActorId ?? operation.sourceActorId, targetActorId: record?.targetActorId ?? operation.targetActorId, relationshipKind: record?.kind ?? operation.relationshipKind, status: record?.status ?? operation.status, notes: record?.notes ?? operation.notes });
+      }}><option value="" disabled>Choose Relationship</option>{relationshipOptions.map(record => <option key={record.id} value={record.id}>{record.kind}</option>)}</select></label>
+      <label><span>From Actor</span><select value={operation.sourceActorId} disabled={props.disabled} onChange={event => props.onChange({ ...operation, sourceActorId: event.target.value })}>{actorOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+      <label><span>To Actor</span><select value={operation.targetActorId} disabled={props.disabled} onChange={event => props.onChange({ ...operation, targetActorId: event.target.value })}>{actorOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+      <CommonFields name={operation.relationshipKind} summary={operation.notes} nameLabel="Relationship kind" summaryLabel="Relationship notes" disabled={props.disabled}
+        onName={relationshipKind => props.onChange({ ...operation, relationshipKind })} onSummary={notes => props.onChange({ ...operation, notes })} />
+      <label><span>Status</span><select value={operation.status} disabled={props.disabled} onChange={event => props.onChange({ ...operation, status: event.target.value as 'active' | 'strained' | 'dormant' | 'ended' | 'other' })}><option value="active">Active</option><option value="strained">Strained</option><option value="dormant">Dormant</option><option value="ended">Ended</option><option value="other">Other</option></select></label>
     </> : null}
     {operation?.kind === 'set_current_scene' ? <>
       <CommonFields name={operation.scene.name} summary={operation.scene.summary ?? ''} nameLabel="Scene name" summaryLabel="Scene summary" disabled={props.disabled}

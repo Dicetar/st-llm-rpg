@@ -5,6 +5,7 @@ import type {
   CampaignLearnedAbility,
   CampaignPlace,
   CampaignQuest,
+  CampaignRelationship,
   CampaignScene,
 } from '@st-llm-rpg/wire';
 import type { DatabaseSync } from 'node:sqlite';
@@ -73,6 +74,17 @@ type LearnedAbilityProjectionRow = {
   archived: number;
 };
 
+type RelationshipProjectionRow = {
+  relationship_id: string;
+  source_actor_id: string;
+  target_actor_id: string;
+  relationship_kind: string;
+  status: CampaignRelationship['status'];
+  notes: string;
+  visibility: Exclude<CampaignRelationship['visibility'], undefined> | null;
+  archived: number;
+};
+
 type SceneProjectionRow = {
   scene_id: string;
   name: string;
@@ -91,6 +103,12 @@ export function hasCurrentCampaignProjections(database: DatabaseSync): boolean {
 function hasCurrentAbilityProjections(database: DatabaseSync): boolean {
   return Boolean(database.prepare(`
     SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'campaign_ability_projections'
+  `).get());
+}
+
+function hasCurrentRelationshipProjections(database: DatabaseSync): boolean {
+  return Boolean(database.prepare(`
+    SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'campaign_relationship_projections'
   `).get());
 }
 
@@ -134,6 +152,11 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
            uses_remaining, uses_maximum, archived
     FROM campaign_learned_ability_projections WHERE campaign_id = ? ORDER BY learned_ability_id
   `).all(campaign.campaign_id) as LearnedAbilityProjectionRow[] : [];
+  const relationshipRows = hasCurrentRelationshipProjections(database) ? database.prepare(`
+    SELECT relationship_id, source_actor_id, target_actor_id, relationship_kind,
+           status, notes, visibility, archived
+    FROM campaign_relationship_projections WHERE campaign_id = ? ORDER BY relationship_id
+  `).all(campaign.campaign_id) as RelationshipProjectionRow[] : [];
   const sceneRow = database.prepare(`
     SELECT scene_id, name, summary, ${sceneContextColumns}
     FROM campaign_scene_projections WHERE campaign_id = ?
@@ -201,6 +224,16 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
       ...(row.uses_maximum === null ? {} : { usesMaximum: Number(row.uses_maximum) }),
       archived: Boolean(row.archived),
     } satisfies CampaignLearnedAbility])),
+    relationships: Object.fromEntries(relationshipRows.map(row => [row.relationship_id, {
+      id: row.relationship_id,
+      sourceActorId: row.source_actor_id,
+      targetActorId: row.target_actor_id,
+      kind: row.relationship_kind,
+      status: row.status,
+      notes: row.notes,
+      ...(row.visibility === null ? {} : { visibility: row.visibility }),
+      archived: Boolean(row.archived),
+    } satisfies CampaignRelationship])),
     currentScene: sceneRow ? {
       id: sceneRow.scene_id,
       name: sceneRow.name,
@@ -225,6 +258,9 @@ export function replaceCurrentCampaignProjections(
     database.prepare('DELETE FROM campaign_ability_projections WHERE campaign_id = ?').run(campaignId);
     database.prepare('DELETE FROM campaign_learned_ability_projections WHERE campaign_id = ?').run(campaignId);
   }
+  if (hasCurrentRelationshipProjections(database)) {
+    database.prepare('DELETE FROM campaign_relationship_projections WHERE campaign_id = ?').run(campaignId);
+  }
   database.prepare('DELETE FROM campaign_scene_projections WHERE campaign_id = ?').run(campaignId);
 
   for (const actor of Object.values(state.actors)) upsertActor(database, campaignId, actor);
@@ -233,6 +269,7 @@ export function replaceCurrentCampaignProjections(
   for (const place of Object.values(state.places ?? {})) upsertPlace(database, campaignId, place);
   for (const ability of Object.values(state.abilities ?? {})) upsertAbility(database, campaignId, ability);
   for (const learned of Object.values(state.learnedAbilities ?? {})) upsertLearnedAbility(database, campaignId, learned);
+  for (const relationship of Object.values(state.relationships ?? {})) upsertRelationship(database, campaignId, relationship);
   if (state.currentScene) upsertScene(database, campaignId, state.currentScene);
 }
 
@@ -293,6 +330,15 @@ export function applyCurrentCampaignProjectionChanges(
           .run(campaignId, change.subjectId);
       } else {
         upsertLearnedAbility(database, campaignId, change.afterImage as CampaignLearnedAbility);
+      }
+      continue;
+    }
+    if (change.subjectKind === 'relationship') {
+      if (change.afterImage === null) {
+        database.prepare('DELETE FROM campaign_relationship_projections WHERE campaign_id = ? AND relationship_id = ?')
+          .run(campaignId, change.subjectId);
+      } else {
+        upsertRelationship(database, campaignId, change.afterImage as CampaignRelationship);
       }
       continue;
     }
@@ -428,6 +474,29 @@ function upsertLearnedAbility(database: DatabaseSync, campaignId: string, learne
     learned.usesRemaining ?? null,
     learned.usesMaximum ?? null,
     learned.archived ? 1 : 0,
+  );
+}
+
+function upsertRelationship(database: DatabaseSync, campaignId: string, relationship: CampaignRelationship): void {
+  database.prepare(`
+    INSERT INTO campaign_relationship_projections(
+      campaign_id, relationship_id, source_actor_id, target_actor_id,
+      relationship_kind, status, notes, visibility, archived
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(campaign_id, relationship_id) DO UPDATE SET
+      source_actor_id = excluded.source_actor_id, target_actor_id = excluded.target_actor_id,
+      relationship_kind = excluded.relationship_kind, status = excluded.status,
+      notes = excluded.notes, visibility = excluded.visibility, archived = excluded.archived
+  `).run(
+    campaignId,
+    relationship.id,
+    relationship.sourceActorId,
+    relationship.targetActorId,
+    relationship.kind,
+    relationship.status,
+    relationship.notes,
+    relationship.visibility ?? null,
+    relationship.archived ? 1 : 0,
   );
 }
 

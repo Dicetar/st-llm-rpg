@@ -549,3 +549,37 @@ test('exact Ability mention retrieves definition, live uses, and linked Actor wi
   assert.match(outcome.value.blocks.known, /Known by: Lavir, prepared, 2\/3 uses/);
   assert.doesNotMatch(outcome.value.blocks.known, /different spell that should not be selected/);
 });
+
+test('an Actor mention expands one explicit Relationship and its counterpart without exposing private links', async () => {
+  const relationshipCampaign: CampaignDocument = {
+    ...campaign,
+    actors: [...campaign.actors, {
+      id: 'actor-mara', name: 'Mara', aliases: [], summary: 'A careful investigator.', visibility: 'known', archived: false,
+    }],
+    relationships: [{
+      id: 'relationship-patron', sourceActorId: 'actor-lavir', targetActorId: 'actor-mara',
+      kind: 'patron', status: 'strained', notes: 'Lavir doubts Mara after the missing key.', visibility: 'known', archived: false,
+    }, {
+      id: 'relationship-private', sourceActorId: 'actor-mara', targetActorId: 'actor-lavir',
+      kind: 'private-note', status: 'other', notes: 'This must never reach narration.', visibility: 'campaign_private', archived: false,
+    }],
+  };
+  const planner = new ContextPlanner(source([], {
+    campaign: relationshipCampaign,
+    binding: { ...binding, pins: [] },
+    profile,
+  }));
+  const outcome = await planner.plan({
+    requestId: 'context-relationship-hop', campaignId: campaign.campaign.id, campaignRevision: 7,
+    bindingId: binding.id, bindingRevision: 3, contextFocusRevision: 2,
+    modelProfileId: profile.id, generationType: 'normal',
+    messages: [{ role: 'user', content: 'I ask Lavir why he no longer trusts Mara.' }],
+  }, new AbortController().signal);
+
+  assert.equal(outcome.ok, true);
+  if (!outcome.ok) return;
+  assert.equal(outcome.value.selections.some(selection => selection.recordId === 'relationship-patron' && selection.tier === 'relation-hop'), true);
+  assert.match(outcome.value.blocks.known, /Lavir —patron→ Mara \(strained\)/);
+  assert.match(outcome.value.blocks.known, /Lavir doubts Mara after the missing key/);
+  assert.doesNotMatch(JSON.stringify(outcome.value), /private-note|must never reach narration/);
+});

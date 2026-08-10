@@ -19,6 +19,8 @@ import {
   type CampaignPlace,
   type CampaignQuest,
   type CampaignQuestStatus,
+  type CampaignRelationship,
+  type CampaignRelationshipStatus,
   type CampaignScene,
   type CampaignSummary,
   type NarratorVisibility,
@@ -30,7 +32,7 @@ import { ContextTray } from './ContextTray.js';
 import { createUuid } from './browser-uuid.js';
 import { StorySyncReviewInbox } from './StorySyncReviewInbox.js';
 
-export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'abilities' | 'scene' | 'review' | 'context' | 'history';
+export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'abilities' | 'relationships' | 'scene' | 'review' | 'context' | 'history';
 
 type WorkspaceRoute = Readonly<{
   campaignId: string | null;
@@ -77,6 +79,7 @@ const COLLECTION_KEYS: readonly CollectionKey[] = [
   'quests',
   'places',
   'abilities',
+  'relationships',
   'scene',
   'review',
   'context',
@@ -208,6 +211,7 @@ function collectionLabel(collection: CollectionKey): string {
   if (collection === 'quests') return 'Quests';
   if (collection === 'places') return 'Places';
   if (collection === 'abilities') return 'Abilities';
+  if (collection === 'relationships') return 'Relationships';
   if (collection === 'scene') return 'Current Scene';
   if (collection === 'context') return 'Context Tray';
   return 'History';
@@ -290,6 +294,7 @@ export function CampaignCommandDeck(props: {
     { collection: 'actors', label: 'Add Actor', description: 'Create a persistent character.', mutationEntry: true },
     { collection: 'items', label: 'Add Item', description: 'Create or attach an object.', mutationEntry: true },
     { collection: 'abilities', label: 'Add Ability', description: 'Create a spell, skill, feat, or other capability.', mutationEntry: true },
+    { collection: 'relationships', label: 'Add Relationship', description: 'Connect two Actors with explicit directed state.', mutationEntry: true },
     {
       collection: 'scene',
       label: props.hasCurrentScene ? 'Open Scene' : 'Start Scene',
@@ -374,6 +379,7 @@ function CollectionNavigation(props: {
     { key: 'quests', label: 'Quests', count: props.document.quests.filter(record => !record.archived).length },
     { key: 'places', label: 'Places', count: props.document.places.filter(record => !record.archived).length },
     { key: 'abilities', label: 'Abilities', count: (props.document.abilities ?? []).filter(record => !record.archived).length },
+    { key: 'relationships', label: 'Relationships', count: (props.document.relationships ?? []).filter(record => !record.archived).length },
     { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
     { key: 'review', label: 'Review Inbox' },
     { key: 'context', label: 'Context Tray', count: props.bindings.reduce((total, binding) => total + (binding.pins?.length ?? 0), 0) },
@@ -768,6 +774,153 @@ export function LearnedAbilitiesPanel(props: {
       {availableActors.length === 0 && props.learned.length === 0 ? <p className="empty-state">Create an Actor first, then add them here.</p> : null}
       <div className="learned-ability-list">
         {props.learned.map(record => <LearnedAbilityRow key={record.id} record={record} actor={props.actors.find(actor => actor.id === record.actorId)} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
+      </div>
+    </section>
+  );
+}
+
+type RelationshipDraft = Readonly<{
+  sourceActorId: string;
+  targetActorId: string;
+  relationshipKind: string;
+  status: CampaignRelationshipStatus;
+  notes: string;
+  visibility: NarratorVisibility;
+}>;
+
+function relationshipDraft(record: CampaignRelationship): RelationshipDraft {
+  return {
+    sourceActorId: record.sourceActorId,
+    targetActorId: record.targetActorId,
+    relationshipKind: record.kind,
+    status: record.status,
+    notes: record.notes,
+    visibility: record.visibility ?? 'known',
+  };
+}
+
+function sameRelationshipDraft(left: RelationshipDraft, right: RelationshipDraft): boolean {
+  return left.sourceActorId === right.sourceActorId
+    && left.targetActorId === right.targetActorId
+    && left.relationshipKind.trim() === right.relationshipKind
+    && left.status === right.status
+    && left.notes.trim() === right.notes
+    && left.visibility === right.visibility;
+}
+
+function RelationshipStatusOptions() {
+  return <><option value="active">Active</option><option value="strained">Strained</option><option value="dormant">Dormant</option><option value="ended">Ended</option><option value="other">Other</option></>;
+}
+
+function RelationshipRow(props: {
+  record: CampaignRelationship;
+  actors: readonly CampaignActor[];
+  busy: boolean;
+  readOnly: boolean;
+  onSave: (id: string, draft: RelationshipDraft) => Promise<void>;
+  onArchive: (id: string, archived: boolean) => Promise<void>;
+}) {
+  const initial = relationshipDraft(props.record);
+  const [draft, setDraft] = useState(initial);
+  const [baseline, setBaseline] = useState(initial);
+  useEffect(() => {
+    const next = relationshipDraft(props.record);
+    const dirty = !sameRelationshipDraft(draft, baseline);
+    setBaseline(next);
+    if (!dirty) setDraft(next);
+  }, [props.record.id, props.record.sourceActorId, props.record.targetActorId, props.record.kind, props.record.status, props.record.notes, props.record.visibility, props.record.archived]);
+  const dirty = !sameRelationshipDraft(draft, baseline);
+  const selectableActors = props.actors.filter(actor => !actor.archived || actor.id === draft.sourceActorId || actor.id === draft.targetActorId);
+  return (
+    <form className={props.record.archived ? 'relationship-row relationship-row--archived' : 'relationship-row'} onSubmit={event => {
+      event.preventDefault();
+      void props.onSave(props.record.id, draft);
+    }}>
+      <div className="relationship-row__identity"><strong>{props.record.kind}</strong><small>{props.record.archived ? 'Archived relationship' : props.record.id}</small></div>
+      <label><span>From</span><select aria-label="Relationship source" value={draft.sourceActorId} onChange={event => setDraft(value => ({ ...value, sourceActorId: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived}>{selectableActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
+      <label><span>To</span><select aria-label="Relationship target" value={draft.targetActorId} onChange={event => setDraft(value => ({ ...value, targetActorId: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived}>{selectableActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
+      <label><span>Kind</span><input value={draft.relationshipKind} onChange={event => setDraft(value => ({ ...value, relationshipKind: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} placeholder="ally, rival, employer…" /></label>
+      <label><span>Status</span><select value={draft.status} onChange={event => setDraft(value => ({ ...value, status: event.target.value as CampaignRelationshipStatus }))} disabled={props.busy || props.readOnly || props.record.archived}><RelationshipStatusOptions /></select></label>
+      <label><span>Visibility</span><select value={draft.visibility} onChange={event => setDraft(value => ({ ...value, visibility: event.target.value as NarratorVisibility }))} disabled={props.busy || props.readOnly || props.record.archived}><option value="known">Known</option><option value="narrator_secret">Narrator secret</option><option value="campaign_private">Campaign private</option></select></label>
+      <label className="relationship-row__notes"><span>Notes</span><textarea rows={2} value={draft.notes} onChange={event => setDraft(value => ({ ...value, notes: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} /></label>
+      <div className="record-actions">
+        {!props.record.archived ? <button type="submit" disabled={props.busy || props.readOnly || !dirty || !draft.relationshipKind.trim() || draft.sourceActorId === draft.targetActorId}>Save Relationship</button> : null}
+        <button type="button" className="button-secondary" disabled={props.busy || props.readOnly} onClick={() => { void props.onArchive(props.record.id, !props.record.archived); }}>{props.record.archived ? 'Restore' : 'Remove'}</button>
+      </div>
+    </form>
+  );
+}
+
+export function RelationshipsPanel(props: {
+  relationships: readonly CampaignRelationship[];
+  actors: readonly CampaignActor[];
+  focusActorId?: string;
+  busy: boolean;
+  readOnly: boolean;
+  onCreate: (draft: RelationshipDraft) => Promise<void>;
+  onSave: (id: string, draft: RelationshipDraft) => Promise<void>;
+  onArchive: (id: string, archived: boolean) => Promise<void>;
+}) {
+  const activeActors = props.actors.filter(actor => !actor.archived);
+  const defaultSource = props.focusActorId ?? activeActors[0]?.id ?? '';
+  const [direction, setDirection] = useState<'outgoing' | 'incoming'>('outgoing');
+  const [sourceActorId, setSourceActorId] = useState(defaultSource);
+  const [targetActorId, setTargetActorId] = useState('');
+  const [relationshipKind, setRelationshipKind] = useState('');
+  const [status, setStatus] = useState<CampaignRelationshipStatus>('active');
+  const [notes, setNotes] = useState('');
+  const [visibility, setVisibility] = useState<NarratorVisibility>('known');
+  const pendingCreate = useRef<RelationshipDraft | null>(null);
+  const relationshipKey = props.relationships.map(record => `${record.id}:${record.archived}`).join('\u0000');
+  useEffect(() => {
+    const pending = pendingCreate.current;
+    if (!pending || !props.relationships.some(record => !record.archived
+      && record.sourceActorId === pending.sourceActorId
+      && record.targetActorId === pending.targetActorId
+      && record.kind === pending.relationshipKind)) return;
+    pendingCreate.current = null;
+    setTargetActorId('');
+    setRelationshipKind('');
+    setStatus('active');
+    setNotes('');
+    setVisibility('known');
+  }, [relationshipKey]);
+  useEffect(() => {
+    if (props.focusActorId) setSourceActorId(props.focusActorId);
+  }, [props.focusActorId]);
+  const visible = props.focusActorId
+    ? props.relationships.filter(record => record.sourceActorId === props.focusActorId || record.targetActorId === props.focusActorId)
+    : props.relationships;
+  const selectedSource = props.focusActorId
+    ? direction === 'outgoing' ? props.focusActorId : targetActorId
+    : sourceActorId;
+  const selectedTarget = props.focusActorId
+    ? direction === 'outgoing' ? targetActorId : props.focusActorId
+    : targetActorId;
+  const headingId = `relationships-heading-${props.focusActorId ?? 'all'}`;
+  return (
+    <section className="relationships-panel" aria-labelledby={headingId}>
+      <div className="collection-heading"><div><h4 id={headingId}>Relationships</h4><p>Directed Actor links with explicit status and editable notes. Removing archives the link.</p></div></div>
+      {!props.readOnly ? (
+        <form className="relationship-create" onSubmit={event => {
+          event.preventDefault();
+          if (!selectedSource || !selectedTarget || selectedSource === selectedTarget || !relationshipKind.trim()) return;
+          const draft = { sourceActorId: selectedSource, targetActorId: selectedTarget, relationshipKind, status, notes, visibility };
+          pendingCreate.current = draft;
+          void props.onCreate(draft);
+        }}>
+          {props.focusActorId ? <label><span>Direction</span><select value={direction} onChange={event => setDirection(event.target.value as 'outgoing' | 'incoming')} disabled={props.busy}><option value="outgoing">This Actor → other</option><option value="incoming">Other → this Actor</option></select></label> : <label><span>From</span><select aria-label="New relationship source" value={sourceActorId} onChange={event => setSourceActorId(event.target.value)} disabled={props.busy}><option value="">Choose Actor</option>{activeActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>}
+          <label><span>{props.focusActorId ? 'Other Actor' : 'To'}</span><select aria-label="New relationship target" value={targetActorId} onChange={event => setTargetActorId(event.target.value)} disabled={props.busy}><option value="">Choose Actor</option>{activeActors.filter(actor => actor.id !== props.focusActorId).map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
+          <label><span>Kind</span><input value={relationshipKind} onChange={event => setRelationshipKind(event.target.value)} disabled={props.busy} placeholder="ally, rival, employer…" /></label>
+          <label><span>Status</span><select value={status} onChange={event => setStatus(event.target.value as CampaignRelationshipStatus)} disabled={props.busy}><RelationshipStatusOptions /></select></label>
+          <label><span>Visibility</span><select value={visibility} onChange={event => setVisibility(event.target.value as NarratorVisibility)} disabled={props.busy}><option value="known">Known</option><option value="narrator_secret">Narrator secret</option><option value="campaign_private">Campaign private</option></select></label>
+          <label className="relationship-create__notes"><span>Notes</span><textarea rows={2} value={notes} onChange={event => setNotes(event.target.value)} disabled={props.busy} placeholder="What this link means now" /></label>
+          <button type="submit" disabled={props.busy || !selectedSource || !selectedTarget || selectedSource === selectedTarget || !relationshipKind.trim()}>+ Add Relationship</button>
+        </form>
+      ) : null}
+      {activeActors.length < 2 && visible.length === 0 ? <p className="empty-state">Create at least two Actors to add a Relationship.</p> : null}
+      <div className="relationship-list">
+        {visible.map(record => <RelationshipRow key={record.id} record={record} actors={props.actors} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
       </div>
     </section>
   );
@@ -1460,7 +1613,7 @@ export default function CampaignWorkspace() {
       <div className="section-heading">
         <div>
           <h2 id="campaign-authority">Campaign Workspace</h2>
-          <p>Routed Actors, Items, Abilities, Quests, Places, Scene, and immutable history backed by one SQLite authority.</p>
+          <p>Routed Actors, Items, Abilities, Relationships, Quests, Places, Scene, and immutable history backed by one SQLite authority.</p>
         </div>
         {displayed ? (
           <div className="workspace-state">
@@ -1605,15 +1758,33 @@ export default function CampaignWorkspace() {
                     <>
                       <RecordRouteHeader route={route} onNavigate={navigate} />
                       {actor ? (
-                        <RecordEditor
-                          kind="actor"
-                          record={actor}
-                          actors={displayed.actors}
-                          busy={busy}
-                          readOnly={readOnly}
-                           onSave={(actorId, name, summary, aliases, visibility) => run(() => executeOperation({ kind: 'update_actor', actorId, name, summary, aliases: [...aliases], visibility }).then(() => undefined))}
-                          onArchive={(actorId, archived) => run(() => executeOperation({ kind: 'set_actor_archived', actorId, archived }).then(() => undefined))}
-                        />
+                        <>
+                          <RecordEditor
+                            kind="actor"
+                            record={actor}
+                            actors={displayed.actors}
+                            busy={busy}
+                            readOnly={readOnly}
+                            onSave={(actorId, name, summary, aliases, visibility) => run(() => executeOperation({ kind: 'update_actor', actorId, name, summary, aliases: [...aliases], visibility }).then(() => undefined))}
+                            onArchive={(actorId, archived) => run(() => executeOperation({ kind: 'set_actor_archived', actorId, archived }).then(() => undefined))}
+                          />
+                          <RelationshipsPanel
+                            relationships={displayed.relationships ?? []}
+                            actors={displayed.actors}
+                            focusActorId={actor.id}
+                            busy={busy}
+                            readOnly={readOnly || actor.archived}
+                            onCreate={draft => run(() => executeOperation({ kind: 'create_relationship', relationship: {
+                              sourceActorId: draft.sourceActorId, targetActorId: draft.targetActorId,
+                              kind: draft.relationshipKind, status: draft.status, notes: draft.notes, visibility: draft.visibility,
+                            } }).then(() => undefined))}
+                            onSave={(relationshipId, draft) => run(() => executeOperation({ kind: 'update_relationship',
+                              relationshipId, sourceActorId: draft.sourceActorId, targetActorId: draft.targetActorId,
+                              relationshipKind: draft.relationshipKind, status: draft.status, notes: draft.notes, visibility: draft.visibility,
+                            }).then(() => undefined))}
+                            onArchive={(relationshipId, archived) => run(() => executeOperation({ kind: 'set_relationship_archived', relationshipId, archived }).then(() => undefined))}
+                          />
+                        </>
                       ) : <p className="error-banner">Actor {recordId} does not exist in this revision.</p>}
                     </>
                   ) : (
@@ -1831,6 +2002,27 @@ export default function CampaignWorkspace() {
                       <RecordIndex collection="abilities" records={displayed.abilities ?? []} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
+                </section>
+              ) : null}
+
+              {route.collection === 'relationships' ? (
+                <section className="collection-view" aria-labelledby="relationships-collection-heading">
+                  <div className="collection-heading"><div><h4 id="relationships-collection-heading">All Relationships</h4><p>Create and maintain directed links without leaving this collection.</p></div></div>
+                  <RelationshipsPanel
+                    relationships={displayed.relationships ?? []}
+                    actors={displayed.actors}
+                    busy={busy}
+                    readOnly={readOnly}
+                    onCreate={draft => run(() => executeOperation({ kind: 'create_relationship', relationship: {
+                      sourceActorId: draft.sourceActorId, targetActorId: draft.targetActorId,
+                      kind: draft.relationshipKind, status: draft.status, notes: draft.notes, visibility: draft.visibility,
+                    } }).then(() => undefined))}
+                    onSave={(relationshipId, draft) => run(() => executeOperation({ kind: 'update_relationship',
+                      relationshipId, sourceActorId: draft.sourceActorId, targetActorId: draft.targetActorId,
+                      relationshipKind: draft.relationshipKind, status: draft.status, notes: draft.notes, visibility: draft.visibility,
+                    }).then(() => undefined))}
+                    onArchive={(relationshipId, archived) => run(() => executeOperation({ kind: 'set_relationship_archived', relationshipId, archived }).then(() => undefined))}
+                  />
                 </section>
               ) : null}
 

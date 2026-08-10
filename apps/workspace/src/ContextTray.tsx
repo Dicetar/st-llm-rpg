@@ -39,7 +39,7 @@ async function fetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 type ContextRecordChoice = Readonly<{
   id: string;
-  kind: 'Actor' | 'Item' | 'Quest' | 'Place';
+  kind: 'Actor' | 'Item' | 'Quest' | 'Place' | 'Ability' | 'Relationship';
   name: string;
   archived: boolean;
   visibility: NarratorVisibility;
@@ -114,6 +114,20 @@ export function ContextTray(props: {
       id: record.id, kind: 'Place' as const, name: record.name, archived: record.archived,
       visibility: record.visibility ?? 'known' as const,
     })),
+    ...(props.document.abilities ?? []).map(record => ({
+      id: record.id, kind: 'Ability' as const, name: record.name, archived: record.archived,
+      visibility: record.visibility ?? 'known' as const,
+    })),
+    ...(props.document.relationships ?? []).map(record => {
+      const source = props.document.actors.find(actor => actor.id === record.sourceActorId);
+      const target = props.document.actors.find(actor => actor.id === record.targetActorId);
+      return {
+        id: record.id, kind: 'Relationship' as const,
+        name: `${source?.name ?? record.sourceActorId} → ${target?.name ?? record.targetActorId}: ${record.kind}`,
+        archived: record.archived || Boolean(source?.archived) || Boolean(target?.archived),
+        visibility: record.visibility ?? 'known' as const,
+      };
+    }),
   ].sort((left, right) => left.kind.localeCompare(right.kind) || left.name.localeCompare(right.name) || left.id.localeCompare(right.id)), [props.document]);
 
   useEffect(() => {

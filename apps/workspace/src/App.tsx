@@ -15,6 +15,7 @@ export {
   CampaignHistoryView,
   RecordEditor,
   LearnedAbilitiesPanel,
+  RelationshipsPanel,
   SceneEditor,
   RevisionConflictBanner,
   WorkspaceRouteState,

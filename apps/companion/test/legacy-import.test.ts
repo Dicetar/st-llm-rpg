@@ -36,8 +36,8 @@ function legacyEnvelope() {
       ],
       possessions: [{ id: 'possession-key', itemId: 'item-key', ownerActorId: 'actor-player' }],
       learnedAbilities: [{ id: 'learned-hand', abilityId: 'ability-hand', actorId: 'actor-player' }],
-      relationships: [{ id: 'relationship-mara', sourceActorId: 'actor-player', targetActorId: 'actor-mara' }],
-      sceneArchives: [],
+      relationships: [{ id: 'relationship-mara', sourceActorId: 'actor-player', targetActorId: 'actor-mara', relationshipKind: 'ally', status: 'active', notes: 'They trust each other.' }],
+      sceneArchives: [{ id: 'scene-archive-1' }],
       proposals: [],
       currentScene: { id: 'scene-gate', title: 'At the Gate', summary: 'The seal is weakening.' },
     },
@@ -49,14 +49,16 @@ test('legacy envelope inspection projects supported truth and reports preserved 
   assert.equal(inspected.valid, true);
   assert.equal(inspected.title, 'Emberfall');
   assert.equal(inspected.legacyRevision, 7);
-  assert.deepEqual(inspected.counts, { actors: 2, items: 1, quests: 1, places: 1, abilities: 1, learnedAbilities: 1, unsupported: 1 });
+  assert.deepEqual(inspected.counts, { actors: 2, items: 1, quests: 1, places: 1, abilities: 1, learnedAbilities: 1, relationships: 1, unsupported: 1 });
   assert.equal(inspected.state?.actors['actor-player']?.name, 'Seraphine');
   assert.equal(inspected.state?.items['item-key']?.ownerActorId, 'actor-player');
   assert.equal(inspected.state?.currentScene?.name, 'At the Gate');
   assert.equal(inspected.state?.abilities?.['ability-hand']?.name, 'Mage Hand');
   assert.equal(inspected.state?.learnedAbilities?.['learned-hand']?.actorId, 'actor-player');
+  assert.equal(inspected.state?.relationships?.['relationship-mara']?.kind, 'ally');
   assert.equal(inspected.issues.some(issue => issue.code === 'unsupported-record-kind'), false);
-  assert.equal(inspected.issues.some(issue => issue.code === 'unsupported-relationship'), true);
+  assert.equal(inspected.issues.some(issue => issue.code === 'unsupported-relationship'), false);
+  assert.equal(inspected.issues.some(issue => issue.code === 'unsupported-scene-archive'), true);
 });
 
 test('malformed legacy envelope produces a previewable validation report instead of partial state', () => {

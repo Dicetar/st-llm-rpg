@@ -10,7 +10,7 @@ This folder is the external authoring surface for RPG Campaign content.
 
 The Companion watches this directory and also provides manual **Rescan files**. A watcher signal never mutates Campaign truth. Apply rechecks the exact manifest and Campaign revision, creates a verified pre-import SQLite backup, then accepts one atomic Campaign event. Missing file rows never delete accepted records.
 
-The current Companion slice imports Actors (`people`), Items, Quests with `active`/`completed` status, Places, and its simplified current Scene. Richer fallback-only fields and collections are shown as warnings; they are never silently claimed as imported.
+The current Companion slice imports Actors (`people`), Items, Abilities, directed Relationships, Quests with `active`/`completed` status, Places, and its simplified current Scene. Richer fallback-only fields and collections are shown as warnings; they are never silently claimed as imported.
 
 For the fallback extension, double-click `Sync-JSON-Addons.bat`, refresh SillyTavern, then press **Sync JSON Addons** in Campaign Workspace.
 
@@ -38,7 +38,7 @@ Events, accepted history, closed Scene Archives, Story Sync Proposals, and journ
 - Fill the provided `*_addon.json` files or add more files such as `items_house-harcourt.json`.
 - Keep each `id` stable. Sync uses it to update an existing imported entry instead of creating a duplicate.
 - IDs are unique per collection across all addon files.
-- Relationship `source` and `target` use a People addon ID or the special value `$player`.
+- In the production Companion, Relationship `source` and `target` use People addon IDs; `sourceActorId` and `targetActorId` may instead name existing canonical Actor IDs. The fallback also understands `$player`, but the Companion never guesses which Actor is the player.
 - Typed references use stable addon IDs and must point to entries included in the same installed bundle.
 - At most one non-null `character` and one non-null `scene` may exist across all addon files.
 - A Scene addon can update the same open Scene but cannot replace a different open Scene.

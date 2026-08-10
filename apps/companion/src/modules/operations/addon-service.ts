@@ -25,11 +25,10 @@ const PERIODIC_RESCAN_MS = 60_000;
 const WATCH_DEBOUNCE_MS = 250;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
-const SUPPORTED_TOP_LEVEL = new Set(['people', 'items', 'quests', 'places', 'abilities', 'scene', 'records']);
+const SUPPORTED_TOP_LEVEL = new Set(['people', 'items', 'quests', 'places', 'abilities', 'relationships', 'scene', 'records']);
 const KNOWN_UNSUPPORTED = new Map([
   ['character', 'Player Character identity is not represented by the current companion addon model.'],
   ['facts', 'Facts are not represented by the current companion addon model yet.'],
-  ['relationships', 'Relationships are not represented by the current companion addon model yet.'],
   ['worldObjects', 'World Objects are not represented by the current companion addon model yet.'],
 ]);
 
@@ -120,6 +119,19 @@ function campaignValue(document: CampaignDocument, after: AddonValue): AddonValu
     const record = (document.abilities ?? []).find(candidate => candidate.id === after.subjectId);
     return record ? { ...common(record), category: record.category } : null;
   }
+  if (after.recordKind === 'relationship') {
+    const record = (document.relationships ?? []).find(candidate => candidate.id === after.subjectId);
+    return record ? {
+      ...after,
+      name: after.name,
+      summary: record.notes,
+      sourceActorId: record.sourceActorId,
+      targetActorId: record.targetActorId,
+      relationshipKind: record.kind,
+      relationshipStatus: record.status,
+      ...(record.visibility ? { visibility: record.visibility } : {}),
+    } : null;
+  }
   const record = document.currentScene?.id === after.subjectId ? document.currentScene : null;
   return record ? {
     ...after,
@@ -174,6 +186,19 @@ function operationsFor(changes: readonly AddonChange[]): CampaignOperation[] {
       operations.push(change.change === 'create'
         ? { kind: 'create_ability', ability: { id: value.subjectId, name: value.name, summary: value.summary, category: value.category ?? 'other', ...narrator } }
         : { kind: 'update_ability', abilityId: value.subjectId, name: value.name, summary: value.summary, category: value.category ?? 'other', ...narrator });
+    } else if (value.recordKind === 'relationship') {
+      operations.push(change.change === 'create'
+        ? { kind: 'create_relationship', relationship: {
+          id: value.subjectId,
+          sourceActorId: value.sourceActorId!, targetActorId: value.targetActorId!,
+          kind: value.relationshipKind!, status: value.relationshipStatus ?? 'active',
+          notes: value.summary, ...(value.visibility ? { visibility: value.visibility } : {}),
+        } }
+        : { kind: 'update_relationship', relationshipId: value.subjectId,
+          sourceActorId: value.sourceActorId!, targetActorId: value.targetActorId!,
+          relationshipKind: value.relationshipKind!, status: value.relationshipStatus ?? 'active',
+          notes: value.summary, ...(value.visibility ? { visibility: value.visibility } : {}),
+        });
     } else {
       operations.push({
         kind: 'set_current_scene',
@@ -195,7 +220,8 @@ function operationsFor(changes: readonly AddonChange[]): CampaignOperation[] {
     create_quest: 3, update_quest: 3, set_quest_archived: 3,
     create_ability: 4, create_ability_with_learning: 4, update_ability: 4, set_ability_archived: 4,
     create_learned_ability: 5, update_learned_ability: 5, set_learned_ability_archived: 5,
-    set_current_scene: 6,
+    create_relationship: 6, update_relationship: 6, set_relationship_archived: 6,
+    set_current_scene: 7,
   };
   return operations.sort((left, right) => order[left.kind] - order[right.kind]);
 }
@@ -434,7 +460,14 @@ export class AddonService {
         return;
       }
       const externalId = text(input.externalId ?? input.id);
-      const name = text(input.name ?? input.title);
+      const relationshipSource = text(input.sourceActorId) || (text(input.source) ? addonSubjectId('actor', text(input.source)) : '');
+      const relationshipTarget = text(input.targetActorId) || (text(input.target) ? addonSubjectId('actor', text(input.target)) : '');
+      const relationshipKind = text(input.kind) === 'relationship'
+        ? text(input.relationshipKind)
+        : text(input.relationshipKind ?? input.kind);
+      const name = kind === 'relationship'
+        ? (text(input.name ?? input.title) || `${text(input.source) || relationshipSource} → ${text(input.target) || relationshipTarget}`).slice(0, 160)
+        : text(input.name ?? input.title);
       if (!externalId || externalId.length > 96 || !ID_PATTERN.test(externalId)) {
         issues.push(issue('error', 'addon_identity_invalid', sourceFile, `${path}.id`, 'Stable ID must use letters, numbers, dot, underscore, colon, or hyphen.'));
         return;
@@ -490,6 +523,32 @@ export class AddonService {
           return;
         }
         Object.assign(common, { category });
+      } else if (kind === 'relationship') {
+        const relationshipStatus = text(input.status, 'active');
+        if (!relationshipSource || !relationshipTarget || relationshipSource === relationshipTarget) {
+          issues.push(issue('error', 'addon_relationship_actors_invalid', sourceFile, path, 'Relationship must connect two different Actor references.'));
+          return;
+        }
+        if (!ID_PATTERN.test(relationshipSource) || !ID_PATTERN.test(relationshipTarget)
+          || relationshipSource.length > 128 || relationshipTarget.length > 128) {
+          issues.push(issue('error', 'addon_relationship_reference_invalid', sourceFile, path, 'Relationship Actor references must be canonical IDs or People addon IDs. The Companion does not guess $player.'));
+          return;
+        }
+        if (!relationshipKind || relationshipKind.length > 160) {
+          issues.push(issue('error', 'addon_relationship_kind_invalid', sourceFile, `${path}.kind`, 'Relationship kind is required and may contain at most 160 characters.'));
+          return;
+        }
+        if (!['active', 'strained', 'dormant', 'ended', 'other'].includes(relationshipStatus)) {
+          issues.push(issue('error', 'addon_relationship_status_unsupported', sourceFile, `${path}.status`, 'Relationship status must be active, strained, dormant, ended, or other.'));
+          return;
+        }
+        Object.assign(common, {
+          sourceActorId: relationshipSource,
+          targetActorId: relationshipTarget,
+          relationshipKind,
+          relationshipStatus,
+          summary: text(input.notes ?? input.summary),
+        });
       } else if (kind === 'scene') {
         const placeId = text(input.placeId) || (text(input.place) ? addonSubjectId('place', text(input.place)) : '');
         const actorIds = Array.isArray(input.actorIds) ? input.actorIds.map(String) : [];
@@ -523,6 +582,7 @@ export class AddonService {
       if (kind === 'item') ['ownerActorId', 'ownerExternalId'].forEach(key => accepted.add(key));
       if (kind === 'quest') accepted.add('status');
       if (kind === 'ability') accepted.add('category');
+      if (kind === 'relationship') ['source', 'target', 'sourceActorId', 'targetActorId', 'relationshipKind', 'status', 'notes'].forEach(key => accepted.add(key));
       if (kind === 'scene') ['place', 'placeId', 'actorIds', 'itemIds', 'presences'].forEach(key => accepted.add(key));
       const omitted = Object.keys(input).filter(key => !accepted.has(key) && meaningful(input[key]));
       if (omitted.length) {
@@ -533,7 +593,7 @@ export class AddonService {
     for (const source of documents) {
       const document = source.document;
       const collections: Array<readonly [string, AddonRecordKind]> = [
-        ['people', 'actor'], ['items', 'item'], ['quests', 'quest'], ['places', 'place'], ['abilities', 'ability'],
+        ['people', 'actor'], ['items', 'item'], ['quests', 'quest'], ['places', 'place'], ['abilities', 'ability'], ['relationships', 'relationship'],
       ];
       for (const [key, kind] of collections) {
         const raw = document[key];
@@ -551,8 +611,8 @@ export class AddonService {
         } else {
           document.records.forEach((record, index) => {
             const kind = text(object(record)?.kind) as AddonRecordKind;
-            if (!['actor', 'item', 'quest', 'place', 'ability', 'scene'].includes(kind)) {
-              issues.push(issue('error', 'addon_kind_unsupported', source.name, `records[${index}].kind`, 'Kind must be actor, item, quest, place, ability, or scene.'));
+            if (!['actor', 'item', 'quest', 'place', 'ability', 'relationship', 'scene'].includes(kind)) {
+              issues.push(issue('error', 'addon_kind_unsupported', source.name, `records[${index}].kind`, 'Kind must be actor, item, quest, place, ability, relationship, or scene.'));
               return;
             }
             add(kind, record, source.name, `records[${index}]`);
@@ -583,6 +643,8 @@ export class AddonService {
         ...(value.placeId ? [value.placeId] : []),
         ...(value.actorIds ?? []),
         ...(value.itemIds ?? []),
+        ...(value.sourceActorId ? [value.sourceActorId] : []),
+        ...(value.targetActorId ? [value.targetActorId] : []),
       ];
       for (const reference of references) {
         if (!known.has(reference)) {

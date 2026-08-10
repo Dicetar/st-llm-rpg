@@ -331,7 +331,10 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
   const campaignId = created.json().campaignId;
   const addonRoot = join(workspaceRoot, 'campaign-content');
   await writeFile(join(addonRoot, 'people_addon.json'), JSON.stringify({
-    people: [{ id: 'lavir', name: 'Lavir', summary: 'A precise court mage.', details: 'Private notes stay outside the current model.' }],
+    people: [
+      { id: 'lavir', name: 'Lavir', summary: 'A precise court mage.', details: 'Private notes stay outside the current model.' },
+      { id: 'mara', name: 'Mara', summary: 'A guarded investigator.' },
+    ],
   }));
   await writeFile(join(addonRoot, 'items_addon.json'), JSON.stringify({
     items: [{ id: 'wardrobe-key', name: 'Wardrobe key', summary: 'A small iron key.', ownerExternalId: 'lavir' }],
@@ -339,17 +342,20 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
   await writeFile(join(addonRoot, 'abilities_addon.json'), JSON.stringify({
     abilities: [{ id: 'mage-hand', name: 'Mage Hand', summary: 'Moves a small unattended object.', category: 'spell' }],
   }));
+  await writeFile(join(addonRoot, 'relationships_addon.json'), JSON.stringify({
+    relationships: [{ id: 'lavir-trusts-mara', source: 'lavir', target: 'mara', kind: 'patron', status: 'strained', notes: 'Lavir expects proof.' }],
+  }));
 
   const sources = await app.inject({ method: 'POST', url: '/api/operations/addons/rescan' });
   assert.equal(sources.statusCode, 200, sources.body);
-  assert.deepEqual(sources.json().files.map((file: { name: string }) => file.name), ['abilities_addon.json', 'items_addon.json', 'people_addon.json']);
+  assert.deepEqual(sources.json().files.map((file: { name: string }) => file.name), ['abilities_addon.json', 'items_addon.json', 'people_addon.json', 'relationships_addon.json']);
 
   const firstPreview = await app.inject({
     method: 'POST', url: '/api/operations/addons/preview', payload: { campaignId },
   });
   assert.equal(firstPreview.statusCode, 200, firstPreview.body);
   assert.equal(firstPreview.json().canApply, true);
-  assert.equal(firstPreview.json().changes.filter((change: { change: string }) => change.change === 'create').length, 3);
+  assert.equal(firstPreview.json().changes.filter((change: { change: string }) => change.change === 'create').length, 5);
   assert.ok(firstPreview.json().issues.some((entry: { code: string }) => entry.code === 'addon_fields_not_imported'));
   const persistedCandidates = await app.inject({
     method: 'GET', url: `/api/operations/addons/candidates?campaignId=${encodeURIComponent(campaignId)}`,
@@ -383,7 +389,7 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
     },
   });
   assert.equal(applied.statusCode, 200, applied.body);
-  assert.equal(applied.json().changed, 3);
+  assert.equal(applied.json().changed, 5);
   assert.equal(applied.json().backup.kind, 'pre-operation');
   assert.equal(applied.json().commit.operationKind, 'apply_addon_batch');
   assert.equal(applied.json().commit.revision, 2);
@@ -394,6 +400,10 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
   assert.equal(campaign.json().items[0].ownerActorId, 'addon:actor:lavir');
   assert.equal(campaign.json().abilities[0].id, 'addon:ability:mage-hand');
   assert.equal(campaign.json().abilities[0].category, 'spell');
+  assert.equal(campaign.json().relationships[0].id, 'addon:relationship:lavir-trusts-mara');
+  assert.equal(campaign.json().relationships[0].sourceActorId, 'addon:actor:lavir');
+  assert.equal(campaign.json().relationships[0].targetActorId, 'addon:actor:mara');
+  assert.equal(campaign.json().relationships[0].status, 'strained');
   assert.match(campaign.json().items[0].summary, /split-crown/);
   const history = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}/history` });
   assert.ok(history.json().some((entry: { operationKind: string }) => entry.operationKind === 'apply_addon_batch'));
@@ -407,6 +417,18 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
   assert.equal(additivePreview.json().changes.some((change: { after: { externalId: string } }) => change.after.externalId === 'wardrobe-key'), false);
   const afterRemoval = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}` });
   assert.equal(afterRemoval.json().items.length, 1, 'missing addon rows must never delete accepted Campaign records');
+
+  const invalidRelationshipPath = join(addonRoot, 'invalid_relationship_addon.json');
+  await writeFile(invalidRelationshipPath, JSON.stringify({
+    relationships: [{ id: 'player-link', source: '$player', target: 'lavir', kind: 'ally' }],
+  }));
+  const invalidRelationship = await app.inject({
+    method: 'POST', url: '/api/operations/addons/preview', payload: { campaignId },
+  });
+  assert.equal(invalidRelationship.statusCode, 200, invalidRelationship.body);
+  assert.equal(invalidRelationship.json().status, 'blocked');
+  assert.ok(invalidRelationship.json().issues.some((entry: { code: string }) => entry.code === 'addon_relationship_reference_invalid'));
+  await rm(invalidRelationshipPath);
 
   await writeFile(join(addonRoot, 'broken_addon.json'), '{');
   const blocked = await app.inject({

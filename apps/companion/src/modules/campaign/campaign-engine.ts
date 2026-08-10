@@ -155,6 +155,7 @@ export class CampaignEngine {
             places: {},
             abilities: {},
             learnedAbilities: {},
+            relationships: {},
             currentScene: null,
           };
           const baseState: CampaignState = {

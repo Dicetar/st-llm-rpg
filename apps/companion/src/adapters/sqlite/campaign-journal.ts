@@ -11,6 +11,7 @@ import type {
   CampaignVerificationResult,
   ChatBindingDocument,
   NarratorModelProfile,
+  NarratorVisibility,
   PreflightContextRequest,
   SetContextPinsRequest,
   DecideStorySyncProposalRequest,
@@ -49,6 +50,10 @@ import {
   CAMPAIGN_ABILITIES_MIGRATION,
   campaignAbilitiesMigrationChecksum,
 } from '../../migrations/008-campaign-abilities.js';
+import {
+  CAMPAIGN_RELATIONSHIPS_MIGRATION,
+  campaignRelationshipsMigrationChecksum,
+} from '../../migrations/009-campaign-relationships.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -572,12 +577,13 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
         throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Context pins must be unique.', { pins });
       }
       const state = this.reconstruct(current.campaign_id, Number(current.campaign_anchor));
-      const records = new Map([
+      const records = new Map<string, { archived: boolean; visibility?: NarratorVisibility }>([
         ...Object.values(state.actors).map(record => [record.id, record] as const),
         ...Object.values(state.items).map(record => [record.id, record] as const),
         ...Object.values(state.quests ?? {}).map(record => [record.id, record] as const),
         ...Object.values(state.places ?? {}).map(record => [record.id, record] as const),
         ...Object.values(state.abilities ?? {}).map(record => [record.id, record] as const),
+        ...Object.values(state.relationships ?? {}).map(record => [record.id, record] as const),
       ]);
       for (const pin of pins) {
         const record = records.get(pin);
@@ -1269,6 +1275,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       { ...STORY_SYNC_JOBS_MIGRATION, checksum: storySyncJobsMigrationChecksum() },
       { ...STORY_SYNC_FINALIZATION_MIGRATION, checksum: storySyncFinalizationMigrationChecksum() },
       { ...CAMPAIGN_ABILITIES_MIGRATION, checksum: campaignAbilitiesMigrationChecksum() },
+      { ...CAMPAIGN_RELATIONSHIPS_MIGRATION, checksum: campaignRelationshipsMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
@@ -1843,6 +1850,21 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       ...Object.values(state.quests ?? {}).map(record => ({ kind: 'quest', record })),
       ...Object.values(state.places ?? {}).map(record => ({ kind: 'place', record })),
       ...Object.values(state.abilities ?? {}).map(record => ({ kind: 'ability', record })),
+      ...Object.values(state.relationships ?? {}).map(relationship => {
+        const source = state.actors[relationship.sourceActorId];
+        const target = state.actors[relationship.targetActorId];
+        return {
+          kind: 'relationship',
+          record: {
+            id: relationship.id,
+            name: `${source?.name ?? relationship.sourceActorId} → ${target?.name ?? relationship.targetActorId}`,
+            aliases: [] as string[],
+            summary: `${relationship.kind} ${relationship.status} ${relationship.notes}`.trim(),
+            visibility: relationship.visibility,
+            archived: relationship.archived || Boolean(source?.archived) || Boolean(target?.archived),
+          },
+        };
+      }),
     ].sort((left, right) => left.record.name.localeCompare(right.record.name) || left.record.id.localeCompare(right.record.id));
     for (const { kind, record } of records) {
       if (record.archived || record.visibility === 'campaign_private') continue;

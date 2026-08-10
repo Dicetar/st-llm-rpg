@@ -2,8 +2,10 @@
   "_comment": "Documentation example only. Files ending in _example.json are not synchronized.",
   "_field_help": {
     "id": "Required stable external ID.",
-    "source": "A People addon id or $player.",
-    "target": "A different People addon id or $player.",
+    "source": "A People addon id. The fallback also accepts $player.",
+    "target": "A different People addon id. The fallback also accepts $player.",
+    "sourceActorId": "Production alternative: an existing canonical Actor ID.",
+    "targetActorId": "Production alternative: a different existing canonical Actor ID.",
     "kind": "Free-text relationship kind such as ally, employer, rival, or family.",
     "status": "active, strained, dormant, ended, or other.",
     "dimensions": "Optional affinity/trust/respect/fear/tension/debt whole numbers from -5 to 5."

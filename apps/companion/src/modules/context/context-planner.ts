@@ -6,6 +6,7 @@ import type {
   CampaignItem,
   CampaignPlace,
   CampaignQuest,
+  CampaignRelationship,
   ChatBindingDocument,
   ContextAmbiguity,
   ContextOmission,
@@ -47,7 +48,7 @@ export type ContextOutcome =
 
 type ContextRecord = Readonly<{
   id: string;
-  kind: 'actor' | 'item' | 'quest' | 'place' | 'ability';
+  kind: 'actor' | 'item' | 'quest' | 'place' | 'ability' | 'relationship';
   name: string;
   aliases: readonly string[];
   summary: string;
@@ -56,6 +57,7 @@ type ContextRecord = Readonly<{
   relations: readonly string[];
   category?: CampaignAbility['category'];
   learningLabels?: readonly string[];
+  relationshipLabel?: string;
 }>;
 
 const INSTRUCTION_OVERHEAD_TOKENS = 128;
@@ -89,6 +91,17 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     abilityIdsByActor.set(entry.actorId, [...(abilityIdsByActor.get(entry.actorId) ?? []), entry.abilityId]);
     actorIdsByAbility.set(entry.abilityId, [...(actorIdsByAbility.get(entry.abilityId) ?? []), entry.actorId]);
   }
+  const activeRelationships = (document.relationships ?? []).filter(record => !record.archived);
+  const narratableRelationships = activeRelationships.filter(record => visibilityOf(record) !== 'campaign_private');
+  const relationIdsByActor = new Map<string, string[]>();
+  for (const relationship of narratableRelationships) {
+    relationIdsByActor.set(relationship.sourceActorId, [
+      ...(relationIdsByActor.get(relationship.sourceActorId) ?? []), relationship.id, relationship.targetActorId,
+    ]);
+    relationIdsByActor.set(relationship.targetActorId, [
+      ...(relationIdsByActor.get(relationship.targetActorId) ?? []), relationship.id, relationship.sourceActorId,
+    ]);
+  }
   const actors = document.actors.map((record: CampaignActor): ContextRecord => ({
     id: record.id,
     kind: 'actor',
@@ -97,7 +110,7 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     summary: record.summary,
     visibility: visibilityOf(record),
     archived: record.archived,
-    relations: abilityIdsByActor.get(record.id) ?? [],
+    relations: [...new Set([...(abilityIdsByActor.get(record.id) ?? []), ...(relationIdsByActor.get(record.id) ?? [])])],
   }));
   const items = document.items.map((record: CampaignItem): ContextRecord => ({
     id: record.id,
@@ -147,7 +160,23 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
       return `${actor?.name ?? entry.actorId}${entry.prepared ? ', prepared' : ''}${entry.enabled ? '' : ', disabled'}${uses}`;
     }),
   }));
-  return [...actors, ...items, ...quests, ...places, ...abilities]
+  const relationships = activeRelationships.flatMap((record: CampaignRelationship): ContextRecord[] => {
+    const source = document.actors.find(candidate => candidate.id === record.sourceActorId);
+    const target = document.actors.find(candidate => candidate.id === record.targetActorId);
+    if (!source || !target || source.archived || target.archived) return [];
+    return [{
+      id: record.id,
+      kind: 'relationship',
+      name: `${source.name} → ${target.name}`,
+      aliases: [],
+      summary: record.notes,
+      visibility: visibilityOf(record),
+      archived: record.archived,
+      relations: [source.id, target.id],
+      relationshipLabel: `${source.name} —${record.kind}→ ${target.name} (${record.status})`,
+    }];
+  });
+  return [...actors, ...items, ...quests, ...places, ...abilities, ...relationships]
     .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
 }
 
@@ -179,7 +208,8 @@ function renderRecord(record: ContextRecord): string {
   const aliases = record.aliases.length ? `\nAliases: ${record.aliases.join(', ')}` : '';
   const category = record.category ? `\nCategory: ${record.category}` : '';
   const learning = record.learningLabels?.length ? `\nKnown by: ${record.learningLabels.join('; ')}` : '';
-  return `${record.kind.toUpperCase()}: ${record.name}${category}${aliases}${record.summary ? `\n${record.summary}` : ''}${learning}`;
+  const relationship = record.relationshipLabel ? `\n${record.relationshipLabel}` : '';
+  return `${record.kind.toUpperCase()}: ${record.name}${category}${aliases}${relationship}${record.summary ? `\n${record.summary}` : ''}${learning}`;
 }
 
 function fitToTokenBudget(value: string, maximumTokens: number): string {

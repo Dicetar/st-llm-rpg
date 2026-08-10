@@ -97,6 +97,27 @@ export const CampaignLearnedAbilitySchema = Type.Object({
 }, { additionalProperties: false });
 export type CampaignLearnedAbility = Static<typeof CampaignLearnedAbilitySchema>;
 
+export const CampaignRelationshipStatusSchema = Type.Union([
+  Type.Literal('active'),
+  Type.Literal('strained'),
+  Type.Literal('dormant'),
+  Type.Literal('ended'),
+  Type.Literal('other'),
+]);
+export type CampaignRelationshipStatus = Static<typeof CampaignRelationshipStatusSchema>;
+
+export const CampaignRelationshipSchema = Type.Object({
+  id: Identifier,
+  sourceActorId: Identifier,
+  targetActorId: Identifier,
+  kind: Title,
+  status: CampaignRelationshipStatusSchema,
+  notes: Summary,
+  visibility: Type.Optional(NarratorVisibility),
+  archived: Type.Boolean(),
+}, { additionalProperties: false });
+export type CampaignRelationship = Static<typeof CampaignRelationshipSchema>;
+
 export const CampaignSceneSchema = Type.Object({
   id: Identifier,
   name: Title,
@@ -125,6 +146,7 @@ export const CampaignDocumentSchema = Type.Object({
   places: Type.Array(CampaignPlaceSchema),
   abilities: Type.Optional(Type.Array(CampaignAbilitySchema)),
   learnedAbilities: Type.Optional(Type.Array(CampaignLearnedAbilitySchema)),
+  relationships: Type.Optional(Type.Array(CampaignRelationshipSchema)),
   currentScene: Type.Union([CampaignSceneSchema, Type.Null()]),
 }, { additionalProperties: false });
 export type CampaignDocument = Static<typeof CampaignDocumentSchema>;
@@ -186,6 +208,16 @@ const NewLearnedAbilitySchema = Type.Object({
   enabled: Type.Optional(Type.Boolean()),
   usesRemaining: Type.Optional(Type.Integer({ minimum: 0, maximum: 1_000_000 })),
   usesMaximum: Type.Optional(Type.Integer({ minimum: 0, maximum: 1_000_000 })),
+}, { additionalProperties: false });
+
+const NewRelationshipSchema = Type.Object({
+  id: Type.Optional(Identifier),
+  sourceActorId: Identifier,
+  targetActorId: Identifier,
+  kind: Title,
+  status: Type.Optional(CampaignRelationshipStatusSchema),
+  notes: Type.Optional(Summary),
+  visibility: Type.Optional(NarratorVisibility),
 }, { additionalProperties: false });
 
 export const CampaignOperationSchema = Type.Union([
@@ -326,6 +358,25 @@ export const CampaignOperationSchema = Type.Union([
   Type.Object({
     kind: Type.Literal('set_learned_ability_archived'),
     learnedAbilityId: Identifier,
+    archived: Type.Boolean(),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('create_relationship'),
+    relationship: NewRelationshipSchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('update_relationship'),
+    relationshipId: Identifier,
+    sourceActorId: Identifier,
+    targetActorId: Identifier,
+    relationshipKind: Title,
+    status: CampaignRelationshipStatusSchema,
+    notes: Summary,
+    visibility: Type.Optional(NarratorVisibility),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('set_relationship_archived'),
+    relationshipId: Identifier,
     archived: Type.Boolean(),
   }, { additionalProperties: false }),
   Type.Object({
