@@ -7,11 +7,14 @@ import {
 } from 'react';
 import {
   isCampaignInvalidation,
+  type CampaignAbility,
+  type CampaignAbilityCategory,
   type CampaignActor,
   type CampaignCommit,
   type CampaignDocument,
   type CampaignHistoryEntry,
   type CampaignItem,
+  type CampaignLearnedAbility,
   type CampaignOperation,
   type CampaignPlace,
   type CampaignQuest,
@@ -27,7 +30,7 @@ import { ContextTray } from './ContextTray.js';
 import { createUuid } from './browser-uuid.js';
 import { StorySyncReviewInbox } from './StorySyncReviewInbox.js';
 
-export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'scene' | 'review' | 'context' | 'history';
+export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'abilities' | 'scene' | 'review' | 'context' | 'history';
 
 type WorkspaceRoute = Readonly<{
   campaignId: string | null;
@@ -58,6 +61,7 @@ type EditorDraft = Readonly<{
   visibility: NarratorVisibility;
   ownerActorId: string;
   status: CampaignQuestStatus;
+  category: CampaignAbilityCategory;
 }>;
 
 type CommonRecord = Readonly<{
@@ -72,6 +76,7 @@ const COLLECTION_KEYS: readonly CollectionKey[] = [
   'items',
   'quests',
   'places',
+  'abilities',
   'scene',
   'review',
   'context',
@@ -193,7 +198,8 @@ function sameDraft(left: EditorDraft, right: EditorDraft): boolean {
     && left.aliases.map(value => value.trim()).join('\u0000') === right.aliases.map(value => value.trim()).join('\u0000')
     && left.visibility === right.visibility
     && left.ownerActorId === right.ownerActorId
-    && left.status === right.status;
+    && left.status === right.status
+    && left.category === right.category;
 }
 
 function collectionLabel(collection: CollectionKey): string {
@@ -201,6 +207,7 @@ function collectionLabel(collection: CollectionKey): string {
   if (collection === 'items') return 'Items';
   if (collection === 'quests') return 'Quests';
   if (collection === 'places') return 'Places';
+  if (collection === 'abilities') return 'Abilities';
   if (collection === 'scene') return 'Current Scene';
   if (collection === 'context') return 'Context Tray';
   return 'History';
@@ -282,6 +289,7 @@ export function CampaignCommandDeck(props: {
   }>> = [
     { collection: 'actors', label: 'Add Actor', description: 'Create a persistent character.', mutationEntry: true },
     { collection: 'items', label: 'Add Item', description: 'Create or attach an object.', mutationEntry: true },
+    { collection: 'abilities', label: 'Add Ability', description: 'Create a spell, skill, feat, or other capability.', mutationEntry: true },
     {
       collection: 'scene',
       label: props.hasCurrentScene ? 'Open Scene' : 'Start Scene',
@@ -365,6 +373,7 @@ function CollectionNavigation(props: {
     { key: 'items', label: 'Items', count: props.document.items.filter(record => !record.archived).length },
     { key: 'quests', label: 'Quests', count: props.document.quests.filter(record => !record.archived).length },
     { key: 'places', label: 'Places', count: props.document.places.filter(record => !record.archived).length },
+    { key: 'abilities', label: 'Abilities', count: (props.document.abilities ?? []).filter(record => !record.archived).length },
     { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
     { key: 'review', label: 'Review Inbox' },
     { key: 'context', label: 'Context Tray', count: props.bindings.reduce((total, binding) => total + (binding.pins?.length ?? 0), 0) },
@@ -435,6 +444,15 @@ type RecordEditorProps =
       readOnly: boolean;
       onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility) => Promise<void>;
       onArchive: (id: string, archived: boolean) => Promise<void>;
+    }>
+  | Readonly<{
+      kind: 'ability';
+      record: CampaignAbility;
+      actors: readonly CampaignActor[];
+      busy: boolean;
+      readOnly: boolean;
+      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility, category: CampaignAbilityCategory) => Promise<void>;
+      onArchive: (id: string, archived: boolean) => Promise<void>;
     }>;
 
 function canonicalDraft(props: RecordEditorProps): EditorDraft {
@@ -445,6 +463,7 @@ function canonicalDraft(props: RecordEditorProps): EditorDraft {
     visibility: props.record.visibility ?? 'known',
     ownerActorId: props.kind === 'item' ? props.record.ownerActorId ?? '' : '',
     status: props.kind === 'quest' ? props.record.status : 'active',
+    category: props.kind === 'ability' ? props.record.category : 'other',
   };
 }
 
@@ -452,6 +471,7 @@ function editorLabel(kind: RecordEditorProps['kind']): string {
   if (kind === 'actor') return 'Actor';
   if (kind === 'item') return 'Item';
   if (kind === 'quest') return 'Quest';
+  if (kind === 'ability') return 'Ability';
   return 'Place';
 }
 
@@ -461,6 +481,7 @@ export function RecordEditor(props: RecordEditorProps) {
   const [baseline, setBaseline] = useState<EditorDraft>(initial);
   const ownerActorId = props.kind === 'item' ? props.record.ownerActorId ?? '' : '';
   const questStatus = props.kind === 'quest' ? props.record.status : 'active';
+  const abilityCategory = props.kind === 'ability' ? props.record.category : 'other';
   const aliasesKey = (props.record.aliases ?? []).join('\u0000');
   const visibility = props.record.visibility ?? 'known';
   const dirty = !sameDraft(draft, baseline);
@@ -470,7 +491,7 @@ export function RecordEditor(props: RecordEditorProps) {
     const wasDirty = !sameDraft(draft, baseline);
     setBaseline(next);
     if (!wasDirty) setDraft(next);
-  }, [props.kind, props.record.id, props.record.name, props.record.summary, props.record.archived, aliasesKey, visibility, ownerActorId, questStatus]);
+  }, [props.kind, props.record.id, props.record.name, props.record.summary, props.record.archived, aliasesKey, visibility, ownerActorId, questStatus, abilityCategory]);
 
   const label = editorLabel(props.kind);
   return (
@@ -481,8 +502,10 @@ export function RecordEditor(props: RecordEditorProps) {
         void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility);
       } else if (props.kind === 'item') {
         void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility, draft.ownerActorId || null);
-      } else {
+      } else if (props.kind === 'quest') {
         void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility, draft.status);
+      } else {
+        void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility, draft.category);
       }
     }}>
       <div className="record-card__heading">
@@ -583,6 +606,21 @@ export function RecordEditor(props: RecordEditorProps) {
           </select>
         </label>
       ) : null}
+      {props.kind === 'ability' ? (
+        <label>
+          <span>Category</span>
+          <select
+            value={draft.category}
+            onChange={event => setDraft(previous => ({ ...previous, category: event.target.value as CampaignAbilityCategory }))}
+            disabled={props.busy || props.readOnly}
+          >
+            <option value="spell">Spell</option>
+            <option value="skill">Skill</option>
+            <option value="feat">Feat</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+      ) : null}
       <div className="record-actions">
         <button type="submit" disabled={props.busy || props.readOnly || !draft.name.trim() || !dirty}>
           Save {label}
@@ -597,6 +635,141 @@ export function RecordEditor(props: RecordEditorProps) {
         </button>
       </div>
     </form>
+  );
+}
+
+type LearnedDraft = Readonly<{
+  prepared: boolean;
+  enabled: boolean;
+  usesRemaining: string;
+  usesMaximum: string;
+}>;
+
+function learnedDraft(record: CampaignLearnedAbility): LearnedDraft {
+  return {
+    prepared: record.prepared,
+    enabled: record.enabled,
+    usesRemaining: record.usesRemaining === undefined ? '' : String(record.usesRemaining),
+    usesMaximum: record.usesMaximum === undefined ? '' : String(record.usesMaximum),
+  };
+}
+
+function sameLearnedDraft(left: LearnedDraft, right: LearnedDraft): boolean {
+  return left.prepared === right.prepared
+    && left.enabled === right.enabled
+    && left.usesRemaining.trim() === right.usesRemaining
+    && left.usesMaximum.trim() === right.usesMaximum;
+}
+
+function optionalUses(value: string): number | undefined {
+  return value.trim() ? Number(value) : undefined;
+}
+
+function usesFields(usesRemaining: string, usesMaximum: string): Readonly<{
+  usesRemaining?: number;
+  usesMaximum?: number;
+}> {
+  const remaining = optionalUses(usesRemaining);
+  const maximum = optionalUses(usesMaximum);
+  return {
+    ...(remaining === undefined ? {} : { usesRemaining: remaining }),
+    ...(maximum === undefined ? {} : { usesMaximum: maximum }),
+  };
+}
+
+function validUses(draft: LearnedDraft): boolean {
+  const remaining = optionalUses(draft.usesRemaining);
+  const maximum = optionalUses(draft.usesMaximum);
+  return (remaining === undefined || (Number.isInteger(remaining) && remaining >= 0))
+    && (maximum === undefined || (Number.isInteger(maximum) && maximum >= 0))
+    && (remaining === undefined || maximum === undefined || remaining <= maximum);
+}
+
+function LearnedAbilityRow(props: {
+  record: CampaignLearnedAbility;
+  actor: CampaignActor | undefined;
+  busy: boolean;
+  readOnly: boolean;
+  onSave: (id: string, draft: LearnedDraft) => Promise<void>;
+  onArchive: (id: string, archived: boolean) => Promise<void>;
+}) {
+  const initial = learnedDraft(props.record);
+  const [draft, setDraft] = useState(initial);
+  const [baseline, setBaseline] = useState(initial);
+  useEffect(() => {
+    const next = learnedDraft(props.record);
+    const dirty = !sameLearnedDraft(draft, baseline);
+    setBaseline(next);
+    if (!dirty) setDraft(next);
+  }, [props.record.id, props.record.prepared, props.record.enabled, props.record.usesRemaining, props.record.usesMaximum, props.record.archived]);
+  const dirty = !sameLearnedDraft(draft, baseline);
+  return (
+    <form className={props.record.archived ? 'learned-ability-row learned-ability-row--archived' : 'learned-ability-row'} onSubmit={event => {
+      event.preventDefault();
+      void props.onSave(props.record.id, draft);
+    }}>
+      <div className="learned-ability-row__actor">
+        <strong>{props.actor?.name ?? props.record.actorId}</strong>
+        <small>{props.record.archived ? 'Archived learning' : props.record.id}</small>
+      </div>
+      <label className="check-row"><input type="checkbox" checked={draft.prepared} onChange={event => setDraft(value => ({ ...value, prepared: event.target.checked }))} disabled={props.busy || props.readOnly || props.record.archived} /><span>Prepared</span></label>
+      <label className="check-row"><input type="checkbox" checked={draft.enabled} onChange={event => setDraft(value => ({ ...value, enabled: event.target.checked }))} disabled={props.busy || props.readOnly || props.record.archived} /><span>Enabled</span></label>
+      <label><span>Uses left</span><input type="number" min="0" step="1" value={draft.usesRemaining} onChange={event => setDraft(value => ({ ...value, usesRemaining: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} placeholder="Unlimited" /></label>
+      <label><span>Maximum</span><input type="number" min="0" step="1" value={draft.usesMaximum} onChange={event => setDraft(value => ({ ...value, usesMaximum: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} placeholder="Untracked" /></label>
+      <div className="record-actions">
+        {!props.record.archived ? <button type="submit" disabled={props.busy || props.readOnly || !dirty || !validUses(draft)}>Save state</button> : null}
+        <button type="button" className="button-secondary" disabled={props.busy || props.readOnly} onClick={() => { void props.onArchive(props.record.id, !props.record.archived); }}>{props.record.archived ? 'Restore' : 'Remove'}</button>
+      </div>
+      {!validUses(draft) ? <p className="field-error">Uses must be whole non-negative numbers; remaining cannot exceed maximum.</p> : null}
+    </form>
+  );
+}
+
+export function LearnedAbilitiesPanel(props: {
+  ability: CampaignAbility;
+  learned: readonly CampaignLearnedAbility[];
+  actors: readonly CampaignActor[];
+  busy: boolean;
+  readOnly: boolean;
+  onCreate: (actorId: string, draft: LearnedDraft) => Promise<void>;
+  onSave: (id: string, draft: LearnedDraft) => Promise<void>;
+  onArchive: (id: string, archived: boolean) => Promise<void>;
+}) {
+  const [actorId, setActorId] = useState('');
+  const [draft, setDraft] = useState<LearnedDraft>({ prepared: false, enabled: true, usesRemaining: '', usesMaximum: '' });
+  const linkedActorIds = new Set(props.learned.filter(record => !record.archived).map(record => record.actorId));
+  const availableActors = props.actors.filter(actor => !actor.archived && !linkedActorIds.has(actor.id));
+  const linkedKey = [...linkedActorIds].sort().join('\u0000');
+  useEffect(() => {
+    if (actorId && linkedActorIds.has(actorId)) {
+      setActorId('');
+      setDraft({ prepared: false, enabled: true, usesRemaining: '', usesMaximum: '' });
+    }
+  }, [actorId, linkedKey]);
+  return (
+    <section className="learned-abilities-panel" aria-labelledby="learned-abilities-heading">
+      <div className="collection-heading">
+        <div><h4 id="learned-abilities-heading">Known by Actors</h4><p>Add and edit who knows this Ability here. Removing archives the link.</p></div>
+      </div>
+      {!props.readOnly && !props.ability.archived ? (
+        <form className="learned-ability-create" onSubmit={event => {
+          event.preventDefault();
+          if (!actorId || !validUses(draft)) return;
+          void props.onCreate(actorId, draft);
+        }}>
+          <label><span>Actor</span><select value={actorId} onChange={event => setActorId(event.target.value)} disabled={props.busy}><option value="">Choose Actor</option>{availableActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
+          <label className="check-row"><input type="checkbox" checked={draft.prepared} onChange={event => setDraft(value => ({ ...value, prepared: event.target.checked }))} disabled={props.busy} /><span>Prepared</span></label>
+          <label className="check-row"><input type="checkbox" checked={draft.enabled} onChange={event => setDraft(value => ({ ...value, enabled: event.target.checked }))} disabled={props.busy} /><span>Enabled</span></label>
+          <label><span>Uses left</span><input type="number" min="0" step="1" value={draft.usesRemaining} onChange={event => setDraft(value => ({ ...value, usesRemaining: event.target.value }))} disabled={props.busy} placeholder="Unlimited" /></label>
+          <label><span>Maximum</span><input type="number" min="0" step="1" value={draft.usesMaximum} onChange={event => setDraft(value => ({ ...value, usesMaximum: event.target.value }))} disabled={props.busy} placeholder="Untracked" /></label>
+          <button type="submit" disabled={props.busy || !actorId || !validUses(draft)}>+ Add Actor</button>
+        </form>
+      ) : null}
+      {availableActors.length === 0 && props.learned.length === 0 ? <p className="empty-state">Create an Actor first, then add them here.</p> : null}
+      <div className="learned-ability-list">
+        {props.learned.map(record => <LearnedAbilityRow key={record.id} record={record} actor={props.actors.find(actor => actor.id === record.actorId)} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
+      </div>
+    </section>
   );
 }
 
@@ -733,6 +906,11 @@ function recordMeta(
   if (collection === 'quests') {
     return (record as CampaignQuest).status === 'completed' ? 'Completed' : 'Active';
   }
+  if (collection === 'abilities') {
+    const ability = record as CampaignAbility;
+    const learnedCount = (document.learnedAbilities ?? []).filter(entry => entry.abilityId === ability.id && !entry.archived).length;
+    return `${ability.category} · ${learnedCount} Actor${learnedCount === 1 ? '' : 's'}`;
+  }
   return record.archived ? 'Archived' : 'Active';
 }
 
@@ -833,6 +1011,14 @@ export default function CampaignWorkspace() {
   const [questStatus, setQuestStatus] = useState<CampaignQuestStatus>('active');
   const [placeName, setPlaceName] = useState('');
   const [placeSummary, setPlaceSummary] = useState('');
+  const [abilityName, setAbilityName] = useState('');
+  const [abilitySummary, setAbilitySummary] = useState('');
+  const [abilityCategory, setAbilityCategory] = useState<CampaignAbilityCategory>('spell');
+  const [abilityActorId, setAbilityActorId] = useState('');
+  const [abilityPrepared, setAbilityPrepared] = useState(false);
+  const [abilityEnabled, setAbilityEnabled] = useState(true);
+  const [abilityUsesRemaining, setAbilityUsesRemaining] = useState('');
+  const [abilityUsesMaximum, setAbilityUsesMaximum] = useState('');
   const [joinedActorName, setJoinedActorName] = useState('');
   const [joinedActorSummary, setJoinedActorSummary] = useState('');
   const [joinedItemName, setJoinedItemName] = useState('');
@@ -1163,6 +1349,44 @@ export default function CampaignWorkspace() {
     });
   }
 
+  async function createAbility(event: FormEvent) {
+    event.preventDefault();
+    const usesDraft: LearnedDraft = {
+      prepared: abilityPrepared,
+      enabled: abilityEnabled,
+      usesRemaining: abilityUsesRemaining,
+      usesMaximum: abilityUsesMaximum,
+    };
+    if (!validUses(usesDraft)) return;
+    await run(async () => {
+      const definition = { name: abilityName, summary: abilitySummary, category: abilityCategory };
+      const remaining = optionalUses(abilityUsesRemaining);
+      const maximum = optionalUses(abilityUsesMaximum);
+      const commit = abilityActorId
+        ? await executeOperation({
+          kind: 'create_ability_with_learning',
+          ability: definition,
+          learnedAbility: {
+            actorId: abilityActorId,
+            prepared: abilityPrepared,
+            enabled: abilityEnabled,
+            ...(remaining === undefined ? {} : { usesRemaining: remaining }),
+            ...(maximum === undefined ? {} : { usesMaximum: maximum }),
+          },
+        })
+        : await executeOperation({ kind: 'create_ability', ability: definition });
+      setAbilityName('');
+      setAbilitySummary('');
+      setAbilityCategory('spell');
+      setAbilityActorId('');
+      setAbilityPrepared(false);
+      setAbilityEnabled(true);
+      setAbilityUsesRemaining('');
+      setAbilityUsesMaximum('');
+      navigateCollection('abilities', commit.affectedIds[0] ?? null);
+    });
+  }
+
   async function createJoinedActorItem(event: FormEvent) {
     event.preventDefault();
     await run(async () => {
@@ -1191,6 +1415,9 @@ export default function CampaignWorkspace() {
     : null;
   const place = route.collection === 'places' && recordId
     ? displayed?.places.find(record => record.id === recordId) ?? null
+    : null;
+  const ability = route.collection === 'abilities' && recordId
+    ? (displayed?.abilities ?? []).find(record => record.id === recordId) ?? null
     : null;
   const activeActors = displayed?.actors.filter(record => !record.archived) ?? [];
   const retryRoute = () => {
@@ -1233,7 +1460,7 @@ export default function CampaignWorkspace() {
       <div className="section-heading">
         <div>
           <h2 id="campaign-authority">Campaign Workspace</h2>
-          <p>Routed Actors, Items, Quests, Places, Scene, and immutable history backed by one SQLite authority.</p>
+          <p>Routed Actors, Items, Abilities, Quests, Places, Scene, and immutable history backed by one SQLite authority.</p>
         </div>
         {displayed ? (
           <div className="workspace-state">
@@ -1530,6 +1757,78 @@ export default function CampaignWorkspace() {
                         </form>
                       ) : null}
                       <RecordIndex collection="places" records={displayed.places} document={displayed} route={route} onNavigate={navigate} />
+                    </>
+                  )}
+                </section>
+              ) : null}
+
+              {route.collection === 'abilities' ? (
+                <section className="collection-view" aria-labelledby="abilities-heading">
+                  <div className="collection-heading"><div><h4 id="abilities-heading">Abilities</h4><p>Reusable spells, skills, feats, and their live Actor state.</p></div></div>
+                  {recordId ? (
+                    <>
+                      <RecordRouteHeader route={route} onNavigate={navigate} />
+                      {ability ? (
+                        <>
+                          <RecordEditor
+                            kind="ability"
+                            record={ability}
+                            actors={displayed.actors}
+                            busy={busy}
+                            readOnly={readOnly}
+                            onSave={(abilityId, name, summary, aliases, visibility, category) => run(() => executeOperation({ kind: 'update_ability', abilityId, name, summary, aliases: [...aliases], visibility, category }).then(() => undefined))}
+                            onArchive={(abilityId, archived) => run(() => executeOperation({ kind: 'set_ability_archived', abilityId, archived }).then(() => undefined))}
+                          />
+                          <LearnedAbilitiesPanel
+                            ability={ability}
+                            learned={(displayed.learnedAbilities ?? []).filter(entry => entry.abilityId === ability.id)}
+                            actors={displayed.actors}
+                            busy={busy}
+                            readOnly={readOnly}
+                            onCreate={(actorId, draft) => run(() => executeOperation({
+                              kind: 'create_learned_ability',
+                              learnedAbility: {
+                                abilityId: ability.id,
+                                actorId,
+                                prepared: draft.prepared,
+                                enabled: draft.enabled,
+                                ...usesFields(draft.usesRemaining, draft.usesMaximum),
+                              },
+                            }).then(() => undefined))}
+                            onSave={(learnedAbilityId, draft) => run(() => executeOperation({
+                              kind: 'update_learned_ability',
+                              learnedAbilityId,
+                              prepared: draft.prepared,
+                              enabled: draft.enabled,
+                              usesRemaining: optionalUses(draft.usesRemaining) ?? null,
+                              usesMaximum: optionalUses(draft.usesMaximum) ?? null,
+                            }).then(() => undefined))}
+                            onArchive={(learnedAbilityId, archived) => run(() => executeOperation({ kind: 'set_learned_ability_archived', learnedAbilityId, archived }).then(() => undefined))}
+                          />
+                        </>
+                      ) : <p className="error-banner">Ability {recordId} does not exist in this revision.</p>}
+                    </>
+                  ) : (
+                    <>
+                      {!readOnly ? (
+                        <form className="create-record-form ability-create-form" onSubmit={createAbility}>
+                          <label><span>Ability name</span><input value={abilityName} onChange={event => setAbilityName(event.target.value)} disabled={busy} /></label>
+                          <label><span>Summary</span><textarea rows={3} value={abilitySummary} onChange={event => setAbilitySummary(event.target.value)} disabled={busy} /></label>
+                          <label><span>Category</span><select value={abilityCategory} onChange={event => setAbilityCategory(event.target.value as CampaignAbilityCategory)} disabled={busy}><option value="spell">Spell</option><option value="skill">Skill</option><option value="feat">Feat</option><option value="other">Other</option></select></label>
+                          <fieldset className="ability-learning-create">
+                            <legend>Learn now (optional)</legend>
+                            <label><span>Actor</span><select value={abilityActorId} onChange={event => setAbilityActorId(event.target.value)} disabled={busy}><option value="">Definition only</option>{activeActors.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+                            {abilityActorId ? <>
+                              <label className="check-row"><input type="checkbox" checked={abilityPrepared} onChange={event => setAbilityPrepared(event.target.checked)} disabled={busy} /><span>Prepared</span></label>
+                              <label className="check-row"><input type="checkbox" checked={abilityEnabled} onChange={event => setAbilityEnabled(event.target.checked)} disabled={busy} /><span>Enabled</span></label>
+                              <label><span>Uses left</span><input type="number" min="0" step="1" value={abilityUsesRemaining} onChange={event => setAbilityUsesRemaining(event.target.value)} disabled={busy} placeholder="Unlimited" /></label>
+                              <label><span>Maximum</span><input type="number" min="0" step="1" value={abilityUsesMaximum} onChange={event => setAbilityUsesMaximum(event.target.value)} disabled={busy} placeholder="Untracked" /></label>
+                            </> : null}
+                          </fieldset>
+                          <button type="submit" disabled={busy || !abilityName.trim() || !validUses({ prepared: abilityPrepared, enabled: abilityEnabled, usesRemaining: abilityUsesRemaining, usesMaximum: abilityUsesMaximum })}>Create Ability{abilityActorId ? ' and learn it' : ''}</button>
+                        </form>
+                      ) : null}
+                      <RecordIndex collection="abilities" records={displayed.abilities ?? []} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
                 </section>

@@ -49,11 +49,13 @@ test('legacy envelope inspection projects supported truth and reports preserved 
   assert.equal(inspected.valid, true);
   assert.equal(inspected.title, 'Emberfall');
   assert.equal(inspected.legacyRevision, 7);
-  assert.deepEqual(inspected.counts, { actors: 2, items: 1, quests: 1, places: 1, unsupported: 3 });
+  assert.deepEqual(inspected.counts, { actors: 2, items: 1, quests: 1, places: 1, abilities: 1, learnedAbilities: 1, unsupported: 1 });
   assert.equal(inspected.state?.actors['actor-player']?.name, 'Seraphine');
   assert.equal(inspected.state?.items['item-key']?.ownerActorId, 'actor-player');
   assert.equal(inspected.state?.currentScene?.name, 'At the Gate');
-  assert.equal(inspected.issues.some(issue => issue.code === 'unsupported-record-kind'), true);
+  assert.equal(inspected.state?.abilities?.['ability-hand']?.name, 'Mage Hand');
+  assert.equal(inspected.state?.learnedAbilities?.['learned-hand']?.actorId, 'actor-player');
+  assert.equal(inspected.issues.some(issue => issue.code === 'unsupported-record-kind'), false);
   assert.equal(inspected.issues.some(issue => issue.code === 'unsupported-relationship'), true);
 });
 

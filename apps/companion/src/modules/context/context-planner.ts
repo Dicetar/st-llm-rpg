@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type {
   CampaignActor,
+  CampaignAbility,
   CampaignDocument,
   CampaignItem,
   CampaignPlace,
@@ -46,13 +47,15 @@ export type ContextOutcome =
 
 type ContextRecord = Readonly<{
   id: string;
-  kind: 'actor' | 'item' | 'quest' | 'place';
+  kind: 'actor' | 'item' | 'quest' | 'place' | 'ability';
   name: string;
   aliases: readonly string[];
   summary: string;
   visibility: NarratorVisibility;
   archived: boolean;
   relations: readonly string[];
+  category?: CampaignAbility['category'];
+  learningLabels?: readonly string[];
 }>;
 
 const INSTRUCTION_OVERHEAD_TOKENS = 128;
@@ -79,6 +82,13 @@ function visibilityOf(record: { visibility?: NarratorVisibility }): NarratorVisi
 }
 
 function recordsOf(document: CampaignDocument): ContextRecord[] {
+  const learned = (document.learnedAbilities ?? []).filter(record => !record.archived);
+  const abilityIdsByActor = new Map<string, string[]>();
+  const actorIdsByAbility = new Map<string, string[]>();
+  for (const entry of learned) {
+    abilityIdsByActor.set(entry.actorId, [...(abilityIdsByActor.get(entry.actorId) ?? []), entry.abilityId]);
+    actorIdsByAbility.set(entry.abilityId, [...(actorIdsByAbility.get(entry.abilityId) ?? []), entry.actorId]);
+  }
   const actors = document.actors.map((record: CampaignActor): ContextRecord => ({
     id: record.id,
     kind: 'actor',
@@ -87,7 +97,7 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     summary: record.summary,
     visibility: visibilityOf(record),
     archived: record.archived,
-    relations: [],
+    relations: abilityIdsByActor.get(record.id) ?? [],
   }));
   const items = document.items.map((record: CampaignItem): ContextRecord => ({
     id: record.id,
@@ -119,7 +129,25 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     archived: record.archived,
     relations: [],
   }));
-  return [...actors, ...items, ...quests, ...places]
+  const abilities = (document.abilities ?? []).map((record: CampaignAbility): ContextRecord => ({
+    id: record.id,
+    kind: 'ability',
+    name: record.name,
+    aliases: record.aliases ?? [],
+    summary: record.summary,
+    visibility: visibilityOf(record),
+    archived: record.archived,
+    relations: actorIdsByAbility.get(record.id) ?? [],
+    category: record.category,
+    learningLabels: learned.filter(entry => entry.abilityId === record.id).map(entry => {
+      const actor = document.actors.find(candidate => candidate.id === entry.actorId);
+      const uses = entry.usesRemaining === undefined
+        ? ''
+        : `, ${entry.usesRemaining}${entry.usesMaximum === undefined ? '' : `/${entry.usesMaximum}`} uses`;
+      return `${actor?.name ?? entry.actorId}${entry.prepared ? ', prepared' : ''}${entry.enabled ? '' : ', disabled'}${uses}`;
+    }),
+  }));
+  return [...actors, ...items, ...quests, ...places, ...abilities]
     .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
 }
 
@@ -134,15 +162,24 @@ function renderCore(document: CampaignDocument): string {
   const actors = document.actors.filter(record => !record.archived && visibilityOf(record) === 'known');
   const items = document.items.filter(record => !record.archived && visibilityOf(record) === 'known');
   const quests = document.quests.filter(record => !record.archived && record.status === 'active' && visibilityOf(record) === 'known');
+  const learned = (document.learnedAbilities ?? []).filter(record => !record.archived && record.enabled);
+  const learnedNames = learned.flatMap(entry => {
+    const ability = (document.abilities ?? []).find(record => record.id === entry.abilityId && !record.archived && visibilityOf(record) === 'known');
+    const actor = document.actors.find(record => record.id === entry.actorId && !record.archived);
+    return ability && actor ? [`${ability.name} (${actor.name})`] : [];
+  });
   if (actors.length) rows.push(`Actors: ${actors.map(record => record.name).join(', ')}`);
   if (items.length) rows.push(`Items: ${items.map(record => record.name).join(', ')}`);
   if (quests.length) rows.push(`Active quests: ${quests.map(record => record.name).join(', ')}`);
+  if (learnedNames.length) rows.push(`Available abilities: ${learnedNames.join(', ')}`);
   return rows.join('\n');
 }
 
 function renderRecord(record: ContextRecord): string {
   const aliases = record.aliases.length ? `\nAliases: ${record.aliases.join(', ')}` : '';
-  return `${record.kind.toUpperCase()}: ${record.name}${aliases}${record.summary ? `\n${record.summary}` : ''}`;
+  const category = record.category ? `\nCategory: ${record.category}` : '';
+  const learning = record.learningLabels?.length ? `\nKnown by: ${record.learningLabels.join('; ')}` : '';
+  return `${record.kind.toUpperCase()}: ${record.name}${category}${aliases}${record.summary ? `\n${record.summary}` : ''}${learning}`;
 }
 
 function fitToTokenBudget(value: string, maximumTokens: number): string {

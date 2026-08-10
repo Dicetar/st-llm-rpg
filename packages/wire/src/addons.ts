@@ -21,6 +21,7 @@ export const AddonRecordKindSchema = Type.Union([
   Type.Literal('item'),
   Type.Literal('quest'),
   Type.Literal('place'),
+  Type.Literal('ability'),
   Type.Literal('scene'),
 ]);
 export type AddonRecordKind = Static<typeof AddonRecordKindSchema>;
@@ -53,6 +54,7 @@ export const AddonValueSchema = Type.Object({
   visibility: Type.Optional(Visibility),
   ownerActorId: Type.Optional(Identifier),
   status: Type.Optional(Type.Union([Type.Literal('active'), Type.Literal('completed')])),
+  category: Type.Optional(Type.Union([Type.Literal('spell'), Type.Literal('skill'), Type.Literal('feat'), Type.Literal('other')])),
   placeId: Type.Optional(Identifier),
   actorIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
   itemIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),

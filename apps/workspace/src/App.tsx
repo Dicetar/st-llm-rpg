@@ -14,6 +14,7 @@ export {
   CampaignCommandDeck,
   CampaignHistoryView,
   RecordEditor,
+  LearnedAbilitiesPanel,
   SceneEditor,
   RevisionConflictBanner,
   WorkspaceRouteState,

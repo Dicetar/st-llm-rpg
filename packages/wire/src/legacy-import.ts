@@ -72,6 +72,8 @@ export const LegacyImportPreviewSchema = Type.Object({
     items: Type.Integer({ minimum: 0 }),
     quests: Type.Integer({ minimum: 0 }),
     places: Type.Integer({ minimum: 0 }),
+    abilities: Type.Integer({ minimum: 0 }),
+    learnedAbilities: Type.Integer({ minimum: 0 }),
     unsupported: Type.Integer({ minimum: 0 }),
   }, { additionalProperties: false }),
   issues: Type.Array(LegacyImportIssueSchema, { maxItems: 512 }),

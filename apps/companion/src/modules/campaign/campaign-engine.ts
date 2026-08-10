@@ -153,6 +153,8 @@ export class CampaignEngine {
             items: {},
             quests: {},
             places: {},
+            abilities: {},
+            learnedAbilities: {},
             currentScene: null,
           };
           const baseState: CampaignState = {

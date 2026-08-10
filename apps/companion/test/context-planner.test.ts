@@ -507,3 +507,45 @@ test('stale and private pins both offer a direct unpin recovery action', async (
     assert.deepEqual(outcome.problem.actions.map(action => action.id), ['open-context-tray', 'unpin-record']);
   }
 });
+
+test('exact Ability mention retrieves definition, live uses, and linked Actor without dumping every description', async () => {
+  const abilityCampaign: CampaignDocument = {
+    ...campaign,
+    abilities: [{
+      id: 'ability-hand', name: 'Mage Hand', aliases: ['spectral hand'],
+      summary: 'Manipulates a small unattended object at short range.',
+      category: 'spell', visibility: 'known', archived: false,
+    }, {
+      id: 'ability-flame', name: 'Flame Ward', aliases: [],
+      summary: 'A different spell that should not be selected.',
+      category: 'spell', visibility: 'known', archived: false,
+    }],
+    learnedAbilities: [{
+      id: 'learned-hand', abilityId: 'ability-hand', actorId: 'actor-lavir',
+      prepared: true, enabled: true, usesRemaining: 2, usesMaximum: 3, archived: false,
+    }],
+  };
+  const planner = new ContextPlanner(source([], {
+    campaign: abilityCampaign,
+    binding: { ...binding, pins: [] },
+    profile,
+  }));
+  const outcome = await planner.plan({
+    requestId: 'context-ability-exact',
+    campaignId: campaign.campaign.id,
+    campaignRevision: 7,
+    bindingId: binding.id,
+    bindingRevision: 3,
+    contextFocusRevision: 2,
+    modelProfileId: profile.id,
+    generationType: 'normal',
+    messages: [{ role: 'user', content: 'Lavir casts Mage Hand toward the cabinet.' }],
+  }, new AbortController().signal);
+
+  assert.equal(outcome.ok, true);
+  if (!outcome.ok) return;
+  assert.equal(outcome.value.selections.some(selection => selection.recordId === 'ability-hand' && selection.tier === 'exact-mention'), true);
+  assert.match(outcome.value.blocks.known, /ABILITY: Mage Hand/);
+  assert.match(outcome.value.blocks.known, /Known by: Lavir, prepared, 2\/3 uses/);
+  assert.doesNotMatch(outcome.value.blocks.known, /different spell that should not be selected/);
+});

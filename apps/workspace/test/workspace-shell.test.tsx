@@ -13,6 +13,7 @@ import {
   ContextTray,
   NarrationStatusPanel,
   RecordEditor,
+  LearnedAbilitiesPanel,
   SceneEditor,
   StorySyncReviewInboxView,
   BackupPanelView,
@@ -165,6 +166,15 @@ test('workspace URLs identify Campaign, collection, record, and historical revis
     },
   );
   assert.deepEqual(
+    parseWorkspacePath('/campaigns/campaign-1/abilities/ability-hand'),
+    {
+      campaignId: 'campaign-1',
+      collection: 'abilities',
+      recordId: 'ability-hand',
+      revision: null,
+    },
+  );
+  assert.deepEqual(
     parseWorkspacePath('/campaigns/campaign-1/not-a-collection'),
     {
       campaignId: 'campaign-1',
@@ -222,6 +232,7 @@ test('Command Deck exposes the common Campaign actions without leaving the curre
   assert.match(html, /Command Deck/);
   assert.match(html, /Add Actor/);
   assert.match(html, /Add Item/);
+  assert.match(html, /Add Ability/);
   assert.match(html, /Start Scene/);
   assert.match(html, /Inspect History/);
   assert.match(html, /Revision 7/);
@@ -236,15 +247,15 @@ test('legacy import preview makes preserved and unsupported data explicit before
       locator: { kind: 'character', chatId: 'Emberfall', avatar: 'Seraphine.png' },
       sourceFingerprint: 'a'.repeat(64), contentFingerprint: 'b'.repeat(64),
       title: 'Emberfall', legacyRevision: 7,
-      counts: { actors: 2, items: 1, quests: 1, places: 1, unsupported: 3 },
-      issues: [{ severity: 'warning', code: 'unsupported-record-kind', path: 'campaign.records[5]', message: 'Ability is preserved but not projected yet.' }],
+      counts: { actors: 2, items: 1, quests: 1, places: 1, abilities: 1, learnedAbilities: 1, unsupported: 1 },
+      issues: [{ severity: 'warning', code: 'unsupported-relationship', path: 'campaign.relationships', message: 'Relationship is preserved but not projected yet.' }],
       decisions: ['create-campaign', 'cancel'], legacyMetadataPreserved: true,
     }}
   />);
   assert.match(html, /Revision 7/);
   assert.match(html, /<strong>2<\/strong> Actors/);
-  assert.match(html, /<strong>3<\/strong> preserved for later/);
-  assert.match(html, /Ability is preserved but not projected yet/);
+  assert.match(html, /<strong>1<\/strong> preserved for later/);
+  assert.match(html, /Relationship is preserved but not projected yet/);
   assert.match(html, /Legacy metadata stays in SillyTavern/);
 });
 
@@ -330,6 +341,36 @@ test('Record editor exposes repeatable aliases and Narrator Visibility beside or
   assert.doesNotMatch(html, /comma-separated/i);
 });
 
+test('Ability editor keeps learned Actor state and add action in the same block', () => {
+  const html = renderToStaticMarkup(<>
+    <RecordEditor
+      kind="ability"
+      record={{ id: 'ability-hand', name: 'Mage Hand', aliases: [], summary: 'Moves light objects.', category: 'spell', archived: false }}
+      actors={[{ id: 'actor-mara', name: 'Mara', summary: '', archived: false }]}
+      busy={false}
+      readOnly={false}
+      onSave={async () => undefined}
+      onArchive={async () => undefined}
+    />
+    <LearnedAbilitiesPanel
+      ability={{ id: 'ability-hand', name: 'Mage Hand', aliases: [], summary: 'Moves light objects.', category: 'spell', archived: false }}
+      learned={[{ id: 'learned-hand', abilityId: 'ability-hand', actorId: 'actor-mara', prepared: true, enabled: true, usesRemaining: 2, usesMaximum: 3, archived: false }]}
+      actors={[{ id: 'actor-mara', name: 'Mara', summary: '', archived: false }, { id: 'actor-lavir', name: 'Lavir', summary: '', archived: false }]}
+      busy={false}
+      readOnly={false}
+      onCreate={async () => undefined}
+      onSave={async () => undefined}
+      onArchive={async () => undefined}
+    />
+  </>);
+  assert.match(html, /Category/);
+  assert.match(html, /Known by Actors/);
+  assert.match(html, /Add Actor/);
+  assert.match(html, /Mara/);
+  assert.match(html, /Uses left/);
+  assert.match(html, /Remove/);
+});
+
 test('Scene editor exposes structural Place, Actor, and Item attachments for Context anchors', () => {
   const html = renderToStaticMarkup(<SceneEditor
     scene={{
@@ -401,6 +442,7 @@ test('Story Sync Review Inbox keeps worker setup and structured editable proposa
   assert.match(html, /mistralai\/mistral-nemo-instruct-2407/);
   assert.match(html, /Lavir reveals the locked gallery/);
   assert.match(html, /Record type/);
+  assert.match(html, /New Ability/);
   assert.match(html, /Actor summary/);
   assert.match(html, /Accept/);
   assert.match(html, /Reject/);

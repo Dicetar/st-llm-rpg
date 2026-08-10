@@ -19,12 +19,15 @@ type SupportedOperationKind =
   | 'update_quest'
   | 'create_place'
   | 'update_place'
+  | 'create_ability'
+  | 'update_ability'
   | 'set_current_scene';
 
 const ACTIVE_JOB_STATES = new Set(['queued', 'waiting-for-lane', 'running', 'parsing', 'repairing']);
 const SUPPORTED_KINDS: readonly SupportedOperationKind[] = [
   'create_actor', 'update_actor', 'create_item', 'update_item', 'create_quest',
   'update_quest', 'create_place', 'update_place', 'set_current_scene',
+  'create_ability', 'update_ability',
 ];
 
 function kindLabel(kind: string): string {
@@ -32,6 +35,7 @@ function kindLabel(kind: string): string {
     create_actor: 'New Actor', update_actor: 'Update Actor', create_item: 'New Item',
     update_item: 'Update Item', create_quest: 'New Quest', update_quest: 'Update Quest',
     create_place: 'New Place', update_place: 'Update Place', set_current_scene: 'Current Scene',
+    create_ability: 'New Ability', update_ability: 'Update Ability',
   } as Record<string, string>)[kind] ?? kind.replaceAll('_', ' ');
 }
 
@@ -40,6 +44,7 @@ function blankOperation(kind: SupportedOperationKind, campaign: CampaignDocument
   const item = campaign.items.find(record => !record.archived);
   const quest = campaign.quests.find(record => !record.archived);
   const place = campaign.places.find(record => !record.archived);
+  const ability = (campaign.abilities ?? []).find(record => !record.archived);
   switch (kind) {
     case 'create_actor': return { kind, actor: { name: '', summary: '' } };
     case 'update_actor': return { kind, actorId: actor?.id ?? '', name: actor?.name ?? '', summary: actor?.summary ?? '' };
@@ -49,6 +54,8 @@ function blankOperation(kind: SupportedOperationKind, campaign: CampaignDocument
     case 'update_quest': return { kind, questId: quest?.id ?? '', name: quest?.name ?? '', summary: quest?.summary ?? '', status: quest?.status ?? 'active' };
     case 'create_place': return { kind, place: { name: '', summary: '' } };
     case 'update_place': return { kind, placeId: place?.id ?? '', name: place?.name ?? '', summary: place?.summary ?? '' };
+    case 'create_ability': return { kind, ability: { name: '', summary: '', category: 'other' } };
+    case 'update_ability': return { kind, abilityId: ability?.id ?? '', name: ability?.name ?? '', summary: ability?.summary ?? '', category: ability?.category ?? 'other' };
     case 'set_current_scene': {
       const placeId = campaign.currentScene?.placeId ?? place?.id;
       return {
@@ -94,6 +101,7 @@ function OperationEditor(props: {
   const itemOptions = props.campaign.items.filter(record => !record.archived);
   const questOptions = props.campaign.quests.filter(record => !record.archived);
   const placeOptions = props.campaign.places.filter(record => !record.archived);
+  const abilityOptions = (props.campaign.abilities ?? []).filter(record => !record.archived);
 
   return <fieldset className="story-operation-editor">
     <legend>Campaign change</legend>
@@ -168,6 +176,21 @@ function OperationEditor(props: {
       }}><option value="" disabled>Choose Place</option>{placeOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
       <CommonFields name={operation.name} summary={operation.summary} nameLabel="Place name" summaryLabel="Place summary" disabled={props.disabled}
         onName={name => props.onChange({ ...operation, name })} onSummary={summary => props.onChange({ ...operation, summary })} />
+    </> : null}
+    {operation?.kind === 'create_ability' ? <>
+      <CommonFields name={operation.ability.name} summary={operation.ability.summary ?? ''} nameLabel="Ability name" summaryLabel="Ability summary" disabled={props.disabled}
+        onName={name => props.onChange({ ...operation, ability: { ...operation.ability, name } })}
+        onSummary={summary => props.onChange({ ...operation, ability: { ...operation.ability, summary } })} />
+      <label><span>Category</span><select value={operation.ability.category ?? 'other'} disabled={props.disabled} onChange={event => props.onChange({ ...operation, ability: { ...operation.ability, category: event.target.value as 'spell' | 'skill' | 'feat' | 'other' } })}><option value="spell">Spell</option><option value="skill">Skill</option><option value="feat">Feat</option><option value="other">Other</option></select></label>
+    </> : null}
+    {operation?.kind === 'update_ability' ? <>
+      <label><span>Ability</span><select value={operation.abilityId} disabled={props.disabled} onChange={event => {
+        const record = abilityOptions.find(candidate => candidate.id === event.target.value);
+        props.onChange({ ...operation, abilityId: event.target.value, name: record?.name ?? operation.name, summary: record?.summary ?? operation.summary, category: record?.category ?? operation.category });
+      }}><option value="" disabled>Choose Ability</option>{abilityOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+      <CommonFields name={operation.name} summary={operation.summary} nameLabel="Ability name" summaryLabel="Ability summary" disabled={props.disabled}
+        onName={name => props.onChange({ ...operation, name })} onSummary={summary => props.onChange({ ...operation, summary })} />
+      <label><span>Category</span><select value={operation.category} disabled={props.disabled} onChange={event => props.onChange({ ...operation, category: event.target.value as 'spell' | 'skill' | 'feat' | 'other' })}><option value="spell">Spell</option><option value="skill">Skill</option><option value="feat">Feat</option><option value="other">Other</option></select></label>
     </> : null}
     {operation?.kind === 'set_current_scene' ? <>
       <CommonFields name={operation.scene.name} summary={operation.scene.summary ?? ''} nameLabel="Scene name" summaryLabel="Scene summary" disabled={props.disabled}

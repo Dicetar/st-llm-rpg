@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   CampaignActor,
+  CampaignAbility,
   CampaignDocument,
   CampaignItem,
+  CampaignLearnedAbility,
   CampaignOperation,
   CampaignPlace,
   CampaignQuest,
@@ -18,11 +20,13 @@ export type CampaignState = {
   items: Record<string, CampaignItem>;
   quests?: Record<string, CampaignQuest>;
   places?: Record<string, CampaignPlace>;
+  abilities?: Record<string, CampaignAbility>;
+  learnedAbilities?: Record<string, CampaignLearnedAbility>;
   currentScene: CampaignScene | null;
 };
 
-export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'current_scene';
-export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignScene | null;
+export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'ability' | 'learned_ability' | 'current_scene';
+export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignAbility | CampaignLearnedAbility | CampaignScene | null;
 export type CampaignSubjectChange = Readonly<{
   subjectKind: CampaignSubjectKind;
   subjectId: string;
@@ -58,6 +62,8 @@ export function normalizeCampaignState(state: CampaignState): CampaignState {
     ...state,
     quests: state.quests ?? {},
     places: state.places ?? {},
+    abilities: state.abilities ?? {},
+    learnedAbilities: state.learnedAbilities ?? {},
   };
 }
 
@@ -94,6 +100,8 @@ export function asDocument(state: CampaignState): CampaignDocument {
     items: Object.values(state.items).sort(byName),
     quests: Object.values(state.quests ?? {}).sort(byName),
     places: Object.values(state.places ?? {}).sort(byName),
+    abilities: Object.values(state.abilities ?? {}).sort(byName),
+    learnedAbilities: Object.values(state.learnedAbilities ?? {}).sort((left, right) => left.id.localeCompare(right.id)),
     currentScene: state.currentScene ? structuredClone(state.currentScene) : null,
   };
 }
@@ -102,11 +110,15 @@ export function normalizeCampaignDocument(document: CampaignDocument): CampaignD
   const legacy = document as CampaignDocument & {
     quests?: CampaignQuest[];
     places?: CampaignPlace[];
+    abilities?: CampaignAbility[];
+    learnedAbilities?: CampaignLearnedAbility[];
   };
   return {
     ...document,
     quests: legacy.quests ?? [],
     places: legacy.places ?? [],
+    abilities: legacy.abilities ?? [],
+    learnedAbilities: legacy.learnedAbilities ?? [],
   };
 }
 
@@ -131,6 +143,8 @@ function recordIdExists(state: CampaignState, id: string): boolean {
     || state.items[id]
     || state.quests?.[id]
     || state.places?.[id]
+    || state.abilities?.[id]
+    || state.learnedAbilities?.[id]
     || state.currentScene?.id === id,
   );
 }
@@ -181,6 +195,59 @@ function requirePlace(state: CampaignState, placeId: string): CampaignPlace {
   const place = state.places?.[id];
   if (!place) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Place ${id} was not found.`, { placeId: id });
   return place;
+}
+
+function requireAbility(state: CampaignState, abilityId: string): CampaignAbility {
+  const id = cleanIdentifier(abilityId, 'Ability ID');
+  const ability = state.abilities?.[id];
+  if (!ability) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Ability ${id} was not found.`, { abilityId: id });
+  return ability;
+}
+
+function requireLearnedAbility(state: CampaignState, learnedAbilityId: string): CampaignLearnedAbility {
+  const id = cleanIdentifier(learnedAbilityId, 'Learned Ability ID');
+  const learned = state.learnedAbilities?.[id];
+  if (!learned) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Learned Ability ${id} was not found.`, { learnedAbilityId: id });
+  return learned;
+}
+
+function cleanUses(
+  usesRemaining: number | null | undefined,
+  usesMaximum: number | null | undefined,
+): Pick<CampaignLearnedAbility, 'usesRemaining' | 'usesMaximum'> {
+  const remaining = usesRemaining === null ? undefined : usesRemaining;
+  const maximum = usesMaximum === null ? undefined : usesMaximum;
+  if (remaining !== undefined && (!Number.isInteger(remaining) || remaining < 0 || remaining > 1_000_000)) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Uses remaining must be a whole number from 0 to 1,000,000.');
+  }
+  if (maximum !== undefined && (!Number.isInteger(maximum) || maximum < 0 || maximum > 1_000_000)) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Maximum uses must be a whole number from 0 to 1,000,000.');
+  }
+  if (remaining !== undefined && maximum !== undefined && remaining > maximum) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Uses remaining cannot exceed maximum uses.');
+  }
+  return {
+    ...(remaining === undefined ? {} : { usesRemaining: remaining }),
+    ...(maximum === undefined ? {} : { usesMaximum: maximum }),
+  };
+}
+
+function requireUniqueLearning(
+  state: CampaignState,
+  actorId: string,
+  abilityId: string,
+  exceptId?: string,
+): void {
+  const duplicate = Object.values(state.learnedAbilities ?? {}).find(candidate => (
+    candidate.id !== exceptId && !candidate.archived && candidate.actorId === actorId && candidate.abilityId === abilityId
+  ));
+  if (duplicate) {
+    throw new CampaignExpectedError(
+      'CAMPAIGN_VALIDATION_FAILED',
+      'This Actor already has an active Learned Ability entry.',
+      { actorId, abilityId, learnedAbilityId: duplicate.id },
+    );
+  }
 }
 
 function requireActiveSceneRecord<T extends { id: string; archived: boolean }>(record: T, label: string): T {
@@ -266,6 +333,8 @@ export function subjectImageAt(
   if (subjectKind === 'item') return structuredClone(state.items[subjectId] ?? null);
   if (subjectKind === 'quest') return structuredClone(state.quests?.[subjectId] ?? null);
   if (subjectKind === 'place') return structuredClone(state.places?.[subjectId] ?? null);
+  if (subjectKind === 'ability') return structuredClone(state.abilities?.[subjectId] ?? null);
+  if (subjectKind === 'learned_ability') return structuredClone(state.learnedAbilities?.[subjectId] ?? null);
   return structuredClone(state.currentScene);
 }
 
@@ -280,6 +349,10 @@ export function subjectChangesForOperation(
     const [actorId, itemId] = affectedIds;
     if (!actorId || !itemId) throw new Error('Campaign Operation create_actor_with_item produced incomplete subjects.');
     subjects = [['actor', actorId], ['item', itemId]];
+  } else if (operation.kind === 'create_ability_with_learning') {
+    const [abilityId, learnedAbilityId] = affectedIds;
+    if (!abilityId || !learnedAbilityId) throw new Error('Campaign Operation create_ability_with_learning produced incomplete subjects.');
+    subjects = [['ability', abilityId], ['learned_ability', learnedAbilityId]];
   } else {
     const affectedId = affectedIds[0];
     if (!affectedId) throw new Error(`Campaign Operation ${operation.kind} produced no affected subject.`);
@@ -291,6 +364,10 @@ export function subjectChangesForOperation(
           ? 'quest'
           : operation.kind.includes('place')
             ? 'place'
+            : operation.kind.includes('learned_ability')
+              ? 'learned_ability'
+              : operation.kind.includes('ability')
+                ? 'ability'
             : 'actor';
     subjects = [[subjectKind, subjectKind === 'current_scene' ? 'current' : affectedId]];
   }
@@ -329,6 +406,18 @@ export function applySubjectChanges(
       state.places ??= {};
       if (change.afterImage === null) delete state.places[change.subjectId];
       else state.places[change.subjectId] = structuredClone(change.afterImage as CampaignPlace);
+      continue;
+    }
+    if (change.subjectKind === 'ability') {
+      state.abilities ??= {};
+      if (change.afterImage === null) delete state.abilities[change.subjectId];
+      else state.abilities[change.subjectId] = structuredClone(change.afterImage as CampaignAbility);
+      continue;
+    }
+    if (change.subjectKind === 'learned_ability') {
+      state.learnedAbilities ??= {};
+      if (change.afterImage === null) delete state.learnedAbilities[change.subjectId];
+      else state.learnedAbilities[change.subjectId] = structuredClone(change.afterImage as CampaignLearnedAbility);
       continue;
     }
     state.currentScene = change.afterImage === null
@@ -505,6 +594,97 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     state.places ??= {};
     state.places[place.id] = { ...place, archived: operation.archived };
     return [place.id];
+  }
+  if (operation.kind === 'create_ability' || operation.kind === 'create_ability_with_learning') {
+    const id = requireUnusedId(state, operation.ability.id, 'Ability ID');
+    state.abilities ??= {};
+    state.abilities[id] = {
+      id,
+      name: cleanText(operation.ability.name, 'Ability name', 160),
+      aliases: cleanAliases(operation.ability.aliases),
+      summary: cleanOptionalText(operation.ability.summary, 'Ability summary', 4000),
+      visibility: cleanVisibility(operation.ability.visibility),
+      category: operation.ability.category ?? 'other',
+      archived: false,
+    };
+    if (operation.kind === 'create_ability') return [id];
+    const learnedId = requireUnusedId(state, operation.learnedAbility.id, 'Learned Ability ID');
+    const actorId = requireActiveSceneRecord(requireActor(state, operation.learnedAbility.actorId), 'Actor').id;
+    state.learnedAbilities ??= {};
+    state.learnedAbilities[learnedId] = {
+      id: learnedId,
+      abilityId: id,
+      actorId,
+      prepared: operation.learnedAbility.prepared ?? false,
+      enabled: operation.learnedAbility.enabled ?? true,
+      ...cleanUses(operation.learnedAbility.usesRemaining, operation.learnedAbility.usesMaximum),
+      archived: false,
+    };
+    return [id, learnedId];
+  }
+  if (operation.kind === 'update_ability') {
+    const ability = requireAbility(state, operation.abilityId);
+    state.abilities ??= {};
+    state.abilities[ability.id] = {
+      ...ability,
+      name: cleanText(operation.name, 'Ability name', 160),
+      summary: cleanOptionalText(operation.summary, 'Ability summary', 4000),
+      category: operation.category,
+      ...narratorFields(ability, operation.aliases, operation.visibility),
+    };
+    return [ability.id];
+  }
+  if (operation.kind === 'set_ability_archived') {
+    const ability = requireAbility(state, operation.abilityId);
+    state.abilities ??= {};
+    state.abilities[ability.id] = { ...ability, archived: operation.archived };
+    return [ability.id];
+  }
+  if (operation.kind === 'create_learned_ability') {
+    const id = requireUnusedId(state, operation.learnedAbility.id, 'Learned Ability ID');
+    const ability = requireAbility(state, operation.learnedAbility.abilityId);
+    if (ability.archived) throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'An archived Ability cannot be learned.', { abilityId: ability.id });
+    const actor = requireActiveSceneRecord(requireActor(state, operation.learnedAbility.actorId), 'Actor');
+    requireUniqueLearning(state, actor.id, ability.id);
+    state.learnedAbilities ??= {};
+    state.learnedAbilities[id] = {
+      id,
+      abilityId: ability.id,
+      actorId: actor.id,
+      prepared: operation.learnedAbility.prepared ?? false,
+      enabled: operation.learnedAbility.enabled ?? true,
+      ...cleanUses(operation.learnedAbility.usesRemaining, operation.learnedAbility.usesMaximum),
+      archived: false,
+    };
+    return [id];
+  }
+  if (operation.kind === 'update_learned_ability') {
+    const learned = requireLearnedAbility(state, operation.learnedAbilityId);
+    state.learnedAbilities ??= {};
+    state.learnedAbilities[learned.id] = {
+      id: learned.id,
+      abilityId: learned.abilityId,
+      actorId: learned.actorId,
+      prepared: operation.prepared,
+      enabled: operation.enabled,
+      ...cleanUses(operation.usesRemaining, operation.usesMaximum),
+      archived: learned.archived,
+    };
+    return [learned.id];
+  }
+  if (operation.kind === 'set_learned_ability_archived') {
+    const learned = requireLearnedAbility(state, operation.learnedAbilityId);
+    if (!operation.archived) {
+      const ability = requireAbility(state, learned.abilityId);
+      const actor = requireActor(state, learned.actorId);
+      if (ability.archived || actor.archived) {
+        throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Restore the linked Actor and Ability before restoring this Learned Ability.');
+      }
+      requireUniqueLearning(state, actor.id, ability.id, learned.id);
+    }
+    state.learnedAbilities ??= {};
+    state.learnedAbilities[learned.id] = { ...learned, archived: operation.archived };
+    return [learned.id];
   }
   if (operation.kind === 'set_current_scene') {
     const id = operation.scene.id ? cleanIdentifier(operation.scene.id, 'Scene ID') : state.currentScene?.id ?? randomUUID();

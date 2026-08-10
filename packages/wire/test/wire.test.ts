@@ -63,6 +63,12 @@ test('Campaign documents and commits validate routed record collections', () => 
     places: [{
       id: 'place-1', name: 'Old Keep', summary: 'A ruined border fortress.', archived: false,
     }],
+    abilities: [{
+      id: 'ability-1', name: 'Mage Hand', summary: 'Moves light objects.', category: 'spell', archived: false,
+    }],
+    learnedAbilities: [{
+      id: 'learned-1', abilityId: 'ability-1', actorId: 'actor-1', prepared: true, enabled: true, archived: false,
+    }],
     currentScene: null,
   };
   const commit = {

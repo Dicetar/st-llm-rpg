@@ -66,6 +66,37 @@ export const CampaignPlaceSchema = Type.Object({
 }, { additionalProperties: false });
 export type CampaignPlace = Static<typeof CampaignPlaceSchema>;
 
+export const CampaignAbilityCategorySchema = Type.Union([
+  Type.Literal('spell'),
+  Type.Literal('skill'),
+  Type.Literal('feat'),
+  Type.Literal('other'),
+]);
+export type CampaignAbilityCategory = Static<typeof CampaignAbilityCategorySchema>;
+
+export const CampaignAbilitySchema = Type.Object({
+  id: Identifier,
+  name: Title,
+  aliases: Type.Optional(Aliases),
+  summary: Summary,
+  visibility: Type.Optional(NarratorVisibility),
+  category: CampaignAbilityCategorySchema,
+  archived: Type.Boolean(),
+}, { additionalProperties: false });
+export type CampaignAbility = Static<typeof CampaignAbilitySchema>;
+
+export const CampaignLearnedAbilitySchema = Type.Object({
+  id: Identifier,
+  abilityId: Identifier,
+  actorId: Identifier,
+  prepared: Type.Boolean(),
+  enabled: Type.Boolean(),
+  usesRemaining: Type.Optional(Type.Integer({ minimum: 0, maximum: 1_000_000 })),
+  usesMaximum: Type.Optional(Type.Integer({ minimum: 0, maximum: 1_000_000 })),
+  archived: Type.Boolean(),
+}, { additionalProperties: false });
+export type CampaignLearnedAbility = Static<typeof CampaignLearnedAbilitySchema>;
+
 export const CampaignSceneSchema = Type.Object({
   id: Identifier,
   name: Title,
@@ -92,6 +123,8 @@ export const CampaignDocumentSchema = Type.Object({
   items: Type.Array(CampaignItemSchema),
   quests: Type.Array(CampaignQuestSchema),
   places: Type.Array(CampaignPlaceSchema),
+  abilities: Type.Optional(Type.Array(CampaignAbilitySchema)),
+  learnedAbilities: Type.Optional(Type.Array(CampaignLearnedAbilitySchema)),
   currentScene: Type.Union([CampaignSceneSchema, Type.Null()]),
 }, { additionalProperties: false });
 export type CampaignDocument = Static<typeof CampaignDocumentSchema>;
@@ -134,6 +167,25 @@ const NewPlaceSchema = Type.Object({
   aliases: Type.Optional(Aliases),
   summary: Type.Optional(Summary),
   visibility: Type.Optional(NarratorVisibility),
+}, { additionalProperties: false });
+
+const NewAbilitySchema = Type.Object({
+  id: Type.Optional(Identifier),
+  name: Title,
+  aliases: Type.Optional(Aliases),
+  summary: Type.Optional(Summary),
+  visibility: Type.Optional(NarratorVisibility),
+  category: Type.Optional(CampaignAbilityCategorySchema),
+}, { additionalProperties: false });
+
+const NewLearnedAbilitySchema = Type.Object({
+  id: Type.Optional(Identifier),
+  abilityId: Identifier,
+  actorId: Identifier,
+  prepared: Type.Optional(Type.Boolean()),
+  enabled: Type.Optional(Type.Boolean()),
+  usesRemaining: Type.Optional(Type.Integer({ minimum: 0, maximum: 1_000_000 })),
+  usesMaximum: Type.Optional(Type.Integer({ minimum: 0, maximum: 1_000_000 })),
 }, { additionalProperties: false });
 
 export const CampaignOperationSchema = Type.Union([
@@ -221,6 +273,59 @@ export const CampaignOperationSchema = Type.Union([
   Type.Object({
     kind: Type.Literal('set_place_archived'),
     placeId: Identifier,
+    archived: Type.Boolean(),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('create_ability'),
+    ability: NewAbilitySchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('create_ability_with_learning'),
+    ability: NewAbilitySchema,
+    learnedAbility: Type.Object({
+      id: Type.Optional(Identifier),
+      actorId: Identifier,
+      prepared: Type.Optional(Type.Boolean()),
+      enabled: Type.Optional(Type.Boolean()),
+      usesRemaining: Type.Optional(Type.Integer({ minimum: 0, maximum: 1_000_000 })),
+      usesMaximum: Type.Optional(Type.Integer({ minimum: 0, maximum: 1_000_000 })),
+    }, { additionalProperties: false }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('update_ability'),
+    abilityId: Identifier,
+    name: Title,
+    summary: Summary,
+    aliases: Type.Optional(Aliases),
+    visibility: Type.Optional(NarratorVisibility),
+    category: CampaignAbilityCategorySchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('set_ability_archived'),
+    abilityId: Identifier,
+    archived: Type.Boolean(),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('create_learned_ability'),
+    learnedAbility: NewLearnedAbilitySchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('update_learned_ability'),
+    learnedAbilityId: Identifier,
+    prepared: Type.Boolean(),
+    enabled: Type.Boolean(),
+    usesRemaining: Type.Optional(Type.Union([
+      Type.Integer({ minimum: 0, maximum: 1_000_000 }),
+      Type.Null(),
+    ])),
+    usesMaximum: Type.Optional(Type.Union([
+      Type.Integer({ minimum: 0, maximum: 1_000_000 }),
+      Type.Null(),
+    ])),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('set_learned_ability_archived'),
+    learnedAbilityId: Identifier,
     archived: Type.Boolean(),
   }, { additionalProperties: false }),
   Type.Object({

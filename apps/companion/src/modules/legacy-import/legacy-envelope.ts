@@ -12,6 +12,8 @@ export type LegacyEnvelopeInspection = Readonly<{
     items: number;
     quests: number;
     places: number;
+    abilities: number;
+    learnedAbilities: number;
     unsupported: number;
   }>;
   issues: readonly LegacyImportIssue[];
@@ -68,13 +70,15 @@ export function inspectLegacyEnvelope(
   if (rawTitle.length > 160) warning('title-truncated', 'campaign.title', 'Campaign title exceeds 160 characters and will be truncated in Campaign Book.');
 
   const records = Array.isArray(campaign?.records) ? campaign.records : [];
-  const counts = { actors: 0, items: 0, quests: 0, places: 0, unsupported: 0 };
+  const counts = { actors: 0, items: 0, quests: 0, places: 0, abilities: 0, learnedAbilities: 0, unsupported: 0 };
   const actors: CampaignState['actors'] = {};
   const items: CampaignState['items'] = {};
   const quests: NonNullable<CampaignState['quests']> = {};
   const places: NonNullable<CampaignState['places']> = {};
+  const abilities: NonNullable<CampaignState['abilities']> = {};
+  const learnedAbilities: NonNullable<CampaignState['learnedAbilities']> = {};
   const allIds = new Set<string>();
-  const supportedKinds = new Set(['actor', 'item', 'quest', 'place']);
+  const supportedKinds = new Set(['actor', 'item', 'quest', 'place', 'ability']);
 
   records.forEach((raw, index) => {
     const record = object(raw);
@@ -115,10 +119,47 @@ export function inspectLegacyEnvelope(
     } else if (kind === 'quest') {
       counts.quests += 1;
       quests[id] = { id, name, summary, status: text(record.status) === 'completed' ? 'completed' : 'active', archived };
-    } else {
+    } else if (kind === 'place') {
       counts.places += 1;
       places[id] = { id, name, summary, archived };
+    } else {
+      counts.abilities += 1;
+      const category = ['spell', 'skill', 'feat'].includes(text(record.category))
+        ? text(record.category) as 'spell' | 'skill' | 'feat'
+        : 'other';
+      abilities[id] = { id, name, summary, category, archived };
     }
+  });
+
+  const learnedEntries = Array.isArray(campaign?.learnedAbilities) ? campaign.learnedAbilities : [];
+  learnedEntries.forEach((raw, index) => {
+    const learned = object(raw);
+    const path = `campaign.learnedAbilities[${index}]`;
+    const id = text(learned?.id);
+    const abilityId = text(learned?.abilityId);
+    const actorId = text(learned?.actorId);
+    if (!validId(id) || allIds.has(id)) {
+      error('learned-ability-id-invalid', `${path}.id`, 'Learned Ability ID is invalid or duplicated.');
+      return;
+    }
+    allIds.add(id);
+    if (!abilities[abilityId] || !actors[actorId]) {
+      warning('learned-ability-link-missing', path, 'Learned Ability refers to an Actor or Ability that is not projected.');
+      return;
+    }
+    const remaining = Number(learned?.usesRemaining);
+    const maximum = Number(learned?.usesMaximum);
+    counts.learnedAbilities += 1;
+    learnedAbilities[id] = {
+      id,
+      abilityId,
+      actorId,
+      prepared: learned?.prepared === true,
+      enabled: learned?.enabled !== false,
+      ...(Number.isInteger(remaining) && remaining >= 0 ? { usesRemaining: remaining } : {}),
+      ...(Number.isInteger(maximum) && maximum >= 0 ? { usesMaximum: maximum } : {}),
+      archived: learned?.archivedAt !== null && learned?.archivedAt !== undefined && learned?.archivedAt !== '',
+    };
   });
 
   const possessions = Array.isArray(campaign?.possessions) ? campaign.possessions : [];
@@ -142,7 +183,6 @@ export function inspectLegacyEnvelope(
   });
 
   const unsupportedCollections: Array<readonly [string, unknown, string]> = [
-    ['learnedAbilities', campaign?.learnedAbilities, 'unsupported-learned-ability'],
     ['relationships', campaign?.relationships, 'unsupported-relationship'],
     ['sceneArchives', campaign?.sceneArchives, 'unsupported-scene-archive'],
     ['proposals', campaign?.proposals, 'unsupported-proposal'],
@@ -191,6 +231,8 @@ export function inspectLegacyEnvelope(
       items,
       quests,
       places,
+      abilities,
+      learnedAbilities,
       currentScene,
     },
   };

@@ -45,6 +45,10 @@ import {
   STORY_SYNC_FINALIZATION_MIGRATION,
   storySyncFinalizationMigrationChecksum,
 } from '../../migrations/007-story-sync-finalization.js';
+import {
+  CAMPAIGN_ABILITIES_MIGRATION,
+  campaignAbilitiesMigrationChecksum,
+} from '../../migrations/008-campaign-abilities.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -573,6 +577,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
         ...Object.values(state.items).map(record => [record.id, record] as const),
         ...Object.values(state.quests ?? {}).map(record => [record.id, record] as const),
         ...Object.values(state.places ?? {}).map(record => [record.id, record] as const),
+        ...Object.values(state.abilities ?? {}).map(record => [record.id, record] as const),
       ]);
       for (const pin of pins) {
         const record = records.get(pin);
@@ -1263,6 +1268,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       { ...CONTEXT_PLANNING_MIGRATION, checksum: contextPlanningMigrationChecksum() },
       { ...STORY_SYNC_JOBS_MIGRATION, checksum: storySyncJobsMigrationChecksum() },
       { ...STORY_SYNC_FINALIZATION_MIGRATION, checksum: storySyncFinalizationMigrationChecksum() },
+      { ...CAMPAIGN_ABILITIES_MIGRATION, checksum: campaignAbilitiesMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
@@ -1836,6 +1842,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       ...Object.values(state.items).map(record => ({ kind: 'item', record })),
       ...Object.values(state.quests ?? {}).map(record => ({ kind: 'quest', record })),
       ...Object.values(state.places ?? {}).map(record => ({ kind: 'place', record })),
+      ...Object.values(state.abilities ?? {}).map(record => ({ kind: 'ability', record })),
     ].sort((left, right) => left.record.name.localeCompare(right.record.name) || left.record.id.localeCompare(right.record.id));
     for (const { kind, record } of records) {
       if (record.archived || record.visibility === 'campaign_private') continue;

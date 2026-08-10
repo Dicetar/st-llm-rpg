@@ -25,10 +25,9 @@ const PERIODIC_RESCAN_MS = 60_000;
 const WATCH_DEBOUNCE_MS = 250;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
-const SUPPORTED_TOP_LEVEL = new Set(['people', 'items', 'quests', 'places', 'scene', 'records']);
+const SUPPORTED_TOP_LEVEL = new Set(['people', 'items', 'quests', 'places', 'abilities', 'scene', 'records']);
 const KNOWN_UNSUPPORTED = new Map([
   ['character', 'Player Character identity is not represented by the current companion addon model.'],
-  ['abilities', 'Abilities are not represented by the current companion addon model yet.'],
   ['facts', 'Facts are not represented by the current companion addon model yet.'],
   ['relationships', 'Relationships are not represented by the current companion addon model yet.'],
   ['worldObjects', 'World Objects are not represented by the current companion addon model yet.'],
@@ -117,6 +116,10 @@ function campaignValue(document: CampaignDocument, after: AddonValue): AddonValu
     const record = document.places.find(candidate => candidate.id === after.subjectId);
     return record ? common(record) : null;
   }
+  if (after.recordKind === 'ability') {
+    const record = (document.abilities ?? []).find(candidate => candidate.id === after.subjectId);
+    return record ? { ...common(record), category: record.category } : null;
+  }
   const record = document.currentScene?.id === after.subjectId ? document.currentScene : null;
   return record ? {
     ...after,
@@ -167,6 +170,10 @@ function operationsFor(changes: readonly AddonChange[]): CampaignOperation[] {
       operations.push(change.change === 'create'
         ? { kind: 'create_place', place: { id: value.subjectId, name: value.name, summary: value.summary, ...narrator } }
         : { kind: 'update_place', placeId: value.subjectId, name: value.name, summary: value.summary, ...narrator });
+    } else if (value.recordKind === 'ability') {
+      operations.push(change.change === 'create'
+        ? { kind: 'create_ability', ability: { id: value.subjectId, name: value.name, summary: value.summary, category: value.category ?? 'other', ...narrator } }
+        : { kind: 'update_ability', abilityId: value.subjectId, name: value.name, summary: value.summary, category: value.category ?? 'other', ...narrator });
     } else {
       operations.push({
         kind: 'set_current_scene',
@@ -186,7 +193,9 @@ function operationsFor(changes: readonly AddonChange[]): CampaignOperation[] {
     create_place: 1, update_place: 1, set_place_archived: 1,
     create_item: 2, update_item: 2, set_item_archived: 2, create_actor_with_item: 2,
     create_quest: 3, update_quest: 3, set_quest_archived: 3,
-    set_current_scene: 4,
+    create_ability: 4, create_ability_with_learning: 4, update_ability: 4, set_ability_archived: 4,
+    create_learned_ability: 5, update_learned_ability: 5, set_learned_ability_archived: 5,
+    set_current_scene: 6,
   };
   return operations.sort((left, right) => order[left.kind] - order[right.kind]);
 }
@@ -473,6 +482,14 @@ export class AddonService {
           return;
         }
         Object.assign(common, { status });
+      } else if (kind === 'ability') {
+        const inputCategory = text(input.category, 'other');
+        const category = inputCategory === 'power' ? 'other' : inputCategory;
+        if (!['spell', 'skill', 'feat', 'other'].includes(category)) {
+          issues.push(issue('error', 'addon_ability_category_unsupported', sourceFile, `${path}.category`, 'Ability category must be spell, skill, feat, power, or other.'));
+          return;
+        }
+        Object.assign(common, { category });
       } else if (kind === 'scene') {
         const placeId = text(input.placeId) || (text(input.place) ? addonSubjectId('place', text(input.place)) : '');
         const actorIds = Array.isArray(input.actorIds) ? input.actorIds.map(String) : [];
@@ -505,6 +522,7 @@ export class AddonService {
       const accepted = new Set(['kind', 'id', 'externalId', 'name', 'title', 'summary', 'aliases', 'visibility']);
       if (kind === 'item') ['ownerActorId', 'ownerExternalId'].forEach(key => accepted.add(key));
       if (kind === 'quest') accepted.add('status');
+      if (kind === 'ability') accepted.add('category');
       if (kind === 'scene') ['place', 'placeId', 'actorIds', 'itemIds', 'presences'].forEach(key => accepted.add(key));
       const omitted = Object.keys(input).filter(key => !accepted.has(key) && meaningful(input[key]));
       if (omitted.length) {
@@ -515,7 +533,7 @@ export class AddonService {
     for (const source of documents) {
       const document = source.document;
       const collections: Array<readonly [string, AddonRecordKind]> = [
-        ['people', 'actor'], ['items', 'item'], ['quests', 'quest'], ['places', 'place'],
+        ['people', 'actor'], ['items', 'item'], ['quests', 'quest'], ['places', 'place'], ['abilities', 'ability'],
       ];
       for (const [key, kind] of collections) {
         const raw = document[key];
@@ -533,8 +551,8 @@ export class AddonService {
         } else {
           document.records.forEach((record, index) => {
             const kind = text(object(record)?.kind) as AddonRecordKind;
-            if (!['actor', 'item', 'quest', 'place', 'scene'].includes(kind)) {
-              issues.push(issue('error', 'addon_kind_unsupported', source.name, `records[${index}].kind`, 'Kind must be actor, item, quest, place, or scene.'));
+            if (!['actor', 'item', 'quest', 'place', 'ability', 'scene'].includes(kind)) {
+              issues.push(issue('error', 'addon_kind_unsupported', source.name, `records[${index}].kind`, 'Kind must be actor, item, quest, place, ability, or scene.'));
               return;
             }
             add(kind, record, source.name, `records[${index}]`);

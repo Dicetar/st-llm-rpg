@@ -336,17 +336,20 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
   await writeFile(join(addonRoot, 'items_addon.json'), JSON.stringify({
     items: [{ id: 'wardrobe-key', name: 'Wardrobe key', summary: 'A small iron key.', ownerExternalId: 'lavir' }],
   }));
+  await writeFile(join(addonRoot, 'abilities_addon.json'), JSON.stringify({
+    abilities: [{ id: 'mage-hand', name: 'Mage Hand', summary: 'Moves a small unattended object.', category: 'spell' }],
+  }));
 
   const sources = await app.inject({ method: 'POST', url: '/api/operations/addons/rescan' });
   assert.equal(sources.statusCode, 200, sources.body);
-  assert.deepEqual(sources.json().files.map((file: { name: string }) => file.name), ['items_addon.json', 'people_addon.json']);
+  assert.deepEqual(sources.json().files.map((file: { name: string }) => file.name), ['abilities_addon.json', 'items_addon.json', 'people_addon.json']);
 
   const firstPreview = await app.inject({
     method: 'POST', url: '/api/operations/addons/preview', payload: { campaignId },
   });
   assert.equal(firstPreview.statusCode, 200, firstPreview.body);
   assert.equal(firstPreview.json().canApply, true);
-  assert.equal(firstPreview.json().changes.filter((change: { change: string }) => change.change === 'create').length, 2);
+  assert.equal(firstPreview.json().changes.filter((change: { change: string }) => change.change === 'create').length, 3);
   assert.ok(firstPreview.json().issues.some((entry: { code: string }) => entry.code === 'addon_fields_not_imported'));
   const persistedCandidates = await app.inject({
     method: 'GET', url: `/api/operations/addons/candidates?campaignId=${encodeURIComponent(campaignId)}`,
@@ -380,7 +383,7 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
     },
   });
   assert.equal(applied.statusCode, 200, applied.body);
-  assert.equal(applied.json().changed, 2);
+  assert.equal(applied.json().changed, 3);
   assert.equal(applied.json().backup.kind, 'pre-operation');
   assert.equal(applied.json().commit.operationKind, 'apply_addon_batch');
   assert.equal(applied.json().commit.revision, 2);
@@ -389,6 +392,8 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
   assert.equal(campaign.json().actors[0].id, 'addon:actor:lavir');
   assert.equal(campaign.json().items[0].id, 'addon:item:wardrobe-key');
   assert.equal(campaign.json().items[0].ownerActorId, 'addon:actor:lavir');
+  assert.equal(campaign.json().abilities[0].id, 'addon:ability:mage-hand');
+  assert.equal(campaign.json().abilities[0].category, 'spell');
   assert.match(campaign.json().items[0].summary, /split-crown/);
   const history = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}/history` });
   assert.ok(history.json().some((entry: { operationKind: string }) => entry.operationKind === 'apply_addon_batch'));

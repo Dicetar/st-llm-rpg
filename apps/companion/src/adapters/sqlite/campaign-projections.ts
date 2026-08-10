@@ -1,6 +1,8 @@
 import type {
   CampaignActor,
+  CampaignAbility,
   CampaignItem,
+  CampaignLearnedAbility,
   CampaignPlace,
   CampaignQuest,
   CampaignScene,
@@ -50,6 +52,27 @@ type PlaceProjectionRow = {
   archived: number;
 };
 
+type AbilityProjectionRow = {
+  ability_id: string;
+  name: string;
+  aliases_json: string | null;
+  summary: string;
+  visibility: Exclude<CampaignAbility['visibility'], undefined> | null;
+  category: CampaignAbility['category'];
+  archived: number;
+};
+
+type LearnedAbilityProjectionRow = {
+  learned_ability_id: string;
+  ability_id: string;
+  actor_id: string;
+  prepared: number;
+  enabled: number;
+  uses_remaining: number | null;
+  uses_maximum: number | null;
+  archived: number;
+};
+
 type SceneProjectionRow = {
   scene_id: string;
   name: string;
@@ -62,6 +85,12 @@ type SceneProjectionRow = {
 export function hasCurrentCampaignProjections(database: DatabaseSync): boolean {
   return Boolean(database.prepare(`
     SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'campaign_actor_projections'
+  `).get());
+}
+
+function hasCurrentAbilityProjections(database: DatabaseSync): boolean {
+  return Boolean(database.prepare(`
+    SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'campaign_ability_projections'
   `).get());
 }
 
@@ -96,6 +125,15 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
     SELECT place_id, name, ${narratorColumns}, archived
     FROM campaign_place_projections WHERE campaign_id = ? ORDER BY place_id
   `).all(campaign.campaign_id) as PlaceProjectionRow[];
+  const abilityRows = hasCurrentAbilityProjections(database) ? database.prepare(`
+    SELECT ability_id, name, aliases_json, summary, visibility, category, archived
+    FROM campaign_ability_projections WHERE campaign_id = ? ORDER BY ability_id
+  `).all(campaign.campaign_id) as AbilityProjectionRow[] : [];
+  const learnedAbilityRows = hasCurrentAbilityProjections(database) ? database.prepare(`
+    SELECT learned_ability_id, ability_id, actor_id, prepared, enabled,
+           uses_remaining, uses_maximum, archived
+    FROM campaign_learned_ability_projections WHERE campaign_id = ? ORDER BY learned_ability_id
+  `).all(campaign.campaign_id) as LearnedAbilityProjectionRow[] : [];
   const sceneRow = database.prepare(`
     SELECT scene_id, name, summary, ${sceneContextColumns}
     FROM campaign_scene_projections WHERE campaign_id = ?
@@ -144,6 +182,25 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
       ...(row.visibility === null ? {} : { visibility: row.visibility }),
       archived: Boolean(row.archived),
     } satisfies CampaignPlace])),
+    abilities: Object.fromEntries(abilityRows.map(row => [row.ability_id, {
+      id: row.ability_id,
+      name: row.name,
+      ...(row.aliases_json === null ? {} : { aliases: parseJson<string[]>(row.aliases_json) }),
+      summary: row.summary,
+      ...(row.visibility === null ? {} : { visibility: row.visibility }),
+      category: row.category,
+      archived: Boolean(row.archived),
+    } satisfies CampaignAbility])),
+    learnedAbilities: Object.fromEntries(learnedAbilityRows.map(row => [row.learned_ability_id, {
+      id: row.learned_ability_id,
+      abilityId: row.ability_id,
+      actorId: row.actor_id,
+      prepared: Boolean(row.prepared),
+      enabled: Boolean(row.enabled),
+      ...(row.uses_remaining === null ? {} : { usesRemaining: Number(row.uses_remaining) }),
+      ...(row.uses_maximum === null ? {} : { usesMaximum: Number(row.uses_maximum) }),
+      archived: Boolean(row.archived),
+    } satisfies CampaignLearnedAbility])),
     currentScene: sceneRow ? {
       id: sceneRow.scene_id,
       name: sceneRow.name,
@@ -164,12 +221,18 @@ export function replaceCurrentCampaignProjections(
   database.prepare('DELETE FROM campaign_item_projections WHERE campaign_id = ?').run(campaignId);
   database.prepare('DELETE FROM campaign_quest_projections WHERE campaign_id = ?').run(campaignId);
   database.prepare('DELETE FROM campaign_place_projections WHERE campaign_id = ?').run(campaignId);
+  if (hasCurrentAbilityProjections(database)) {
+    database.prepare('DELETE FROM campaign_ability_projections WHERE campaign_id = ?').run(campaignId);
+    database.prepare('DELETE FROM campaign_learned_ability_projections WHERE campaign_id = ?').run(campaignId);
+  }
   database.prepare('DELETE FROM campaign_scene_projections WHERE campaign_id = ?').run(campaignId);
 
   for (const actor of Object.values(state.actors)) upsertActor(database, campaignId, actor);
   for (const item of Object.values(state.items)) upsertItem(database, campaignId, item);
   for (const quest of Object.values(state.quests ?? {})) upsertQuest(database, campaignId, quest);
   for (const place of Object.values(state.places ?? {})) upsertPlace(database, campaignId, place);
+  for (const ability of Object.values(state.abilities ?? {})) upsertAbility(database, campaignId, ability);
+  for (const learned of Object.values(state.learnedAbilities ?? {})) upsertLearnedAbility(database, campaignId, learned);
   if (state.currentScene) upsertScene(database, campaignId, state.currentScene);
 }
 
@@ -212,6 +275,24 @@ export function applyCurrentCampaignProjectionChanges(
           .run(campaignId, change.subjectId);
       } else {
         upsertPlace(database, campaignId, change.afterImage as CampaignPlace);
+      }
+      continue;
+    }
+    if (change.subjectKind === 'ability') {
+      if (change.afterImage === null) {
+        database.prepare('DELETE FROM campaign_ability_projections WHERE campaign_id = ? AND ability_id = ?')
+          .run(campaignId, change.subjectId);
+      } else {
+        upsertAbility(database, campaignId, change.afterImage as CampaignAbility);
+      }
+      continue;
+    }
+    if (change.subjectKind === 'learned_ability') {
+      if (change.afterImage === null) {
+        database.prepare('DELETE FROM campaign_learned_ability_projections WHERE campaign_id = ? AND learned_ability_id = ?')
+          .run(campaignId, change.subjectId);
+      } else {
+        upsertLearnedAbility(database, campaignId, change.afterImage as CampaignLearnedAbility);
       }
       continue;
     }
@@ -304,6 +385,50 @@ function upsertPlace(database: DatabaseSync, campaignId: string, place: Campaign
       visibility = excluded.visibility, archived = excluded.archived
   `).run(campaignId, place.id, place.name, place.aliases === undefined ? null : JSON.stringify(place.aliases), place.summary,
     place.visibility ?? null, place.archived ? 1 : 0);
+}
+
+function upsertAbility(database: DatabaseSync, campaignId: string, ability: CampaignAbility): void {
+  database.prepare(`
+    INSERT INTO campaign_ability_projections(
+      campaign_id, ability_id, name, aliases_json, summary, visibility, category, archived
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(campaign_id, ability_id) DO UPDATE SET
+      name = excluded.name, aliases_json = excluded.aliases_json, summary = excluded.summary,
+      visibility = excluded.visibility, category = excluded.category, archived = excluded.archived
+  `).run(
+    campaignId,
+    ability.id,
+    ability.name,
+    ability.aliases === undefined ? null : JSON.stringify(ability.aliases),
+    ability.summary,
+    ability.visibility ?? null,
+    ability.category,
+    ability.archived ? 1 : 0,
+  );
+}
+
+function upsertLearnedAbility(database: DatabaseSync, campaignId: string, learned: CampaignLearnedAbility): void {
+  database.prepare(`
+    INSERT INTO campaign_learned_ability_projections(
+      campaign_id, learned_ability_id, ability_id, actor_id, prepared, enabled,
+      uses_remaining, uses_maximum, archived
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(campaign_id, learned_ability_id) DO UPDATE SET
+      ability_id = excluded.ability_id, actor_id = excluded.actor_id,
+      prepared = excluded.prepared, enabled = excluded.enabled,
+      uses_remaining = excluded.uses_remaining, uses_maximum = excluded.uses_maximum,
+      archived = excluded.archived
+  `).run(
+    campaignId,
+    learned.id,
+    learned.abilityId,
+    learned.actorId,
+    learned.prepared ? 1 : 0,
+    learned.enabled ? 1 : 0,
+    learned.usesRemaining ?? null,
+    learned.usesMaximum ?? null,
+    learned.archived ? 1 : 0,
+  );
 }
 
 function upsertScene(database: DatabaseSync, campaignId: string, scene: CampaignScene): void {

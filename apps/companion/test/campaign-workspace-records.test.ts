@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { SqliteCampaignJournal } from '../src/adapters/sqlite/campaign-journal.js';
 import { acceptCampaignCreate, acceptCampaignOperation } from './campaign-test-helpers.js';
 
@@ -81,4 +82,112 @@ test('Quest and Place records persist, edit, archive, and reconstruct through im
   assert.equal(current.quests[0]?.status, 'completed');
   assert.equal(current.places[0]?.archived, true);
   journal.verifyOrThrow();
+});
+
+test('Ability definitions and per-Actor learned state commit atomically, survive restart, and reconstruct', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'st-rpg-ability-records-'));
+  const databasePath = join(root, 'campaigns.sqlite');
+  let journal = await SqliteCampaignJournal.open(databasePath, 25);
+  t.after(async () => {
+    await journal.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const created = await acceptCampaignCreate(journal, { requestId: 'ability-campaign', title: 'Ability Book' });
+  const actor = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'ability-actor', expectedRevision: 1,
+    operation: { kind: 'create_actor', actor: { id: 'actor-mage', name: 'Mara', summary: 'A careful mage.' } },
+  });
+  const joined = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'ability-create', expectedRevision: actor.revision,
+    operation: {
+      kind: 'create_ability_with_learning',
+      ability: { id: 'ability-hand', name: 'Mage Hand', summary: 'Moves light objects.', category: 'spell' },
+      learnedAbility: {
+        id: 'learned-hand', actorId: 'actor-mage', prepared: true, enabled: true,
+        usesRemaining: 2, usesMaximum: 3,
+      },
+    },
+  });
+  assert.deepEqual(joined.affectedIds, ['ability-hand', 'learned-hand']);
+  assert.equal(joined.document.abilities?.[0]?.category, 'spell');
+  assert.equal(joined.document.learnedAbilities?.[0]?.usesRemaining, 2);
+  const hits = await journal.search({
+    campaignId: created.campaignId,
+    campaignRevision: joined.revision,
+    query: 'manipulates objects Mage Hand',
+    limit: 8,
+  });
+  assert.equal(hits.some(hit => hit.recordId === 'ability-hand'), true);
+
+  const updated = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'ability-use', expectedRevision: joined.revision,
+    operation: {
+      kind: 'update_learned_ability', learnedAbilityId: 'learned-hand',
+      prepared: false, enabled: true, usesRemaining: 1, usesMaximum: 3,
+    },
+  });
+  assert.equal(updated.document.learnedAbilities?.[0]?.prepared, false);
+  assert.equal(updated.document.learnedAbilities?.[0]?.usesRemaining, 1);
+  assert.equal(journal.readCampaign(created.campaignId, joined.revision).learnedAbilities?.[0]?.usesRemaining, 2);
+
+  await journal.close();
+  journal = await SqliteCampaignJournal.open(databasePath, 25);
+  const reopened = journal.readCampaign(created.campaignId);
+  assert.equal(reopened.abilities?.[0]?.name, 'Mage Hand');
+  assert.equal(reopened.learnedAbilities?.[0]?.usesRemaining, 1);
+  journal.verifyOrThrow();
+});
+
+test('V7 authority backs up, expands subject history, and opens with empty Ability collections', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'st-rpg-v7-ability-upgrade-'));
+  const databasePath = join(root, 'campaigns.sqlite');
+  let journal = await SqliteCampaignJournal.open(databasePath);
+  t.after(async () => {
+    try { await journal.close(); } catch { /* already closed */ }
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await acceptCampaignCreate(journal, { requestId: 'v7-campaign', title: 'Before Abilities' });
+  await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'v7-actor', expectedRevision: 1,
+    operation: { kind: 'create_actor', actor: { id: 'actor-kept', name: 'Kept Actor' } },
+  });
+  await journal.close();
+
+  const database = new DatabaseSync(databasePath);
+  database.exec(`
+    PRAGMA foreign_keys = OFF;
+    DROP INDEX campaign_event_changes_subject;
+    ALTER TABLE campaign_event_changes RENAME TO campaign_event_changes_v8;
+    CREATE TABLE campaign_event_changes (
+      event_id TEXT NOT NULL REFERENCES campaign_events(event_id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      subject_kind TEXT NOT NULL CHECK (subject_kind IN ('actor', 'item', 'quest', 'place', 'current_scene')),
+      subject_id TEXT NOT NULL,
+      before_schema_version INTEGER,
+      before_image_json TEXT,
+      before_hash TEXT,
+      after_schema_version INTEGER,
+      after_image_json TEXT,
+      after_hash TEXT,
+      PRIMARY KEY (event_id, ordinal)
+    );
+    INSERT INTO campaign_event_changes SELECT * FROM campaign_event_changes_v8;
+    DROP TABLE campaign_event_changes_v8;
+    CREATE INDEX campaign_event_changes_subject ON campaign_event_changes(subject_kind, subject_id);
+    DROP TABLE campaign_learned_ability_projections;
+    DROP TABLE campaign_ability_projections;
+    DELETE FROM schema_migrations WHERE version = 8;
+    PRAGMA foreign_keys = ON;
+  `);
+  database.close();
+
+  journal = await SqliteCampaignJournal.open(databasePath);
+  const upgraded = journal.readCampaign(created.campaignId);
+  assert.equal(upgraded.actors[0]?.name, 'Kept Actor');
+  assert.deepEqual(upgraded.abilities, []);
+  assert.deepEqual(upgraded.learnedAbilities, []);
+  journal.verifyOrThrow();
+  await journal.close();
+  assert.equal((await readdir(root)).some(name => name.startsWith('campaigns.sqlite.pre-migration-v8-')), true);
 });
