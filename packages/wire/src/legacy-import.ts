@@ -109,6 +109,11 @@ export const ChatBindingDocumentSchema = Type.Object({
   campaignAnchor: Type.Integer({ minimum: 1 }),
   contextFocusRevision: Type.Optional(Type.Integer({ minimum: 1 })),
   pins: Type.Optional(Type.Array(Identifier, { maxItems: 128, uniqueItems: true })),
+  syncFacetRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+  syncBoundary: Type.Optional(Type.Object({
+    throughMessageIndex: Type.Integer({ minimum: -1 }),
+    prefixHash: Fingerprint,
+  }, { additionalProperties: false })),
   locator: LegacyChatLocatorSchema,
   sourceFingerprint: Fingerprint,
   contentFingerprint: Fingerprint,

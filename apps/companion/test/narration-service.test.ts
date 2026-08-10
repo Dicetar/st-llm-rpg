@@ -240,6 +240,37 @@ test('serial inference lane never overlaps calls and skips an aborted queued cal
   assert.equal(maximum, 1);
 });
 
+test('narration preempts active worker inference and the worker restarts after narration', async () => {
+  const lane = new SerialInferenceLane();
+  const order: string[] = [];
+  let workerRuns = 0;
+  let workerStarted!: () => void;
+  const started = new Promise<void>(resolve => { workerStarted = resolve; });
+  const workerController = new AbortController();
+  const safety = setTimeout(() => workerController.abort(), 500);
+  const worker = lane.run(async signal => {
+    workerRuns += 1;
+    order.push(`worker-${workerRuns}-start`);
+    if (workerRuns === 1) {
+      workerStarted();
+      await new Promise<void>((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('worker interrupted')), { once: true });
+      });
+    }
+    order.push(`worker-${workerRuns}-finish`);
+    return 'worker';
+  }, workerController.signal, 'worker');
+  await started;
+  const narrator = lane.run(async () => {
+    order.push('narrator');
+    return 'narrator';
+  }, new AbortController().signal, 'narration');
+  assert.equal(await narrator, 'narrator');
+  assert.equal(await worker, 'worker');
+  clearTimeout(safety);
+  assert.deepEqual(order, ['worker-1-start', 'narrator', 'worker-2-start', 'worker-2-finish']);
+});
+
 test('normal, regenerate, continue, and swipe remain distinct pinned Context intents', async () => {
   for (const generation of ['normal', 'regenerate', 'continue', 'swipe'] as const) {
     const current = harness();

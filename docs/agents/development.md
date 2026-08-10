@@ -19,7 +19,9 @@ When older provisional material conflicts with the normative specification or fi
 
 ## Current implementation frontier
 
-Issues #32 through #36 are complete. Issue #37 is active. Its production envelope, companion proxy, LM Studio adapter, Context assembly, inference serialization, atomic linked delivery, explicit-unlinked stream, and thin SillyTavern bridge are implemented. Direct live LM Studio and real pinned-SillyTavern desktop generation-mode/Stop/outage traces pass. Finish the physical-phone production trace before closing #37; do not start a later tracer while it remains open. Sanitized desktop evidence is recorded in `docs/evidence/production-narration-desktop-2026-08-09.json`.
+Issues #32 through #37 are complete. Issue #37 shipped its production envelope, companion proxy, LM Studio adapter, Context assembly, inference serialization, atomic linked delivery, explicit-unlinked stream, and thin SillyTavern bridge. Direct live LM Studio and real pinned-SillyTavern desktop generation-mode/Stop/outage traces pass. The product owner explicitly waived the remaining physical-phone rerun on 2026-08-10; it was deferred, not represented as passed. Sanitized desktop evidence is recorded in `docs/evidence/production-narration-desktop-2026-08-09.json`.
+
+Issue #38 is active. Its first runnable slice persists bounded Story Sync jobs and editable source-linked Proposals in SQLite, uses a separate configurable Campaign Worker on the shared narrator-priority inference lane, and exposes the Review Inbox through Campaign Book. The worker has read-only Campaign authority and cannot mutate Campaign truth. Human finalization, atomic accepted-operation batching with Sync Boundary advancement, explicit cancellation/resume/discard, and full retention cleanup remain open in #38.
 
 Work directly on `main` unless the user explicitly requests another workflow. Claim the active issue before substantive work.
 

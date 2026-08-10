@@ -29,22 +29,89 @@ export interface LmStudioGateway {
 }
 
 export interface InferenceLane {
-  run<T>(task: (signal: AbortSignal) => Promise<T>, signal: AbortSignal): Promise<T>;
+  run<T>(
+    task: (signal: AbortSignal) => Promise<T>,
+    signal: AbortSignal,
+    kind?: 'narration' | 'worker',
+  ): Promise<T>;
 }
 
-export class SerialInferenceLane implements InferenceLane {
-  #tail: Promise<void> = Promise.resolve();
+type InferenceLaneEntry = {
+  task: (signal: AbortSignal) => Promise<unknown>;
+  signal: AbortSignal;
+  kind: 'narration' | 'worker';
+  sequence: number;
+  resolve: (value: unknown) => void;
+  reject: (error: unknown) => void;
+};
 
-  async run<T>(task: (signal: AbortSignal) => Promise<T>, signal: AbortSignal): Promise<T> {
-    const previous = this.#tail;
-    let release!: () => void;
-    this.#tail = new Promise<void>(resolve => { release = resolve; });
+export class SerialInferenceLane implements InferenceLane {
+  #queue: InferenceLaneEntry[] = [];
+  #active: { entry: InferenceLaneEntry; controller: AbortController; preempted: boolean } | null = null;
+  #pumping = false;
+  #sequence = 0;
+
+  async run<T>(
+    task: (signal: AbortSignal) => Promise<T>,
+    signal: AbortSignal,
+    kind: 'narration' | 'worker' = 'narration',
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const entry: InferenceLaneEntry = {
+        task: task as (innerSignal: AbortSignal) => Promise<unknown>,
+        signal,
+        kind,
+        sequence: this.#sequence++,
+        resolve: value => resolve(value as T),
+        reject,
+      };
+      this.#queue.push(entry);
+      this.sortQueue();
+      if (kind === 'narration' && this.#active?.entry.kind === 'worker') {
+        this.#active.preempted = true;
+        this.#active.controller.abort(new Error('Worker inference was preempted by narration.'));
+      }
+      queueMicrotask(() => { void this.pump(); });
+    });
+  }
+
+  private sortQueue(): void {
+    this.#queue.sort((left, right) => (
+      (left.kind === 'narration' ? 0 : 1) - (right.kind === 'narration' ? 0 : 1)
+      || left.sequence - right.sequence
+    ));
+  }
+
+  private async pump(): Promise<void> {
+    if (this.#pumping) return;
+    this.#pumping = true;
     try {
-      await previous;
-      if (signal.aborted) throw new Error('Narration was cancelled before inference started.');
-      return await task(signal);
+      while (!this.#active && this.#queue.length > 0) {
+        const entry = this.#queue.shift()!;
+        if (entry.signal.aborted) {
+          entry.reject(new Error(`${entry.kind === 'worker' ? 'Worker' : 'Narration'} was cancelled before inference started.`));
+          continue;
+        }
+        const controller = new AbortController();
+        const active = { entry, controller, preempted: false };
+        this.#active = active;
+        try {
+          const signal = AbortSignal.any([entry.signal, controller.signal]);
+          entry.resolve(await entry.task(signal));
+        } catch (error) {
+          if (active.preempted && entry.kind === 'worker' && !entry.signal.aborted) {
+            this.#queue.push(entry);
+            this.sortQueue();
+          } else {
+            entry.reject(error);
+          }
+        } finally {
+          this.#active = null;
+        }
+      }
     } finally {
-      release();
+      this.#pumping = false;
+      if (this.#queue.length > 0) queueMicrotask(() => { void this.pump(); });
     }
   }
 }

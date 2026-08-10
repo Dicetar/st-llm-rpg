@@ -1,13 +1,14 @@
 import { main_api } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { chat_completion_sources, oai_settings } from '/scripts/openai.js';
-import { bindingRoute, encodeNarrationExchange, mergeExchangeHeader } from './wire.js?v=0.2.2';
+import { bindingRoute, encodeNarrationExchange, mergeExchangeHeader } from './wire.js?v=0.3.0';
 
 const LAUNCHER_ID = 'st-rpg-companion-launcher';
+const STORY_SYNC_LAUNCHER_ID = 'st-rpg-story-sync-launcher';
 const SETTINGS_KEY = 'stRpgCompanionBridge';
 const BINDING_META_KEY = 'stLlmRpgBinding';
 const COMPANION_PORT = 8002;
-const BRIDGE_VERSION = '0.2.2';
+const BRIDGE_VERSION = '0.3.0';
 const SILLYTAVERN_REVISION = '380e31e8c58d196969b6a0da74f431ba999c7e0a';
 const GENERATION_TYPES = new Set(['normal', 'regenerate', 'continue', 'swipe', 'quiet', 'impersonate']);
 const LINKED_GENERATION_TYPES = new Set(['normal', 'regenerate', 'continue', 'swipe']);
@@ -150,28 +151,98 @@ async function openCampaignBook() {
   }
 }
 
+function capturedStoryMessages() {
+  const current = context();
+  const chat = Array.isArray(current?.chat) ? current.chat : [];
+  return chat
+    .filter(message => !message?.is_system && String(message?.mes ?? '').replaceAll('\0', '').trim())
+    .map((message, index) => ({
+      index,
+      role: message?.is_user ? 'player' : 'narrator',
+      name: String(message?.name ?? (message?.is_user ? 'Player' : 'Narrator')).slice(0, 160),
+      content: String(message?.mes ?? '').replaceAll('\0', '').trim().slice(0, 20_000),
+    }));
+}
+
+async function responseJson(response) {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = body && typeof body.message === 'string'
+      ? body.message
+      : `RPG Companion returned HTTP ${response.status}.`;
+    throw new Error(message);
+  }
+  return body;
+}
+
+async function openStorySync() {
+  const target = window.open('about:blank', '_blank');
+  if (target) target.opener = null;
+  try {
+    const route = currentRoute();
+    if (route.kind !== 'linked') throw new Error('Link this SillyTavern chat to a Campaign before running Story Sync.');
+    const profiles = await responseJson(await fetch(companionUrl('/api/story-sync/worker-profiles'), {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(2_500),
+      headers: { accept: 'application/json' },
+    }));
+    if (!Array.isArray(profiles) || profiles.length !== 1) {
+      throw new Error('Configure one Campaign Worker model in Campaign Book before running Story Sync.');
+    }
+    const messages = capturedStoryMessages();
+    if (!messages.length) throw new Error('This chat has no visible messages to analyze.');
+    const receipt = await responseJson(await fetch(companionUrl('/api/story-sync/jobs'), {
+      method: 'POST',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        requestId: createUuid(),
+        bindingId: route.bindingId,
+        profileId: profiles[0].id,
+        locator: currentLocator(),
+        messages,
+      }),
+    }));
+    const destination = companionUrl(`/campaigns/${encodeURIComponent(receipt.campaignId)}/review?jobId=${encodeURIComponent(receipt.jobId)}`);
+    if (target) target.location.replace(destination);
+    else window.location.assign(destination);
+  } catch (error) {
+    renderFailure(target, error);
+    if (!target) globalThis.alert?.(`Story Sync could not start. ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function launcher(id, label, icon, action) {
+  const element = document.createElement('div');
+  element.id = id;
+  element.className = 'list-group-item flex-container flexGap5 interactable';
+  element.tabIndex = 0;
+  element.setAttribute('role', 'button');
+  element.setAttribute('aria-label', label);
+  element.innerHTML = `<i class="fa-solid ${icon}" aria-hidden="true"></i><span>${label}</span>`;
+  element.addEventListener('click', action);
+  element.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      void action();
+    }
+  });
+  return element;
+}
+
 function mountLauncher() {
-  if (document.getElementById(LAUNCHER_ID)) return;
   const menu = document.getElementById('extensionsMenu');
   if (!menu) {
     console.warn('[RPG Companion Bridge] SillyTavern extensions menu was not found.');
     return;
   }
-  const launcher = document.createElement('div');
-  launcher.id = LAUNCHER_ID;
-  launcher.className = 'list-group-item flex-container flexGap5 interactable';
-  launcher.tabIndex = 0;
-  launcher.setAttribute('role', 'button');
-  launcher.setAttribute('aria-label', 'Open Campaign Book');
-  launcher.innerHTML = '<i class="fa-solid fa-book-open" aria-hidden="true"></i><span>Campaign Book</span>';
-  launcher.addEventListener('click', openCampaignBook);
-  launcher.addEventListener('keydown', event => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      void openCampaignBook();
-    }
-  });
-  menu.appendChild(launcher);
+  if (!document.getElementById(LAUNCHER_ID)) {
+    menu.appendChild(launcher(LAUNCHER_ID, 'Campaign Book', 'fa-book-open', openCampaignBook));
+  }
+  if (!document.getElementById(STORY_SYNC_LAUNCHER_ID)) {
+    menu.appendChild(launcher(STORY_SYNC_LAUNCHER_ID, 'Sync Story', 'fa-arrows-rotate', openStorySync));
+  }
 }
 
 function mount() {
@@ -194,7 +265,7 @@ function mount() {
 }
 
 globalThis.stRpgCompanionGenerationInterceptor = generationInterceptor;
-globalThis.stRpgCompanionBridge = Object.freeze({ openCampaignBook, currentLocator, currentRoute });
+globalThis.stRpgCompanionBridge = Object.freeze({ openCampaignBook, openStorySync, currentLocator, currentRoute });
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });
 else mount();

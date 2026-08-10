@@ -13,6 +13,11 @@ import type {
   NarratorModelProfile,
   PreflightContextRequest,
   SetContextPinsRequest,
+  DecideStorySyncProposalRequest,
+  StorySyncJobDocument,
+  StorySyncJobStatus,
+  StorySyncProposal,
+  WorkerModelProfile,
 } from '@st-llm-rpg/wire';
 import { CAMPAIGN_AUTHORITY_MIGRATION, campaignMigrationChecksum } from '../../migrations/001-campaign-authority.js';
 import {
@@ -31,6 +36,10 @@ import {
   CONTEXT_PLANNING_MIGRATION,
   contextPlanningMigrationChecksum,
 } from '../../migrations/005-context-planning.js';
+import {
+  STORY_SYNC_JOBS_MIGRATION,
+  storySyncJobsMigrationChecksum,
+} from '../../migrations/006-story-sync-jobs.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -85,6 +94,12 @@ import type {
   ContextPlanningSource,
   ContextSearchHit,
 } from '../../modules/context/context-planner.js';
+import type {
+  CompleteStorySyncAttempt,
+  CreateStorySyncJob,
+  StorySyncJournal,
+  StoredStorySyncSource,
+} from '../../modules/story-sync/story-sync-journal.js';
 
 const APPLICATION_ID = 0x52504733;
 const EVENT_SCHEMA_VERSION = 2;
@@ -130,6 +145,9 @@ type ChatBindingRow = Readonly<{
   marker_problem: string | null;
   context_focus_revision: number;
   pins_json: string;
+  sync_facet_revision: number;
+  sync_through_message_index: number;
+  sync_prefix_hash: string;
   created_at: string;
   updated_at: string;
 }>;
@@ -144,6 +162,11 @@ function bindingDocument(row: ChatBindingRow): ChatBindingDocument {
     campaignAnchor: Number(row.campaign_anchor),
     contextFocusRevision: Number(row.context_focus_revision ?? 1),
     pins: parseJson<string[]>(row.pins_json ?? '[]'),
+    syncFacetRevision: Number(row.sync_facet_revision ?? 1),
+    syncBoundary: {
+      throughMessageIndex: Number(row.sync_through_message_index ?? -1),
+      prefixHash: row.sync_prefix_hash ?? sha256(''),
+    },
     locator: parseJson(row.locator_json),
     sourceFingerprint: row.source_fingerprint,
     contentFingerprint: row.content_fingerprint,
@@ -151,6 +174,74 @@ function bindingDocument(row: ChatBindingRow): ChatBindingDocument {
     ...(row.marker_problem ? { markerProblem: row.marker_problem } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+type WorkerProfileRow = Readonly<{
+  profile_id: string;
+  model_id: string;
+  requested_output_tokens: number;
+  updated_at: string;
+}>;
+
+type WorkerJobRow = Readonly<{
+  job_id: string;
+  request_id: string;
+  campaign_id: string;
+  binding_id: string;
+  profile_id: string;
+  status: StorySyncJobStatus;
+  campaign_anchor: number;
+  binding_revision: number;
+  sync_facet_revision: number;
+  source_json: string;
+  source_fingerprint: string;
+  source_end_prefix_hash: string;
+  source_first_message_index: number;
+  source_last_message_index: number;
+  source_message_count: number;
+  source_content_pruned: number;
+  attempt_count: number;
+  problem_code: string | null;
+  problem_message: string | null;
+  created_at: string;
+  updated_at: string;
+}>;
+
+type ProposalRow = Readonly<{
+  proposal_id: string;
+  job_id: string;
+  ordinal: number;
+  revision: number;
+  decision: StorySyncProposal['decision'];
+  draft_json: string;
+  source_links_json: string;
+  validation_problems_json: string;
+  confidence: StorySyncProposal['confidence'];
+}>;
+
+function workerProfile(row: WorkerProfileRow): WorkerModelProfile {
+  return {
+    schema: 'st-rpg.worker-model-profile',
+    version: '1.0',
+    id: row.profile_id,
+    modelId: row.model_id,
+    requestedOutputTokens: Number(row.requested_output_tokens),
+    updatedAt: row.updated_at,
+  };
+}
+
+function proposalDocument(row: ProposalRow): StorySyncProposal {
+  return {
+    id: row.proposal_id,
+    jobId: row.job_id,
+    ordinal: Number(row.ordinal),
+    revision: Number(row.revision),
+    decision: row.decision,
+    draft: parseJson(row.draft_json),
+    sourceLinks: parseJson(row.source_links_json),
+    validationProblems: parseJson(row.validation_problems_json),
+    confidence: row.confidence,
   };
 }
 
@@ -171,7 +262,7 @@ export type CampaignJournalOptions = Readonly<{
   beforeRestoreActivation?: () => Promise<void>;
 }>;
 
-export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJournal, ContextPlanningSource {
+export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJournal, ContextPlanningSource, StorySyncJournal {
   readonly databasePath: string;
   readonly snapshotInterval: number;
   readonly timingSampleLimit: number;
@@ -560,6 +651,230 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
     }, { allowMaintenanceFailure: true });
   }
 
+  async saveWorkerModelProfile(profile: WorkerModelProfile): Promise<WorkerModelProfile> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const id = cleanIdentifier(profile.id, 'Worker model profile ID');
+      const updatedAt = new Date().toISOString();
+      this.#database.prepare(`
+        INSERT INTO worker_model_profiles(profile_id, model_id, requested_output_tokens, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(profile_id) DO UPDATE SET
+          model_id = excluded.model_id,
+          requested_output_tokens = excluded.requested_output_tokens,
+          updated_at = excluded.updated_at
+      `).run(id, profile.modelId, profile.requestedOutputTokens, updatedAt);
+      return workerProfile(this.requireWorkerProfile(id));
+    })));
+  }
+
+  async readWorkerModelProfile(profileId: string): Promise<WorkerModelProfile> {
+    return this.serializeLifecycle(
+      () => workerProfile(this.requireWorkerProfile(cleanIdentifier(profileId, 'Worker model profile ID'))),
+      { allowMaintenanceFailure: true },
+    );
+  }
+
+  async listWorkerModelProfiles(): Promise<readonly WorkerModelProfile[]> {
+    return this.serializeLifecycle(() => (
+      this.#database.prepare('SELECT * FROM worker_model_profiles ORDER BY profile_id').all() as WorkerProfileRow[]
+    ).map(workerProfile), { allowMaintenanceFailure: true });
+  }
+
+  async createStorySyncJob(input: CreateStorySyncJob): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const requestId = cleanIdentifier(input.requestId, 'Story Sync request ID');
+      const existing = this.#database.prepare('SELECT * FROM worker_jobs WHERE request_id = ?').get(requestId) as WorkerJobRow | undefined;
+      if (existing) return this.storySyncJobDocument(existing);
+      const binding = this.findBindingById(cleanIdentifier(input.bindingId, 'Binding ID'));
+      if (!binding) throw new CampaignExpectedError('CHAT_BINDING_NOT_FOUND', `Chat Binding ${input.bindingId} was not found.`);
+      const pending = this.#database.prepare(`
+        SELECT job_id FROM worker_jobs
+        WHERE binding_id = ? AND status NOT IN ('completed', 'discarded', 'cancelled', 'failed')
+        LIMIT 1
+      `).get(binding.binding_id) as { job_id: string } | undefined;
+      if (pending) {
+        throw new CampaignExpectedError(
+          'STORY_SYNC_ALREADY_PENDING',
+          'This Chat Binding already has an unresolved Story Sync review.',
+          { jobId: pending.job_id },
+        );
+      }
+      this.requireWorkerProfile(cleanIdentifier(input.profileId, 'Worker model profile ID'));
+      this.#database.prepare(`
+        INSERT INTO worker_jobs(
+          job_id, request_id, campaign_id, binding_id, profile_id, status,
+          campaign_anchor, binding_revision, sync_facet_revision,
+          source_json, source_fingerprint, source_end_prefix_hash,
+          source_first_message_index, source_last_message_index, source_message_count,
+          source_content_pruned, attempt_count, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+      `).run(
+        cleanIdentifier(input.jobId, 'Story Sync Job ID'),
+        requestId,
+        cleanIdentifier(input.campaignId, 'Campaign ID'),
+        binding.binding_id,
+        input.profileId,
+        input.campaignAnchor,
+        input.bindingRevision,
+        input.syncFacetRevision,
+        canonicalJson(input.source),
+        input.sourceFingerprint,
+        input.sourceEndPrefixHash,
+        input.sourceFirstMessageIndex,
+        input.sourceLastMessageIndex,
+        input.source.messages.length,
+        input.createdAt,
+        input.createdAt,
+      );
+      return this.storySyncJobDocument(this.requireStorySyncJob(input.jobId));
+    })));
+  }
+
+  async readStorySyncJob(jobId: string): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(
+      () => this.storySyncJobDocument(this.requireStorySyncJob(cleanIdentifier(jobId, 'Story Sync Job ID'))),
+      { allowMaintenanceFailure: true },
+    );
+  }
+
+  async readStorySyncSource(jobId: string): Promise<StoredStorySyncSource> {
+    return this.serializeLifecycle(
+      () => parseJson<StoredStorySyncSource>(this.requireStorySyncJob(cleanIdentifier(jobId, 'Story Sync Job ID')).source_json),
+      { allowMaintenanceFailure: true },
+    );
+  }
+
+  async listStorySyncJobs(campaignId: string): Promise<readonly StorySyncJobDocument[]> {
+    return this.serializeLifecycle(() => {
+      const id = cleanIdentifier(campaignId, 'Campaign ID');
+      this.requireCampaign(id);
+      const rows = this.#database.prepare(`
+        SELECT * FROM worker_jobs WHERE campaign_id = ? ORDER BY updated_at DESC, job_id
+      `).all(id) as WorkerJobRow[];
+      return rows.map(row => this.storySyncJobDocument(row));
+    }, { allowMaintenanceFailure: true });
+  }
+
+  async beginStorySyncAttempt(jobId: string, attemptId: string, startedAt: string): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const job = this.requireStorySyncJob(cleanIdentifier(jobId, 'Story Sync Job ID'));
+      if (!['queued', 'interrupted', 'failed', 'cancelled'].includes(job.status)) {
+        throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', `Story Sync Job ${jobId} cannot start from ${job.status}.`);
+      }
+      const attemptNumber = Number(job.attempt_count) + 1;
+      this.#database.prepare(`
+        UPDATE worker_jobs
+        SET status = 'running', attempt_count = ?, problem_code = NULL, problem_message = NULL, updated_at = ?
+        WHERE job_id = ?
+      `).run(attemptNumber, startedAt, job.job_id);
+      this.#database.prepare(`
+        INSERT INTO worker_attempts(
+          attempt_id, job_id, attempt_number, status, started_at
+        ) VALUES (?, ?, ?, 'running', ?)
+      `).run(cleanIdentifier(attemptId, 'Story Sync Attempt ID'), job.job_id, attemptNumber, startedAt);
+      return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
+    })));
+  }
+
+  async setStorySyncJobStatus(jobId: string, status: StorySyncJobStatus): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const job = this.requireStorySyncJob(cleanIdentifier(jobId, 'Story Sync Job ID'));
+      this.#database.prepare('UPDATE worker_jobs SET status = ?, updated_at = ? WHERE job_id = ?')
+        .run(status, new Date().toISOString(), job.job_id);
+      return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
+    })));
+  }
+
+  async completeStorySyncAttempt(input: CompleteStorySyncAttempt): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const job = this.requireStorySyncJob(cleanIdentifier(input.jobId, 'Story Sync Job ID'));
+      this.#database.prepare('DELETE FROM story_sync_proposals WHERE job_id = ?').run(job.job_id);
+      const insert = this.#database.prepare(`
+        INSERT INTO story_sync_proposals(
+          proposal_id, job_id, ordinal, revision, decision, draft_json,
+          source_links_json, validation_problems_json, confidence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const proposal of input.proposals) {
+        insert.run(
+          proposal.id,
+          job.job_id,
+          proposal.ordinal,
+          proposal.revision,
+          proposal.decision,
+          canonicalJson(proposal.draft),
+          canonicalJson(proposal.sourceLinks),
+          canonicalJson(proposal.validationProblems),
+          proposal.confidence,
+        );
+      }
+      this.#database.prepare(`
+        UPDATE worker_attempts
+        SET status = 'completed', termination = ?, output_hash = ?, completed_at = ?
+        WHERE attempt_id = ? AND job_id = ? AND status = 'running'
+      `).run(input.repaired ? 'repaired' : 'parsed', input.outputHash, input.completedAt, input.attemptId, job.job_id);
+      this.#database.prepare(`
+        UPDATE worker_jobs
+        SET status = 'ready-for-review', problem_code = NULL, problem_message = NULL, updated_at = ?
+        WHERE job_id = ?
+      `).run(input.completedAt, job.job_id);
+      return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
+    })));
+  }
+
+  async failStorySyncAttempt(input: Readonly<{
+    jobId: string;
+    attemptId: string;
+    code: string;
+    message: string;
+    completedAt: string;
+  }>): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const job = this.requireStorySyncJob(cleanIdentifier(input.jobId, 'Story Sync Job ID'));
+      this.#database.prepare(`
+        UPDATE worker_attempts
+        SET status = 'failed', termination = ?, completed_at = ?
+        WHERE attempt_id = ? AND job_id = ? AND status = 'running'
+      `).run(input.code.slice(0, 64), input.completedAt, input.attemptId, job.job_id);
+      this.#database.prepare(`
+        UPDATE worker_jobs
+        SET status = 'failed', problem_code = ?, problem_message = ?, updated_at = ?
+        WHERE job_id = ?
+      `).run(input.code.slice(0, 64), input.message.slice(0, 512), input.completedAt, job.job_id);
+      return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
+    })));
+  }
+
+  async decideStorySyncProposal(
+    proposalId: string,
+    request: DecideStorySyncProposalRequest,
+  ): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const id = cleanIdentifier(proposalId, 'Story Sync Proposal ID');
+      const proposal = this.#database.prepare('SELECT * FROM story_sync_proposals WHERE proposal_id = ?').get(id) as ProposalRow | undefined;
+      if (!proposal) throw new CampaignExpectedError('STORY_SYNC_PROPOSAL_NOT_FOUND', `Proposal ${id} was not found.`);
+      const job = this.requireStorySyncJob(proposal.job_id);
+      if (job.status !== 'ready-for-review') {
+        throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', `Proposal review is locked while Job ${job.job_id} is ${job.status}.`);
+      }
+      const result = this.#database.prepare(`
+        UPDATE story_sync_proposals
+        SET revision = revision + 1, decision = ?, draft_json = ?
+        WHERE proposal_id = ? AND revision = ?
+      `).run(request.decision, canonicalJson(request.draft), id, request.expectedRevision);
+      if (Number(result.changes) !== 1) {
+        throw new CampaignExpectedError(
+          'STORY_SYNC_PROPOSAL_REVISION_CONFLICT',
+          'The Proposal changed in another tab. Reload the Review Inbox; your local draft was not applied.',
+          { proposalId: id },
+        );
+      }
+      this.#database.prepare('UPDATE worker_jobs SET updated_at = ? WHERE job_id = ?')
+        .run(new Date().toISOString(), job.job_id);
+      return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
+    })));
+  }
+
   async readAuthority(request: PreflightContextRequest): Promise<ContextAuthority> {
     return this.serializeLifecycle(() => {
       const bindingId = cleanIdentifier(request.bindingId, 'Binding ID');
@@ -819,6 +1134,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       { ...CAMPAIGN_CURRENT_PROJECTIONS_MIGRATION, checksum: campaignCurrentProjectionsMigrationChecksum() },
       { ...CHAT_BINDINGS_MIGRATION, checksum: chatBindingsMigrationChecksum() },
       { ...CONTEXT_PLANNING_MIGRATION, checksum: contextPlanningMigrationChecksum() },
+      { ...STORY_SYNC_JOBS_MIGRATION, checksum: storySyncJobsMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
@@ -846,6 +1162,20 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
           .run(migration.version, migration.name, migration.checksum, new Date().toISOString());
       });
     }
+    const interruptedAt = new Date().toISOString();
+    this.transaction(() => {
+      this.#database.prepare(`
+        UPDATE worker_attempts
+        SET status = 'interrupted', termination = 'host-restarted', completed_at = ?
+        WHERE status = 'running'
+      `).run(interruptedAt);
+      this.#database.prepare(`
+        UPDATE worker_jobs
+        SET status = 'interrupted', problem_code = 'STORY_SYNC_INTERRUPTED',
+            problem_message = 'The companion restarted during Story Sync. Resume or discard this job.', updated_at = ?
+        WHERE status IN ('waiting-for-lane', 'running', 'parsing', 'repairing')
+      `).run(interruptedAt);
+    });
   }
 
   private reconstruct(campaignId: string, revision: number): CampaignState {
@@ -861,6 +1191,58 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
     const row = this.#database.prepare('SELECT * FROM campaigns WHERE campaign_id = ?').get(campaignId) as CampaignRow | undefined;
     if (!row) throw new CampaignExpectedError('CAMPAIGN_NOT_FOUND', `Campaign ${campaignId} was not found.`, { campaignId });
     return row;
+  }
+
+  private requireWorkerProfile(profileId: string): WorkerProfileRow {
+    const row = this.#database.prepare('SELECT * FROM worker_model_profiles WHERE profile_id = ?')
+      .get(profileId) as WorkerProfileRow | undefined;
+    if (!row) {
+      throw new CampaignExpectedError(
+        'STORY_SYNC_WORKER_MODEL_UNAVAILABLE',
+        `Worker model profile ${profileId} was not found.`,
+        { profileId },
+      );
+    }
+    return row;
+  }
+
+  private requireStorySyncJob(jobId: string): WorkerJobRow {
+    const row = this.#database.prepare('SELECT * FROM worker_jobs WHERE job_id = ?').get(jobId) as WorkerJobRow | undefined;
+    if (!row) throw new CampaignExpectedError('STORY_SYNC_JOB_NOT_FOUND', `Story Sync Job ${jobId} was not found.`, { jobId });
+    return row;
+  }
+
+  private storySyncJobDocument(row: WorkerJobRow): StorySyncJobDocument {
+    const proposals = this.#database.prepare(`
+      SELECT * FROM story_sync_proposals WHERE job_id = ? ORDER BY ordinal, proposal_id
+    `).all(row.job_id) as ProposalRow[];
+    return {
+      schema: 'st-rpg.story-sync-job',
+      version: '1.0',
+      id: row.job_id,
+      campaignId: row.campaign_id,
+      bindingId: row.binding_id,
+      profileId: row.profile_id,
+      status: row.status,
+      campaignAnchor: Number(row.campaign_anchor),
+      bindingRevision: Number(row.binding_revision),
+      syncFacetRevision: Number(row.sync_facet_revision),
+      source: {
+        firstMessageIndex: Number(row.source_first_message_index),
+        lastMessageIndex: Number(row.source_last_message_index),
+        messageCount: Number(row.source_message_count),
+        fingerprint: row.source_fingerprint,
+        endPrefixHash: row.source_end_prefix_hash,
+        contentPruned: Boolean(row.source_content_pruned),
+      },
+      attemptCount: Number(row.attempt_count),
+      proposals: proposals.map(proposalDocument),
+      ...(row.problem_code && row.problem_message
+        ? { problem: { code: row.problem_code, message: row.problem_message } }
+        : {}),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
   }
 
   private async performRead<R extends CampaignJournalRead>(request: R): Promise<CampaignJournalReadResult<R>> {

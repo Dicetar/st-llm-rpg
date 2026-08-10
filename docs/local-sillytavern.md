@@ -8,7 +8,7 @@ The isolated development instance lives at `.runtime/SillyTavern` and is exclude
 - Source revision: `380e31e8c58d196969b6a0da74f431ba999c7e0a`
 - Source branch at installation: `staging`
 - Local URL: `http://localhost:8001`
-- RPG extensions: working fallback plus production `RPG Companion Bridge 0.2.2`
+- RPG extensions: working fallback plus production `RPG Companion Bridge 0.3.0`
 
 All temporary RPG spike extensions are retired from the live runtime. Their source and recoverable runtime copies remain as frozen evidence, but only the fallback and production bridge are installed.
 

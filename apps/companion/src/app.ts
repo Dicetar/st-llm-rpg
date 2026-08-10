@@ -32,6 +32,8 @@ import {
 import { registerNarrationRoutes, type NarrationHttpService } from './modules/narration/narration-routes.js';
 import { FetchLmStudioGateway } from './adapters/lm-studio/fetch-lm-studio-gateway.js';
 import { CampaignExpectedError } from './modules/campaign/campaign-error.js';
+import { StorySyncService } from './modules/story-sync/story-sync-service.js';
+import { registerStorySyncRoutes } from './modules/story-sync/story-sync-routes.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -159,11 +161,25 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
           };
         },
       };
+  const inferenceLane = options.inferenceLane ?? new SerialInferenceLane();
+  const lmStudioGateway = options.lmStudioGateway ?? new FetchLmStudioGateway(options.config.lmStudioBaseUrl);
   const narrationService = options.narrationService ?? new NarrationService({
     authority: narrationAuthority,
-    inference: options.inferenceLane ?? new SerialInferenceLane(),
-    lmStudio: options.lmStudioGateway ?? new FetchLmStudioGateway(options.config.lmStudioBaseUrl),
+    inference: inferenceLane,
+    lmStudio: lmStudioGateway,
   });
+  const storySyncService = campaignJournal
+    ? new StorySyncService({
+        journal: campaignJournal,
+        authority: {
+          readBinding: bindingId => campaignJournal.readBinding(bindingId),
+          readCampaign: (campaignId, revision) => campaignJournal.readAt({ kind: 'campaign', campaignId, revision }),
+          readCampaignRevision: campaignId => campaignJournal.readCampaignRevision(campaignId),
+        },
+        inference: inferenceLane,
+        lmStudio: lmStudioGateway,
+      })
+    : null;
   const probeDependencies = options.probeDependencies
     ?? createDefaultDependencyProbe(options.config, () => campaignEngine?.observation() ?? {
       id: 'sqlite-runtime',
@@ -182,9 +198,10 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
 
   if (ownsCampaignEngine && campaignEngine) {
     app.addHook('onClose', async () => {
+      await storySyncService?.close();
       await campaignEngine.close();
     });
-  }
+  } else if (storySyncService) app.addHook('onClose', async () => storySyncService.close());
 
   app.get('/health', {
     schema: { response: { 200: HealthDocumentSchema } },
@@ -222,6 +239,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   if (campaignEngine) registerCampaignRoutes(app, campaignEngine);
   if (legacyImportService) registerLegacyImportRoutes(app, legacyImportService);
   if (contextService) registerContextRoutes(app, contextService);
+  if (storySyncService) registerStorySyncRoutes(app, storySyncService);
   registerNarrationRoutes(app, narrationService);
 
   app.get('/assets/*', async (request, reply) => {

@@ -6,6 +6,7 @@ export * from './campaign.js';
 export * from './context.js';
 export * from './legacy-import.js';
 export * from './narration.js';
+export * from './story-sync.js';
 
 export const WIRE_VERSION = '1.0' as const;
 export const COMPANION_SERVICE = 'st-rpg-companion' as const;
@@ -49,6 +50,16 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('NARRATION_UPSTREAM_FAILED'),
   Type.Literal('NARRATION_OUTPUT_INVALID'),
   Type.Literal('NARRATION_CANCELLED'),
+  Type.Literal('STORY_SYNC_ALREADY_PENDING'),
+  Type.Literal('STORY_SYNC_SOURCE_EMPTY'),
+  Type.Literal('STORY_SYNC_SOURCE_NOT_CONTIGUOUS'),
+  Type.Literal('STORY_SYNC_SOURCE_PROOF_MISMATCH'),
+  Type.Literal('STORY_SYNC_WORKER_MODEL_UNAVAILABLE'),
+  Type.Literal('STORY_SYNC_OUTPUT_UNUSABLE'),
+  Type.Literal('STORY_SYNC_JOB_NOT_FOUND'),
+  Type.Literal('STORY_SYNC_PROPOSAL_NOT_FOUND'),
+  Type.Literal('STORY_SYNC_PROPOSAL_REVISION_CONFLICT'),
+  Type.Literal('STORY_SYNC_REVIEW_LOCKED'),
   Type.Literal('NOT_FOUND'),
   Type.Literal('INTERNAL_ERROR'),
 ]);

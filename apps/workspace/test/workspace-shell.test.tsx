@@ -14,6 +14,7 @@ import {
   NarrationStatusPanel,
   RecordEditor,
   SceneEditor,
+  StorySyncReviewInboxView,
   parseWorkspacePath,
 } from '../src/App.js';
 
@@ -287,6 +288,63 @@ test('Scene editor exposes structural Place, Actor, and Item attachments for Con
   assert.match(html, /Present Items/);
   assert.match(html, /Lavir/);
   assert.match(html, /Wardrobe Key/);
+});
+
+test('Story Sync Review Inbox keeps worker setup and structured editable proposals together', () => {
+  const html = renderToStaticMarkup(<StorySyncReviewInboxView
+    campaign={{
+      campaign: {
+        id: 'campaign-1', title: 'House Harcourt', status: 'active', revision: 7,
+        createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z',
+      },
+      actors: [{ id: 'actor-lavir', name: 'Lavir', summary: 'A noble.', archived: false }],
+      items: [], quests: [], places: [], currentScene: null,
+    }}
+    profiles={[{
+      schema: 'st-rpg.worker-model-profile', version: '1.0', id: 'worker-default',
+      modelId: 'mistralai/mistral-nemo-instruct-2407', requestedOutputTokens: 1600,
+      updatedAt: '2026-08-09T12:00:00.000Z',
+    }]}
+    jobs={[{
+      schema: 'st-rpg.story-sync-job', version: '1.0', id: 'job-1', campaignId: 'campaign-1',
+      bindingId: 'binding-1', profileId: 'worker-default', status: 'ready-for-review',
+      campaignAnchor: 7, bindingRevision: 2, syncFacetRevision: 1,
+      source: {
+        firstMessageIndex: 4, lastMessageIndex: 9, messageCount: 6,
+        fingerprint: 'a'.repeat(64), endPrefixHash: 'b'.repeat(64), contentPruned: false,
+      },
+      attemptCount: 1,
+      proposals: [{
+        id: 'proposal-1', jobId: 'job-1', ordinal: 0, revision: 1, decision: 'pending',
+        draft: {
+          title: 'Lavir reveals the locked gallery', note: 'Directly stated by the narrator.',
+          operation: { kind: 'update_actor', actorId: 'actor-lavir', name: 'Lavir', summary: 'Knows how to enter the locked gallery.' },
+        },
+        sourceLinks: [{ messageIndex: 8, excerpt: 'Lavir admits he has the gallery key.' }],
+        validationProblems: [], confidence: 'high',
+      }],
+      createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:01.000Z',
+    }]}
+    loading={false}
+    busy={false}
+    error=""
+    message=""
+    onSaveProfile={async () => undefined}
+    onSaveProposal={async () => undefined}
+    onRefresh={() => undefined}
+  />);
+
+  assert.match(html, /Review Inbox/);
+  assert.match(html, /Campaign worker model/);
+  assert.match(html, /mistralai\/mistral-nemo-instruct-2407/);
+  assert.match(html, /Lavir reveals the locked gallery/);
+  assert.match(html, /Record type/);
+  assert.match(html, /Actor summary/);
+  assert.match(html, /Accept/);
+  assert.match(html, /Reject/);
+  assert.match(html, /Defer/);
+  assert.match(html, /does not change Campaign truth yet/);
+  assert.doesNotMatch(html, /Draft JSON/);
 });
 
 test('route state explains pending and failed navigation with an explicit retry', () => {

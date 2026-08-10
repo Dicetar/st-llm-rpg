@@ -20,6 +20,7 @@ export {
 export { ChatBindingsPanel, LegacyImportPreviewCard } from './LegacyImportPanel.js';
 export { ContextTray } from './ContextTray.js';
 export { NarrationStatusPanel } from './NarrationStatusPanel.js';
+export { StorySyncReviewInbox, StorySyncReviewInboxView } from './StorySyncReviewInbox.js';
 
 type Snapshot = Readonly<{
   health: HealthDocument | null;

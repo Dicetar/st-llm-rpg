@@ -25,8 +25,9 @@ import type { ChatBindingDocument } from '@st-llm-rpg/wire';
 import LegacyImportPanel, { ChatBindingsPanel } from './LegacyImportPanel.js';
 import { ContextTray } from './ContextTray.js';
 import { createUuid } from './browser-uuid.js';
+import { StorySyncReviewInbox } from './StorySyncReviewInbox.js';
 
-export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'scene' | 'context' | 'history';
+export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'scene' | 'review' | 'context' | 'history';
 
 type WorkspaceRoute = Readonly<{
   campaignId: string | null;
@@ -72,6 +73,7 @@ const COLLECTION_KEYS: readonly CollectionKey[] = [
   'quests',
   'places',
   'scene',
+  'review',
   'context',
   'history',
 ];
@@ -364,6 +366,7 @@ function CollectionNavigation(props: {
     { key: 'quests', label: 'Quests', count: props.document.quests.filter(record => !record.archived).length },
     { key: 'places', label: 'Places', count: props.document.places.filter(record => !record.archived).length },
     { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
+    { key: 'review', label: 'Review Inbox' },
     { key: 'context', label: 'Context Tray', count: props.bindings.reduce((total, binding) => total + (binding.pins?.length ?? 0), 0) },
     { key: 'history', label: 'History' },
   ];
@@ -1560,6 +1563,12 @@ export default function CampaignWorkspace() {
                   onStatus={setMessage}
                   onError={setError}
                 />
+              ) : null}
+
+              {route.collection === 'review' ? (
+                readOnly
+                  ? <p className="historical-note">Story Sync proposals belong to the current Campaign and are unavailable inside an immutable historical reconstruction.</p>
+                  : <StorySyncReviewInbox campaign={displayed} />
               ) : null}
 
               {route.collection === 'history' ? (
