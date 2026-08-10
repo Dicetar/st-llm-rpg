@@ -213,7 +213,7 @@ test('legacy migration HTTP boundary lists, previews, imports, and exposes Bindi
     RPG_LM_STUDIO_URL: 'http://127.0.0.1:1234/v1',
     RPG_LOG_LEVEL: 'silent',
   });
-  const app = await buildCompanion({ config, legacyChatSource: source });
+  let app = await buildCompanion({ config, legacyChatSource: source });
   t.after(async () => {
     await app.close();
     await rm(root, { recursive: true, force: true });
@@ -291,6 +291,15 @@ test('legacy migration HTTP boundary lists, previews, imports, and exposes Bindi
   });
   assert.equal(missingRetry.statusCode, 404, missingRetry.body);
   assert.equal(missingRetry.json().code, 'CHAT_BINDING_NOT_FOUND');
+
+  await app.close();
+  app = await buildCompanion({ config, legacyChatSource: source });
+  const afterRestart = await app.inject({
+    method: 'GET', url: `/api/campaigns/${created.json().campaignId}/chat-bindings`,
+  });
+  assert.equal(afterRestart.statusCode, 200, afterRestart.body);
+  assert.equal(afterRestart.json()[0].id, linked.json().id);
+  assert.equal(afterRestart.json()[0].markerState, 'verified');
 });
 
 test('changed and copied sources require current explicit choices', async t => {

@@ -280,17 +280,25 @@ function verifyChatBindings(database: DatabaseSync): void {
 
     const source = database.prepare('SELECT * FROM legacy_import_sources WHERE source_fingerprint = ?')
       .get(binding.source_fingerprint) as StoredLegacySource | undefined;
-    if (!source || source.binding_id !== binding.binding_id || source.campaign_id !== binding.campaign_id
-      || source.content_fingerprint !== binding.content_fingerprint
-      || source.locator_fingerprint !== binding.locator_fingerprint
-      || Number(source.legacy_revision) < 1) {
-      throw new Error(`Chat Binding ${binding.binding_id} preserved legacy source verification failed.`);
-    }
-    const envelope = parseJson<unknown>(source.envelope_json);
-    const contentFingerprint = sha256(envelope);
-    const sourceFingerprint = sha256({ contentFingerprint, locator });
-    if (contentFingerprint !== binding.content_fingerprint || sourceFingerprint !== binding.source_fingerprint) {
-      throw new Error(`Chat Binding ${binding.binding_id} source fingerprint verification failed.`);
+    if (source) {
+      if (source.binding_id !== binding.binding_id || source.campaign_id !== binding.campaign_id
+        || source.content_fingerprint !== binding.content_fingerprint
+        || source.locator_fingerprint !== binding.locator_fingerprint
+        || Number(source.legacy_revision) < 1) {
+        throw new Error(`Chat Binding ${binding.binding_id} preserved legacy source verification failed.`);
+      }
+      const envelope = parseJson<unknown>(source.envelope_json);
+      const contentFingerprint = sha256(envelope);
+      const sourceFingerprint = sha256({ contentFingerprint, locator });
+      if (contentFingerprint !== binding.content_fingerprint || sourceFingerprint !== binding.source_fingerprint) {
+        throw new Error(`Chat Binding ${binding.binding_id} source fingerprint verification failed.`);
+      }
+    } else {
+      const freshSourceFingerprint = sha256({ kind: 'sillytavern-chat-binding', locator });
+      if (binding.source_fingerprint !== freshSourceFingerprint
+        || !/^[a-f0-9]{64}$/.test(binding.content_fingerprint)) {
+        throw new Error(`Chat Binding ${binding.binding_id} fresh source verification failed.`);
+      }
     }
   }
 }
