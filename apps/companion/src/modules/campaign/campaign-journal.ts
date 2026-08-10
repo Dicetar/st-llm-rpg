@@ -139,6 +139,7 @@ export function readAfterJournalTransaction<R extends CampaignJournalRead, T>(
 export type CampaignJournalBackupRequest = Readonly<{ destinationPath: string }>;
 export type CampaignJournalBackupResult = Readonly<{ destinationPath: string }>;
 export type CampaignJournalRestoreRequest = Readonly<{ sourcePath: string }>;
+export type CampaignJournalVerifyBackupRequest = Readonly<{ sourcePath: string }>;
 
 export interface CampaignJournal {
   close(): Promise<void>;
@@ -149,5 +150,6 @@ export interface CampaignJournal {
   ): Promise<T>;
   verify(): Promise<CampaignVerificationResult>;
   backup(request: CampaignJournalBackupRequest): Promise<CampaignJournalBackupResult>;
+  verifyBackup(request: CampaignJournalVerifyBackupRequest): Promise<CampaignVerificationResult>;
   restore(request: CampaignJournalRestoreRequest): Promise<void>;
 }

@@ -71,6 +71,7 @@ import type {
   CampaignJournalRestoreRequest,
   CampaignJournalTransaction,
   CampaignJournalTransactionCompletion,
+  CampaignJournalVerifyBackupRequest,
   CompleteStorySyncFinalization,
   StorySyncFinalizationReview,
 } from '../../modules/campaign/campaign-journal.js';
@@ -1101,6 +1102,10 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
 
   async backup(request: CampaignJournalBackupRequest): Promise<CampaignJournalBackupResult> {
     return { destinationPath: await this.backupTo(request.destinationPath) };
+  }
+
+  verifyBackup(request: CampaignJournalVerifyBackupRequest): Promise<CampaignVerificationResult> {
+    return verifyCampaignAuthorityInWorker(resolve(request.sourcePath));
   }
 
   restore(request: CampaignJournalRestoreRequest): Promise<void> {

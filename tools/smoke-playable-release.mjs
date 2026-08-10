@@ -101,6 +101,17 @@ async function main() {
     return `Content-free operational narration status is available (${status.active.length} active; latest ${status.latest?.state ?? 'none'}).`;
   });
 
+  await check('backup-catalog', async () => {
+    const catalog = await readResponse(`${companionBase}/api/operations/backups`);
+    if (catalog.schema !== 'st-rpg.backup-catalog' || !Array.isArray(catalog.backups) || !Array.isArray(catalog.problems)) {
+      throw new Error('Backup catalog does not match the playable operations contract.');
+    }
+    if (catalog.automaticDailyHealthy !== true) throw new Error('Today\'s automatic verified backup is unavailable.');
+    const available = catalog.backups.filter(backup => backup?.availability === 'available');
+    if (available.length === 0) throw new Error('Backup catalog contains no available verified backup.');
+    return `${available.length} verified backup${available.length === 1 ? '' : 's'} available; daily safety is current.`;
+  });
+
   await check('campaign-authority', async () => {
     const campaigns = await readResponse(`${companionBase}/api/campaigns`);
     const values = collectionValues(campaigns, 'campaigns');

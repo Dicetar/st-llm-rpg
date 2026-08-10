@@ -15,8 +15,29 @@ import {
   RecordEditor,
   SceneEditor,
   StorySyncReviewInboxView,
+  BackupPanelView,
   parseWorkspacePath,
 } from '../src/App.js';
+
+test('backup catalog exposes daily safety, explicit backup, and verified restore preview', () => {
+  const verification = { verified: true as const, verifiedAt: '2026-08-10T00:00:00.000Z', durationMs: 12, campaignCount: 2 };
+  const backup = {
+    schema: 'st-rpg.backup' as const, version: '1.0' as const, id: 'backup-1', kind: 'explicit' as const,
+    label: 'Before finale', createdAt: '2026-08-10T00:00:00.000Z', fileName: 'backup-1.sqlite',
+    sizeBytes: 2048, sha256: 'a'.repeat(64), availability: 'available' as const, verification,
+  };
+  const html = renderToStaticMarkup(<BackupPanelView
+    catalog={{ schema: 'st-rpg.backup-catalog', version: '1.0', observedAt: '2026-08-10T00:00:01.000Z', automaticDailyHealthy: true, backups: [backup], problems: [] }}
+    preview={{ schema: 'st-rpg.restore-preview', version: '1.0', backup, currentAuthority: verification, restoreToken: 'b'.repeat(64) }}
+    loading={false} busy={false} error="" message=""
+    onRefresh={() => undefined} onCreate={() => undefined} onPreviewRestore={() => undefined} onRestore={() => undefined}
+  />);
+  assert.match(html, /Backups and Restore/);
+  assert.match(html, /Before finale/);
+  assert.match(html, /Verified restore preview/);
+  assert.match(html, /creates another verified safety backup first/);
+  assert.match(html, /Restore this backup/);
+});
 
 test('Narration status shows one operational failure with recovery and no recorder workflow', () => {
   const html = renderToStaticMarkup(<NarrationStatusPanel

@@ -81,6 +81,10 @@ class MemoryCampaignJournal implements CampaignJournal {
     return request;
   }
 
+  async verifyBackup(): Promise<CampaignVerificationResult> {
+    return { verified: true, verifiedAt: '2026-08-09T00:00:00.000Z', durationMs: 0, campaignCount: 1 };
+  }
+
   async restore(): Promise<void> {}
 }
 

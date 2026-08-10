@@ -40,7 +40,7 @@ async function writeTree(root) {
   await mkdir(join(root, '.runtime', 'companion'), { recursive: true });
   await writeFile(join(root, '.runtime', 'companion', 'campaigns.sqlite'), 'fixture');
   await writeFile(join(root, 'release.json'), JSON.stringify({
-    version: '0.3.0-preview.5',
+    version: '0.3.0-preview.6',
     channel: 'preview',
     pinnedSillyTavernRevision: PINNED_REVISION,
   }));
@@ -87,6 +87,10 @@ test('playable preview smoke proves the installed bridge, fallback, Campaign dat
     '/api/narration/status': {
       schema: 'st-rpg.narration-status', version: '1.0', observedAt: '2026-08-09T12:00:00.000Z', active: [], latest: null,
     },
+    '/api/operations/backups': {
+      schema: 'st-rpg.backup-catalog', version: '1.0', observedAt: '2026-08-10T12:00:00.000Z',
+      automaticDailyHealthy: true, backups: [{ id: 'backup-1', availability: 'available' }], problems: [],
+    },
     '/api/campaigns': { campaigns: [{ id: 'campaign-1' }] },
     '/api/narrator-model-profiles': { profiles: [{ id: 'narrator-1' }] },
     '/api/campaigns/campaign-1/chat-bindings': [{ id: 'binding-1', markerState: 'verified' }],
@@ -103,12 +107,13 @@ test('playable preview smoke proves the installed bridge, fallback, Campaign dat
   assert.equal(result.code, 0, result.stderr);
   const report = JSON.parse(result.stdout);
   assert.equal(report.ok, true);
-  assert.equal(report.release, '0.3.0-preview.5');
+  assert.equal(report.release, '0.3.0-preview.6');
   assert.deepEqual(report.checks.map(check => [check.id, check.status]), [
     ['stack', 'pass'],
     ['pinned-sillytavern', 'pass'],
     ['workspace', 'pass'],
     ['narration-status', 'pass'],
+    ['backup-catalog', 'pass'],
     ['campaign-authority', 'pass'],
     ['narrator-profile', 'pass'],
     ['chat-binding', 'pass'],

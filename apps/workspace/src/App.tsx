@@ -6,6 +6,7 @@ import type {
 } from '@st-llm-rpg/wire';
 import CampaignWorkspace from './CampaignWorkspace.js';
 import { NarrationStatusPanel } from './NarrationStatusPanel.js';
+import { BackupPanel } from './BackupPanel.js';
 import { buildStatusCards } from './status-model.js';
 
 export {
@@ -21,6 +22,7 @@ export { ChatBindingsPanel, LegacyImportPreviewCard } from './LegacyImportPanel.
 export { ContextTray } from './ContextTray.js';
 export { NarrationStatusPanel } from './NarrationStatusPanel.js';
 export { StorySyncReviewInbox, StorySyncReviewInboxView } from './StorySyncReviewInbox.js';
+export { BackupPanel, BackupPanelView } from './BackupPanel.js';
 
 type Snapshot = Readonly<{
   health: HealthDocument | null;
@@ -166,6 +168,7 @@ export default function App() {
       narration={narration}
       onRefreshNarration={() => { refreshNarration(undefined, true); }}
     >
+      <BackupPanel />
       <CampaignWorkspace />
     </CampaignBookView>
   );

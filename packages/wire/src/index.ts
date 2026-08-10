@@ -6,6 +6,7 @@ export * from './campaign.js';
 export * from './context.js';
 export * from './legacy-import.js';
 export * from './narration.js';
+export * from './operations.js';
 export * from './story-sync.js';
 
 export const WIRE_VERSION = '1.0' as const;
@@ -62,6 +63,9 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('STORY_SYNC_REVIEW_LOCKED'),
   Type.Literal('STORY_SYNC_REVIEW_INCOMPLETE'),
   Type.Literal('STORY_SYNC_FINALIZATION_STALE'),
+  Type.Literal('BACKUP_NOT_FOUND'),
+  Type.Literal('BACKUP_INVALID'),
+  Type.Literal('RESTORE_CONFIRMATION_REQUIRED'),
   Type.Literal('NOT_FOUND'),
   Type.Literal('INTERNAL_ERROR'),
 ]);

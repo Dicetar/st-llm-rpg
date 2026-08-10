@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.5` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
+Version `0.3.0-preview.6` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
 
 ## Start
 
@@ -24,6 +24,7 @@ The currently imported and linked Campaign is ready for use:
 5. Open **Narration status** in Campaign Book when a reply fails. It shows active requests and only the latest outcome, elapsed time, a safe error message, and concrete recovery guidance. It never stores prompts, generated prose, or request history and resets when the Companion restarts.
 6. Open **Review Inbox** and save the separate Campaign Worker model ID. In a linked SillyTavern chat, choose **Sync Story** from the extensions menu. The Companion analyzes only the bounded unseen range and opens editable, evidence-linked proposals. Accept or reject every Proposal, then choose **Finalize review**. Accepted changes become one Campaign revision and the same SQLite transaction advances only that chat's Sync Boundary.
 7. Use **Stop analysis** when a worker must yield. Resume/retry rechecks the Campaign head, Binding, and Sync Boundary before using retained source. **Discard review** removes unresolved source/proposals and changes neither Campaign truth nor the Sync Boundary.
+8. Open **Backups and Restore** in Campaign Book. Today’s verified daily backup appears automatically. Create labelled backups before risky edits; **Preview restore** verifies file identity, hash, and Campaign history before the destructive restore action becomes available. Restore creates another verified safety backup first.
 
 An existing fallback chat can be imported through **Import a fallback chat**. Import is previewed, backed up, and explicit; legacy metadata stays intact. Creating a brand-new Campaign works, but creating a brand-new chat binding without legacy import is not yet part of this preview.
 
@@ -41,12 +42,13 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - explicit-unlinked pass-through, including when Campaign SQLite is unavailable;
 - separate desktop/mobile Campaign Book page;
 - working SillyTavern fallback kept alongside the production bridge.
+- verified daily and labelled SQLite backups, deterministic retention, restore preview, safety backup, and verified activation;
 
 ## Recovery and fallback
 
 - If startup fails, read the named component and PID in the Wayfinder console. The launcher never kills an unknown owner.
 - Companion logs are under `.runtime/wayfinder/logs/`.
-- Campaign truth is `.runtime/companion/campaigns.sqlite`; validated import backups are under `.runtime/companion/backups/`.
+- Campaign truth is `.runtime/companion/campaigns.sqlite`; verified backup files and manifests are under `.runtime/companion/backups/`. Prefer Campaign Book controls over moving these files manually.
 - If Campaign authority is unavailable, linked chats fail closed and never silently narrate without Campaign context. Explicit-unlinked chats remain usable while the companion host and LM Studio are healthy.
 - To use the old fallback, open the gold **R** workspace in SillyTavern. After making companion-only edits, fallback and SQLite histories are divergent; there is no silent reverse synchronization.
 
@@ -56,5 +58,5 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - This convenience launcher is preview packaging for the active narration tracer, not acceptance of the later supervisor/update tracer. Occupied-port, partial-start, shutdown, update, and rollback failure-injection acceptance remains ahead.
 - New blank Campaigns cannot yet create a fresh Chat Binding from Campaign Book; use the already-linked Campaign or import an existing fallback chat.
 - Live Story Sync remains model-dependent. A conservative real-model desktop trace passed the human-review safety boundary; sanitized evidence lives in `docs/evidence/production-story-sync-desktop-2026-08-10.json`. Physical Android review remains deferred, not passed.
-- Addon reconciliation, daily backup automation, staged ST updates, and final rollback UX are the active #39 work.
+- Addon reconciliation, supervisor commands, staged ST updates, and final rollback UX remain active #39 work. Daily backup/restore UI is implemented.
 - LM Studio model loading and unloading remains manual by design.

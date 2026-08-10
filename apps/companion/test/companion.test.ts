@@ -214,6 +214,76 @@ test('invalid configuration throws before server construction', () => {
   assert.throws(() => readCompanionConfig({ RPG_LOG_LEVEL: 'verbose' }), /must be one of/);
 });
 
+test('backup API creates daily and explicit backups, previews restore, and rolls authority back safely', async t => {
+  const workspaceRoot = await workspaceFixture();
+  const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  const created = await app.inject({
+    method: 'POST', url: '/api/campaigns', payload: { requestId: 'backup-create-campaign', title: 'Backup Campaign' },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const campaignId = created.json().campaignId;
+
+  const backup = await app.inject({
+    method: 'POST', url: '/api/operations/backups', payload: { label: 'Before actor' },
+  });
+  assert.equal(backup.statusCode, 201, backup.body);
+  assert.equal(backup.json().kind, 'explicit');
+  assert.equal(backup.json().availability, 'available');
+
+  const actor = await app.inject({
+    method: 'POST', url: `/api/campaigns/${campaignId}/operations`,
+    payload: { requestId: 'backup-create-actor', expectedRevision: 1, operation: { kind: 'create_actor', actor: { name: 'Later Actor' } } },
+  });
+  assert.equal(actor.statusCode, 200, actor.body);
+  assert.equal(actor.json().revision, 2);
+
+  const catalog = await app.inject({ method: 'GET', url: '/api/operations/backups' });
+  assert.equal(catalog.statusCode, 200, catalog.body);
+  assert.equal(catalog.json().automaticDailyHealthy, true);
+  assert.ok(catalog.json().backups.some((entry: { kind: string }) => entry.kind === 'daily'));
+
+  const preview = await app.inject({
+    method: 'POST', url: `/api/operations/backups/${backup.json().id}/restore-preview`,
+  });
+  assert.equal(preview.statusCode, 200, preview.body);
+  assert.equal(preview.json().backup.verification.verified, true);
+
+  const wrongToken = await app.inject({
+    method: 'POST', url: `/api/operations/backups/${backup.json().id}/restore`, payload: { restoreToken: '0'.repeat(64) },
+  });
+  assert.equal(wrongToken.statusCode, 409, wrongToken.body);
+  assert.equal(wrongToken.json().code, 'RESTORE_CONFIRMATION_REQUIRED');
+
+  const restored = await app.inject({
+    method: 'POST', url: `/api/operations/backups/${backup.json().id}/restore`,
+    payload: { restoreToken: preview.json().restoreToken },
+  });
+  assert.equal(restored.statusCode, 200, restored.body);
+  assert.equal(restored.json().verification.verified, true);
+  assert.match(restored.json().safetyBackupId, /^backup-/);
+
+  const rolledBack = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}` });
+  assert.equal(rolledBack.statusCode, 200, rolledBack.body);
+  assert.equal(rolledBack.json().campaign.revision, 1);
+  assert.equal(rolledBack.json().actors.length, 0);
+
+  const corruptible = await app.inject({
+    method: 'POST', url: '/api/operations/backups', payload: { label: 'Corruption check' },
+  });
+  assert.equal(corruptible.statusCode, 201, corruptible.body);
+  await writeFile(join(workspaceRoot, 'backups', `${corruptible.json().id}.sqlite`), 'not a database');
+  const corruptPreview = await app.inject({
+    method: 'POST', url: `/api/operations/backups/${corruptible.json().id}/restore-preview`,
+  });
+  assert.equal(corruptPreview.statusCode, 409, corruptPreview.body);
+  assert.equal(corruptPreview.json().code, 'BACKUP_INVALID');
+});
+
 test('Campaign startup outage keeps explicit-unlinked narration alive and linked narration fail-closed', async t => {
   const workspaceRoot = await workspaceFixture();
   let upstreamCalls = 0;
