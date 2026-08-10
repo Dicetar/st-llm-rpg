@@ -48,6 +48,10 @@ test('compatibility update is staged beside active ST and preserves rollback bef
   assert.match(updater, /AddSeconds\(120\)/);
   assert.match(updater, /Move-PersistentState/);
   assert.match(updater, /rolling back/i);
+  assert.match(updater, /RollbackDrill/);
+  assert.match(updater, /after-post-switch-verification/);
+  assert.match(updater, /persistentStateSentinelRestored/);
+  assert.match(updater, /liveRuntimeUnchanged/);
   assert.match(updater, /active SillyTavern is still running/i);
   assert.doesNotMatch(updater, /git\s+(pull|reset|stash)/i);
   assert.match(bridgeInstaller, /TargetRoot/);

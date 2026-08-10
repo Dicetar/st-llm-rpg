@@ -2,7 +2,8 @@ param(
     [int]$Port = 18002,
     [int]$Iterations = 100,
     [switch]$RunFullSuite,
-    [switch]$AllowSillyTavernOffline
+    [switch]$AllowSillyTavernOffline,
+    [string]$PublishEvidence = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,6 +16,16 @@ $stderrPath = Join-Path $runtimeRoot 'campaign-authority.stderr.log'
 $baseUrl = "http://127.0.0.1:$Port"
 $runId = [Guid]::NewGuid().ToString('N')
 $process = $null
+
+function Resolve-PublishedEvidencePath([string]$RelativePath) {
+    if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $null }
+    $candidate = [IO.Path]::GetFullPath((Join-Path $projectRoot $RelativePath))
+    $prefix = $projectRoot.TrimEnd('\') + '\'
+    if (-not $candidate.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Published evidence must stay inside the project root: $RelativePath"
+    }
+    return $candidate
+}
 
 function Remove-DatabaseArtifacts([string]$Path) {
     Remove-Item $Path, "$Path-wal", "$Path-shm" -Force -ErrorAction SilentlyContinue
@@ -308,8 +319,15 @@ try {
         fallbackPreserved = $fallbackPreserved
         passed = $passed
     }
-    $evidence | ConvertTo-Json -Depth 12 | Set-Content -Path $evidencePath -Encoding UTF8
-    $evidence | ConvertTo-Json -Depth 12
+    $evidenceJson = $evidence | ConvertTo-Json -Depth 12
+    $evidenceJson | Set-Content -Path $evidencePath -Encoding UTF8
+    $publishedEvidencePath = Resolve-PublishedEvidencePath $PublishEvidence
+    if ($null -ne $publishedEvidencePath) {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $publishedEvidencePath) -Force | Out-Null
+        $evidenceJson | Set-Content -Path $publishedEvidencePath -Encoding UTF8
+        Write-Host "Published milestone evidence: $publishedEvidencePath"
+    }
+    $evidenceJson
     Write-Host "Milestone evidence: $evidencePath"
 
     if (-not $passed) {

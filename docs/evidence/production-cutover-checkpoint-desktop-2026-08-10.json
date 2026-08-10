@@ -1,0 +1,30 @@
+{
+  "schema": "st-rpg.production-cutover-checkpoint",
+  "version": 1,
+  "capturedAt": "2026-08-10",
+  "release": "0.3.0-preview.14",
+  "status": "playable-preview",
+  "fallbackDecision": "retain-installed",
+  "passedEvidence": {
+    "linkedNarrationAndPinnedSillyTavern": "production-narration-desktop-2026-08-09.json",
+    "storySyncHumanReview": "production-story-sync-desktop-2026-08-10.json",
+    "fallbackCompanionRoundTrip": "production-mode-roundtrip-desktop-2026-08-10.json",
+    "samePinCompatibilityStage": "production-compatibility-stage-desktop-2026-08-10.json",
+    "campaignAuthorityAndResources": "production-campaign-authority-desktop-2026-08-10.json",
+    "contextAndPreModelPerformance": "production-cutover-performance-desktop-2026-08-10.json",
+    "changedRevisionInjectedRollback": "production-compatibility-rollback-drill-desktop-2026-08-10.json"
+  },
+  "measuredTargets": {
+    "campaignCommitP95Ms": 3.0682,
+    "workspaceLoadP95Ms": 4.4781,
+    "contextPlanningP95Ms": 2.7534,
+    "companionAddedPreModelP95Ms": 2.8458,
+    "companionWorkingSetMiB": 241.56,
+    "linkedRequests": 100,
+    "upstreamBoundaryCalls": 100
+  },
+  "openGates": [
+    "Run the final representative real-Campaign continued-play trace across import or fresh link, edits, retrieval, narration, Story Sync, backup, restart, and continued play.",
+    "Physical Android cutover remains explicitly deferred by the product owner and is not represented as passed."
+  ]
+}

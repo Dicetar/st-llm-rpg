@@ -1,0 +1,60 @@
+﻿{
+    "schema":  "st-rpg.campaign-authority-milestone",
+    "version":  1,
+    "generatedAt":  "2026-08-10T14:04:46.2629779Z",
+    "nodeVersion":  "v24.15.0",
+    "port":  18002,
+    "iterations":  100,
+    "campaignId":  "1cc04d8d-ca14-483e-a626-da898f01aa83",
+    "finalRevision":  102,
+    "historyEntries":  102,
+    "expectedHistoryEntries":  102,
+    "historyComplete":  true,
+    "actorId":  "8742d7a1-4000-4297-9272-998496ef33eb",
+    "actorNameAfterStaleAttempt":  "Milestone Actor 100",
+    "staleProblemCode":  "CAMPAIGN_REVISION_CONFLICT",
+    "staleExpectedRevision":  101,
+    "staleActualRevision":  102,
+    "staleProtected":  true,
+    "revisionOneActorCount":  0,
+    "revisionOneReconstructed":  true,
+    "actorNameAfterRestart":  "Milestone Actor 100",
+    "persistedAfterRestart":  true,
+    "verification":  {
+                         "verified":  true,
+                         "verifiedAt":  "2026-08-10T14:04:44.048Z",
+                         "durationMs":  17.598899999999958,
+                         "campaignCount":  1
+                     },
+    "verificationAfterRestart":  {
+                                     "verified":  true,
+                                     "verifiedAt":  "2026-08-10T14:04:46.248Z",
+                                     "durationMs":  17.08660000000009,
+                                     "campaignCount":  1
+                                 },
+    "performance":  {
+                        "sampleCount":  102,
+                        "p95Ms":  3.0681999999999334,
+                        "maxMs":  6.55399999999986,
+                        "latestMs":  2.5619000000001506,
+                        "targetMs":  50,
+                        "investigationMs":  200
+                    },
+    "latencyTargetMet":  true,
+    "workspaceLoadPerformance":  {
+                                     "sampleCount":  100,
+                                     "p95Ms":  4.4781,
+                                     "maxMs":  17.6819,
+                                     "targetMs":  100
+                                 },
+    "workspaceLoadTargetMet":  true,
+    "workingSetMiB":  241.56,
+    "memoryTargetMiB":  250,
+    "memoryTargetMet":  true,
+    "memoryInvestigationMiB":  400,
+    "memoryInvestigationRequired":  false,
+    "sillyTavernReachableBefore":  true,
+    "sillyTavernReachableAfter":  true,
+    "fallbackPreserved":  true,
+    "passed":  true
+}

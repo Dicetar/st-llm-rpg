@@ -1,12 +1,21 @@
 param(
-    [switch]$KeepStage
+    [switch]$KeepStage,
+    [switch]$RollbackDrill,
+    [string]$DrillRevision = '',
+    [string]$PublishEvidence = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$runtimeRoot = Join-Path $projectRoot '.runtime'
+$defaultRuntimeRoot = Join-Path $projectRoot '.runtime'
+$runtimeRoot = if ($RollbackDrill) {
+    Join-Path $defaultRuntimeRoot 'verification\compatibility-rollback-drill'
+} else {
+    $defaultRuntimeRoot
+}
+$liveActiveRoot = Join-Path $defaultRuntimeRoot 'SillyTavern'
 $activeRoot = Join-Path $runtimeRoot 'SillyTavern'
 $stageRoot = Join-Path $runtimeRoot 'SillyTavern.next'
 $previousRoot = Join-Path $runtimeRoot 'SillyTavern.previous'
@@ -35,6 +44,24 @@ function Assert-ChildPath([string]$Parent, [string]$Candidate) {
         throw "Refusing filesystem operation outside $Parent`: $Candidate"
     }
     return $candidateFull
+}
+
+function Resolve-PublishedEvidencePath([string]$RelativePath) {
+    if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $null }
+    $candidate = [IO.Path]::GetFullPath((Join-Path $projectRoot $RelativePath))
+    $prefix = $projectRoot.TrimEnd('\') + '\'
+    if (-not $candidate.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Published evidence must stay inside the project root: $RelativePath"
+    }
+    return $candidate
+}
+
+function Get-GitRevision([string]$Root) {
+    $revision = ([string](& git -C $Root rev-parse HEAD)).Trim()
+    if ($LASTEXITCODE -ne 0 -or $revision.Length -ne 40) {
+        throw "Could not read the Git revision at $Root."
+    }
+    return $revision
 }
 
 function Invoke-Checked([string]$Label, [scriptblock]$Work) {
@@ -165,13 +192,33 @@ function Move-PersistentState([string]$FromRoot, [string]$ToRoot) {
     }
 }
 
+$drillSentinelPath = $null
+$drillSentinelHashBefore = $null
+$liveRevisionBefore = $null
+if ($RollbackDrill) {
+    if (-not (Test-Path -LiteralPath (Join-Path $liveActiveRoot '.git'))) {
+        throw "Rollback drill source is not a project-local Git runtime: $liveActiveRoot"
+    }
+    Assert-ChildPath $defaultRuntimeRoot $runtimeRoot | Out-Null
+    if (Test-Path -LiteralPath $runtimeRoot) {
+        Remove-Item -LiteralPath $runtimeRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+    Invoke-Checked 'Clone isolated rollback-drill runtime' { & git clone --no-hardlinks $liveActiveRoot $activeRoot }
+    $liveRevisionBefore = Get-GitRevision $liveActiveRoot
+    $drillSentinelPath = Join-Path $activeRoot 'data\wayfinder-rollback-sentinel.txt'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $drillSentinelPath) -Force | Out-Null
+    Set-Content -LiteralPath $drillSentinelPath -Value "wayfinder rollback drill $($liveRevisionBefore)" -Encoding UTF8
+    $drillSentinelHashBefore = Get-FileHashHex $drillSentinelPath
+}
+
 if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) { throw "Compatibility lock is missing: $lockPath" }
 if (-not (Test-Path -LiteralPath $releasePath -PathType Leaf)) { throw "Release metadata is missing: $releasePath" }
 if (-not (Test-Path -LiteralPath (Join-Path $activeRoot '.git'))) { throw "Active SillyTavern is not a project-local Git runtime: $activeRoot" }
 
 $dirty = @(& git -C $projectRoot status --porcelain) -join "`n"
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the project worktree.' }
-if ($dirty.Trim()) { throw 'Project worktree is dirty. Commit or stash project changes before compatibility update.' }
+if ($dirty.Trim() -and -not $RollbackDrill) { throw 'Project worktree is dirty. Commit or stash project changes before compatibility update.' }
 $runtimeDirty = @(& git -C $activeRoot status --porcelain --untracked-files=no) -join "`n"
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the active SillyTavern runtime.' }
 if ($runtimeDirty.Trim()) { throw 'Active SillyTavern has tracked modifications. Update refused; user runtime state was untouched.' }
@@ -184,20 +231,41 @@ if ([string]$lock.schema -ne 'st-rpg.compatibility-lock' -or [string]$lock.versi
 if ([string]$lock.sillyTavern.revision -ne [string]$release.pinnedSillyTavernRevision) {
     throw 'release.json and compatibility.lock.json disagree on the reviewed SillyTavern pin.'
 }
+$desiredRevision = [string]$lock.sillyTavern.revision
+if ($RollbackDrill) {
+    if ([string]::IsNullOrWhiteSpace($DrillRevision)) {
+        $desiredRevision = ([string](& git -C $liveActiveRoot rev-parse 'HEAD^')).Trim()
+    } else {
+        $desiredRevision = $DrillRevision.Trim()
+    }
+    & git -C $liveActiveRoot cat-file -e "$desiredRevision^{commit}" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Rollback drill revision is not available locally: $desiredRevision" }
+    $desiredRevision = ([string](& git -C $liveActiveRoot rev-parse $desiredRevision)).Trim()
+    if ($desiredRevision -eq $liveRevisionBefore) {
+        throw 'Rollback drill candidate must differ from the live pinned revision.'
+    }
+    $lock.sillyTavern.revision = $desiredRevision
+}
 
 Invoke-Checked 'Node policy' { & node (Join-Path $projectRoot 'tools\check-node-version.mjs') }
-$backupBody = @{ label = "Before compatibility verification $(Get-Date -Format 'yyyy-MM-dd HH-mm-ss')" } | ConvertTo-Json -Compress
-$backup = Invoke-RestMethod -UseBasicParsing -Method Post -Uri 'http://127.0.0.1:8002/api/operations/backups' `
-    -ContentType 'application/json' -Body $backupBody -TimeoutSec 60
-if ($backup.availability -ne 'available' -or -not $backup.verification.verified) {
-    throw 'Companion did not return a verified pre-update backup. Runtime was not changed.'
+if ($RollbackDrill) {
+    $backup = [pscustomobject]@{ id = 'isolated-drill-no-campaign-mutation'; availability = 'available' }
+    Write-Host 'Rollback drill is isolated from Campaign data; no live backup or mutation is performed.'
+} else {
+    $backupBody = @{ label = "Before compatibility verification $(Get-Date -Format 'yyyy-MM-dd HH-mm-ss')" } | ConvertTo-Json -Compress
+    $backup = Invoke-RestMethod -UseBasicParsing -Method Post -Uri 'http://127.0.0.1:8002/api/operations/backups' `
+        -ContentType 'application/json' -Body $backupBody -TimeoutSec 60
+    if ($backup.availability -ne 'available' -or -not $backup.verification.verified) {
+        throw 'Companion did not return a verified pre-update backup. Runtime was not changed.'
+    }
+    Write-Host "Verified pre-update backup: $($backup.id)"
 }
-Write-Host "Verified pre-update backup: $($backup.id)"
 
 Remove-StageSafely
 Invoke-Checked 'Clone staged runtime' { & git clone --no-hardlinks --no-checkout $activeRoot $stageRoot }
-Invoke-Checked 'Pin staged runtime remote' { & git -C $stageRoot remote set-url origin ([string]$lock.sillyTavern.repository) }
-$desiredRevision = [string]$lock.sillyTavern.revision
+if (-not $RollbackDrill) {
+    Invoke-Checked 'Pin staged runtime remote' { & git -C $stageRoot remote set-url origin ([string]$lock.sillyTavern.repository) }
+}
 & git -C $stageRoot cat-file -e "$desiredRevision^{commit}" 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Invoke-Checked 'Fetch reviewed SillyTavern pin' { & git -C $stageRoot fetch --depth 1 origin $desiredRevision }
@@ -219,7 +287,7 @@ if ($activeMatches) {
     exit 0
 }
 
-if (@(Get-NetTCPConnection -LocalPort ([int]$lock.sillyTavern.port) -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
+if (-not $RollbackDrill -and @(Get-NetTCPConnection -LocalPort ([int]$lock.sillyTavern.port) -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
     throw 'Staging passed, but active SillyTavern is still running. Use Wayfinder.cmd stop, then run update-compatibility again. No switch occurred.'
 }
 
@@ -231,6 +299,8 @@ if (Test-Path -LiteralPath $previousRoot) {
 }
 
 $switched = $false
+$postSwitchVerified = $false
+$failedRoot = $null
 try {
     Move-Item -LiteralPath $activeRoot -Destination $previousRoot
     Move-Item -LiteralPath $stageRoot -Destination $activeRoot
@@ -238,6 +308,10 @@ try {
     & $fallbackInstaller -TargetRoot $activeRoot -SkipBundleBuild
     & $bridgeInstaller -TargetRoot $activeRoot
     Test-StagedRuntime $activeRoot $lock
+    $postSwitchVerified = $true
+    if ($RollbackDrill) {
+        throw 'Injected rollback-drill failure after the changed revision passed post-switch verification.'
+    }
     $switched = $true
     [ordered]@{
         schema = 'st-rpg.compatibility-switch'
@@ -261,6 +335,57 @@ catch {
         Move-Item -LiteralPath $activeRoot -Destination $failedRoot
     }
     if (Test-Path -LiteralPath $previousRoot) { Move-Item -LiteralPath $previousRoot -Destination $activeRoot }
+    if ($RollbackDrill) {
+        $restoredRevision = Get-GitRevision $activeRoot
+        $liveRevisionAfter = Get-GitRevision $liveActiveRoot
+        $sentinelRestored = Test-Path -LiteralPath $drillSentinelPath -PathType Leaf
+        $sentinelHashAfter = if ($sentinelRestored) { Get-FileHashHex $drillSentinelPath } else { '' }
+        $failedRevision = if ($null -ne $failedRoot -and (Test-Path -LiteralPath (Join-Path $failedRoot '.git'))) {
+            Get-GitRevision $failedRoot
+        } else { '' }
+        $passed = (
+            $postSwitchVerified -and
+            $desiredRevision -ne $activeRevision -and
+            $failedRevision -eq $desiredRevision -and
+            $restoredRevision -eq $activeRevision -and
+            $liveRevisionBefore -eq $liveRevisionAfter -and
+            $sentinelRestored -and
+            $drillSentinelHashBefore -eq $sentinelHashAfter
+        )
+        $evidence = [ordered]@{
+            schema = 'st-rpg.compatibility-rollback-drill'
+            version = 1
+            generatedAt = (Get-Date).ToUniversalTime().ToString('o')
+            liveRuntimeRoot = $liveActiveRoot
+            liveRevisionBefore = $liveRevisionBefore
+            liveRevisionAfter = $liveRevisionAfter
+            liveRuntimeUnchanged = $liveRevisionBefore -eq $liveRevisionAfter
+            isolatedRuntimeRoot = $runtimeRoot
+            originalRevision = $activeRevision
+            candidateRevision = $desiredRevision
+            changedRevisionSwitched = $desiredRevision -ne $activeRevision
+            candidatePassedPostSwitchVerification = $postSwitchVerified
+            injectedFailure = 'after-post-switch-verification'
+            failedCandidateRevision = $failedRevision
+            restoredRevision = $restoredRevision
+            originalRevisionRestored = $restoredRevision -eq $activeRevision
+            persistentStateSentinelRestored = $sentinelRestored -and $drillSentinelHashBefore -eq $sentinelHashAfter
+            campaignDataTouched = $false
+            passed = $passed
+        }
+        $evidenceJson = $evidence | ConvertTo-Json -Depth 8
+        $evidencePath = if ([string]::IsNullOrWhiteSpace($PublishEvidence)) {
+            Join-Path $stateRoot 'compatibility-rollback-drill.json'
+        } else {
+            Resolve-PublishedEvidencePath $PublishEvidence
+        }
+        New-Item -ItemType Directory -Path (Split-Path -Parent $evidencePath) -Force | Out-Null
+        $evidenceJson | Set-Content -LiteralPath $evidencePath -Encoding UTF8
+        $evidenceJson
+        Write-Host "Rollback drill evidence: $evidencePath"
+        if (-not $passed) { throw 'Rollback drill did not restore the isolated runtime exactly.' }
+        exit 0
+    }
     throw 'Compatibility switch failed and the previous runtime was restored. Inspect Wayfinder compatibility logs before retrying.'
 }
 finally {

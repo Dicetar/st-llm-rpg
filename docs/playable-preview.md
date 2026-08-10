@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.13` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains preserved. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
+Version `0.3.0-preview.14` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains preserved. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
 
 ## Start
 
@@ -63,8 +63,9 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 ## Preview limits
 
 - The additional physical Android production-bridge rerun was explicitly deferred; do not infer that it passed. Sanitized desktop evidence is in `docs/evidence/production-narration-desktop-2026-08-09.json`.
-- The supervisor, backup/restore, and same-pin staged update path have live desktop evidence in `docs/evidence/production-compatibility-stage-desktop-2026-08-10.json`. A real changed-pin switch plus injected post-switch rollback remains a cutover acceptance gate.
+- The supervisor, backup/restore, and same-pin staged update path have live desktop evidence in `docs/evidence/production-compatibility-stage-desktop-2026-08-10.json`. The isolated actual-host rollback drill in `docs/evidence/production-compatibility-rollback-drill-desktop-2026-08-10.json` switched to a different ST revision, passed post-switch startup, injected failure, restored the original revision and persistent-state sentinel, and left the live runtime unchanged.
+- Actual-host authority/resource evidence is in `docs/evidence/production-campaign-authority-desktop-2026-08-10.json` and `docs/evidence/production-cutover-performance-desktop-2026-08-10.json`: 100-sample Campaign commit, Workspace load, Context Plan, and Companion pre-model targets pass; exactly one fake upstream boundary call occurred per measured linked request. The fake boundary deliberately excludes inference and does not replace the separate real-LM narration evidence.
 - The fallback-to-companion desktop round-trip, verified backup/export/divergence report, owned shutdown, verified-Binding admission, and preserved inactive extension slots have sanitized evidence in `docs/evidence/production-mode-roundtrip-desktop-2026-08-10.json`.
 - Live Story Sync remains model-dependent. A conservative real-model desktop trace passed the human-review safety boundary; sanitized evidence lives in `docs/evidence/production-story-sync-desktop-2026-08-10.json`. Physical Android review remains deferred, not passed.
-- Rich addon coverage beyond Actors, Items, Abilities, Relationships, active/completed Quests, Places, and the simplified current Scene; full real-campaign mode-switch evidence; and final changed-pin rollback evidence remain active #39/#40 work. Addon files with unsupported fields show explicit warnings.
+- Rich addon coverage beyond Actors, Items, Abilities, Relationships, active/completed Quests, Places, and the simplified current Scene, plus the final representative real-campaign continued-play trace, remain active #40 work. Addon files with unsupported fields show explicit warnings.
 - LM Studio model loading and unloading remains manual by design.

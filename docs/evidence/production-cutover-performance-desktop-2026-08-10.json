@@ -1,0 +1,34 @@
+{
+  "schema": "st-rpg.cutover-performance",
+  "version": 1,
+  "generatedAt": "2026-08-10T14:04:09.243Z",
+  "nodeVersion": "v24.15.0",
+  "platform": "win32-x64",
+  "iterations": 100,
+  "dataset": {
+    "campaignRevision": 1,
+    "records": 1,
+    "messagesPerPlan": 1,
+    "linkedNarrationUpstream": "in-process zero-latency fake; inference excluded"
+  },
+  "contextPlanning": {
+    "sampleCount": 100,
+    "p50Ms": 2.1675,
+    "p95Ms": 2.7534,
+    "maxMs": 5.978,
+    "targetMs": 100
+  },
+  "contextPlanningTargetMet": true,
+  "companionAddedPreModel": {
+    "sampleCount": 100,
+    "p50Ms": 2.0082,
+    "p95Ms": 2.8458,
+    "maxMs": 22.3185,
+    "targetMs": 250
+  },
+  "companionAddedPreModelTargetMet": true,
+  "measuredLinkedRequests": 100,
+  "measuredUpstreamCalls": 100,
+  "exactlyOneUpstreamCallPerLinkedRequest": true,
+  "passed": true
+}

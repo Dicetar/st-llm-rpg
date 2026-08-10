@@ -1,0 +1,21 @@
+﻿{
+    "schema":  "st-rpg.compatibility-rollback-drill",
+    "version":  1,
+    "generatedAt":  "2026-08-10T14:10:16.2010041Z",
+    "liveRuntimeRoot":  "D:\\Projects\\st-llm-rpg\\.runtime\\SillyTavern",
+    "liveRevisionBefore":  "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "liveRevisionAfter":  "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "liveRuntimeUnchanged":  true,
+    "isolatedRuntimeRoot":  "D:\\Projects\\st-llm-rpg\\.runtime\\verification\\compatibility-rollback-drill",
+    "originalRevision":  "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "candidateRevision":  "46bd341ec1341f32ff6c4b41cc344db23806102b",
+    "changedRevisionSwitched":  true,
+    "candidatePassedPostSwitchVerification":  true,
+    "injectedFailure":  "after-post-switch-verification",
+    "failedCandidateRevision":  "46bd341ec1341f32ff6c4b41cc344db23806102b",
+    "restoredRevision":  "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "originalRevisionRestored":  true,
+    "persistentStateSentinelRestored":  true,
+    "campaignDataTouched":  false,
+    "passed":  true
+}
