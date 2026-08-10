@@ -248,6 +248,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .scene-attachments legend { padding: 0 0.35rem; color: #d8aa63; }
 .scene-attachments label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.55rem; min-height: 44px; }
 .scene-attachments input[type="checkbox"] { width: 1.25rem; min-width: 1.25rem; min-height: 1.25rem; accent-color: #d8aa63; }
+.advance-scene-panel, .scene-archive-list { border: 1px solid #4c4032; border-radius: 0.8rem; background: #191814; overflow: clip; }
+.advance-scene-panel > summary, .scene-archive-list > summary { min-height: 52px; padding: 0.8rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; cursor: pointer; }
+.advance-scene-panel > summary span, .scene-archive-list > summary span { color: #aa9d88; font-size: 0.84rem; text-align: right; }
+.advance-scene-panel > form { padding: 1rem; border-top: 1px solid #4c4032; display: grid; gap: 1rem; }
+.advance-scene-notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
+.scene-note-rows, .advance-scene-next { border: 1px solid #4c4032; border-radius: 0.7rem; padding: 0.8rem; display: grid; gap: 0.7rem; }
+.scene-note-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.55rem; }
+.scene-archive-list > ol { list-style: none; margin: 0; padding: 0 1rem 1rem; display: grid; gap: 0.7rem; }
+.scene-archive-card { border: 1px solid #4c4032; border-radius: 0.7rem; padding: 0.8rem; background: #14130f; }
+.scene-archive-card ul { margin: 0.35rem 0 0; padding-left: 1.25rem; }
 .record-card--archived { border-style: dashed; opacity: 0.86; }
 .record-card__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .record-card__heading span { min-width: 0; color: #8f8372; font-size: 0.72rem; overflow-wrap: anywhere; }
@@ -505,6 +515,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .ability-learning-create > label:first-of-type { grid-column: auto; }
   .alias-row { grid-template-columns: 1fr; }
   .scene-attachments { grid-template-columns: 1fr; }
+  .advance-scene-notes { grid-template-columns: 1fr; }
+  .advance-scene-panel > summary, .scene-archive-list > summary { align-items: flex-start; flex-direction: column; }
+  .advance-scene-panel > summary span, .scene-archive-list > summary span { text-align: left; }
+  .scene-note-row { grid-template-columns: 1fr; }
   .alias-row button { width: 100%; }
   .record-actions button, .conflict-banner button, .canonical-update-banner button, .historical-banner button { width: 100%; }
   .migration-intro, .binding-result, .chat-binding { align-items: stretch; flex-direction: column; }

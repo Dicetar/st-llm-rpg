@@ -239,7 +239,7 @@ function operationsFor(changes: readonly AddonChange[]): CampaignOperation[] {
     create_ability: 2, create_ability_with_learning: 2, update_ability: 2, set_ability_archived: 2,
     create_learned_ability: 3, update_learned_ability: 3, set_learned_ability_archived: 3,
     create_relationship: 5, update_relationship: 5, set_relationship_archived: 5,
-    set_current_scene: 7,
+    set_current_scene: 7, advance_scene: 7,
   };
   return operations.sort((left, right) => order[left.kind] - order[right.kind]);
 }

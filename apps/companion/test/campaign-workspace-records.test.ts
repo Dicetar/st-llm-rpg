@@ -259,6 +259,64 @@ test('Facts and World Objects attach beside world records, enter Scenes, retriev
   journal.verifyOrThrow();
 });
 
+test('Advance Scene archives the closed Scene and opens the editable next Scene atomically', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'st-rpg-scene-advance-'));
+  const databasePath = join(root, 'campaigns.sqlite');
+  let journal = await SqliteCampaignJournal.open(databasePath, 25);
+  t.after(async () => {
+    await journal.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const created = await acceptCampaignCreate(journal, { requestId: 'scene-advance-campaign', title: 'Scene Chronicle' });
+  const actor = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'scene-advance-actor', expectedRevision: created.revision,
+    operation: { kind: 'create_actor', actor: { id: 'actor-mara', name: 'Mara' } },
+  });
+  const place = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'scene-advance-place', expectedRevision: actor.revision,
+    operation: { kind: 'create_place', place: { id: 'place-gate', name: 'Moon Gate' } },
+  });
+  const opened = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'scene-advance-open', expectedRevision: place.revision,
+    operation: { kind: 'set_current_scene', scene: {
+      id: 'scene-arrival', name: 'Arrival at the sealed gate', summary: 'Mara reaches the gate.',
+      placeId: 'place-gate', actorIds: ['actor-mara'],
+    } },
+  });
+
+  const advanced = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'scene-advance-next', expectedRevision: opened.revision,
+    operation: {
+      kind: 'advance_scene',
+      closingSummary: 'Mara opens the Moon Gate and crosses the threshold.',
+      outcomes: ['The Moon Gate is open.'],
+      openThreads: ['Who rang the bell beyond the gate?'],
+      nextScene: {
+        id: 'scene-beyond', name: 'Beyond the Moon Gate', summary: 'A bell echoes in the silver fog.',
+        placeId: 'place-gate', actorIds: ['actor-mara'],
+      },
+    },
+  });
+
+  assert.deepEqual(advanced.affectedIds, ['scene-arrival', 'scene-beyond']);
+  assert.equal(advanced.document.currentScene?.id, 'scene-beyond');
+  assert.equal(advanced.document.sceneArchives?.[0]?.id, 'scene-arrival');
+  assert.equal(advanced.document.sceneArchives?.[0]?.summary, 'Mara opens the Moon Gate and crosses the threshold.');
+  assert.deepEqual(advanced.document.sceneArchives?.[0]?.outcomes, ['The Moon Gate is open.']);
+  assert.deepEqual(advanced.document.sceneArchives?.[0]?.openThreads, ['Who rang the bell beyond the gate?']);
+  assert.equal(advanced.document.sceneArchives?.[0]?.closedAt, advanced.committedAt);
+  assert.equal(journal.readCampaign(created.campaignId, opened.revision).currentScene?.id, 'scene-arrival');
+  assert.deepEqual(journal.readCampaign(created.campaignId, opened.revision).sceneArchives, []);
+
+  await journal.close();
+  journal = await SqliteCampaignJournal.open(databasePath, 25);
+  const reopened = journal.readCampaign(created.campaignId);
+  assert.equal(reopened.currentScene?.name, 'Beyond the Moon Gate');
+  assert.equal(reopened.sceneArchives?.[0]?.name, 'Arrival at the sealed gate');
+  journal.verifyOrThrow();
+});
+
 test('V7 authority backs up, expands subject history, and opens with empty Ability collections', async t => {
   const root = await mkdtemp(join(tmpdir(), 'st-rpg-v7-ability-upgrade-'));
   const databasePath = join(root, 'campaigns.sqlite');
@@ -415,4 +473,58 @@ test('V9 authority receives an automatic backup before Fact and World Object sch
   journal.verifyOrThrow();
   await journal.close();
   assert.equal((await readdir(root)).some(name => name.startsWith('campaigns.sqlite.pre-migration-v10-')), true);
+});
+
+test('V10 authority receives an automatic backup before Scene Archive schema migration', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'st-rpg-v10-scene-archive-upgrade-'));
+  const databasePath = join(root, 'campaigns.sqlite');
+  let journal = await SqliteCampaignJournal.open(databasePath);
+  t.after(async () => {
+    try { await journal.close(); } catch { /* already closed */ }
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await acceptCampaignCreate(journal, { requestId: 'v10-campaign', title: 'Before Scene Archives' });
+  await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'v10-scene', expectedRevision: created.revision,
+    operation: { kind: 'set_current_scene', scene: { id: 'scene-kept-v10', name: 'Kept V10 Scene' } },
+  });
+  await journal.close();
+
+  const database = new DatabaseSync(databasePath);
+  database.exec(`
+    PRAGMA foreign_keys = OFF;
+    DROP INDEX campaign_event_changes_subject;
+    ALTER TABLE campaign_event_changes RENAME TO campaign_event_changes_v11;
+    CREATE TABLE campaign_event_changes (
+      event_id TEXT NOT NULL REFERENCES campaign_events(event_id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      subject_kind TEXT NOT NULL CHECK (subject_kind IN (
+        'actor', 'item', 'quest', 'place', 'fact', 'world_object',
+        'ability', 'learned_ability', 'relationship', 'current_scene'
+      )),
+      subject_id TEXT NOT NULL,
+      before_schema_version INTEGER,
+      before_image_json TEXT,
+      before_hash TEXT,
+      after_schema_version INTEGER,
+      after_image_json TEXT,
+      after_hash TEXT,
+      PRIMARY KEY (event_id, ordinal)
+    );
+    INSERT INTO campaign_event_changes SELECT * FROM campaign_event_changes_v11;
+    DROP TABLE campaign_event_changes_v11;
+    CREATE INDEX campaign_event_changes_subject ON campaign_event_changes(subject_kind, subject_id);
+    DROP TABLE campaign_scene_archive_projections;
+    DELETE FROM schema_migrations WHERE version = 11;
+    PRAGMA foreign_keys = ON;
+  `);
+  database.close();
+
+  journal = await SqliteCampaignJournal.open(databasePath);
+  const upgraded = journal.readCampaign(created.campaignId);
+  assert.equal(upgraded.currentScene?.name, 'Kept V10 Scene');
+  assert.deepEqual(upgraded.sceneArchives, []);
+  journal.verifyOrThrow();
+  await journal.close();
+  assert.equal((await readdir(root)).some(name => name.startsWith('campaigns.sqlite.pre-migration-v11-')), true);
 });

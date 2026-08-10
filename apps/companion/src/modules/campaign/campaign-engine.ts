@@ -159,6 +159,7 @@ export class CampaignEngine {
             learnedAbilities: {},
             relationships: {},
             currentScene: null,
+            sceneArchives: {},
           };
           const baseState: CampaignState = {
             ...structuredClone(state),
@@ -249,10 +250,10 @@ export class CampaignEngine {
           }
 
           const afterState = structuredClone(beforeState);
-          const affectedIds = applyOperation(afterState, request.operation);
+          const committedAt = new Date().toISOString();
+          const affectedIds = applyOperation(afterState, request.operation, committedAt);
           const changes = subjectChangesForOperation(beforeState, afterState, request.operation, affectedIds);
           const revision = beforeState.campaign.revision + 1;
-          const committedAt = new Date().toISOString();
           afterState.campaign = { ...afterState.campaign, revision, updatedAt: committedAt };
           const eventId = randomUUID();
           const eventHash = subjectEventHash({
@@ -382,7 +383,7 @@ export class CampaignEngine {
         const affectedIds: string[] = [];
         for (const operation of operations) {
           const operationBefore = structuredClone(afterState);
-          const affected = applyOperation(afterState, operation);
+          const affected = applyOperation(afterState, operation, completedAt);
           affectedIds.push(...affected);
           changes.push(...subjectChangesForOperation(operationBefore, afterState, operation, affected));
         }
@@ -478,10 +479,11 @@ export class CampaignEngine {
             );
           }
           const afterState = structuredClone(head.state);
+          const committedAt = new Date().toISOString();
           const affectedIds: string[] = [];
           const changesBySubject = new Map<string, ReturnType<typeof subjectChangesForOperation>[number]>();
           for (const operation of request.operations) {
-            const operationAffected = applyOperation(afterState, operation);
+            const operationAffected = applyOperation(afterState, operation, committedAt);
             affectedIds.push(...operationAffected);
             for (const change of subjectChangesForOperation(head.state, afterState, operation, operationAffected)) {
               changesBySubject.set(`${change.subjectKind}:${change.subjectId}`, change);
@@ -489,7 +491,6 @@ export class CampaignEngine {
           }
           const changes = [...changesBySubject.values()];
           const revision = head.state.campaign.revision + 1;
-          const committedAt = new Date().toISOString();
           afterState.campaign = { ...afterState.campaign, revision, updatedAt: committedAt };
           const eventId = randomUUID();
           const eventHash = subjectEventHash({

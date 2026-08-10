@@ -118,6 +118,12 @@ function jsonObject(raw: string): unknown {
   return JSON.parse(unfenced.slice(first, last + 1));
 }
 
+const STORY_SYNC_OPERATION_KINDS = new Set([
+  'create_actor', 'update_actor', 'create_item', 'update_item', 'create_quest', 'update_quest',
+  'create_place', 'update_place', 'create_fact', 'update_fact', 'create_world_object', 'update_world_object',
+  'create_ability', 'update_ability', 'create_relationship', 'update_relationship', 'set_current_scene',
+]);
+
 function parseProposals(raw: string, source: StoredStorySyncSource): ParsedProposal[] {
   const document = jsonObject(raw);
   if (typeof document !== 'object' || document === null || !Array.isArray((document as Record<string, unknown>).proposals)) {
@@ -127,7 +133,8 @@ function parseProposals(raw: string, source: StoredStorySyncSource): ParsedPropo
     const record = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
       ? candidate as Record<string, unknown>
       : {};
-    const operation = Value.Check(CampaignOperationSchema, record.operation) ? record.operation : null;
+    const checkedOperation = Value.Check(CampaignOperationSchema, record.operation) ? record.operation : null;
+    const operation = checkedOperation && STORY_SYNC_OPERATION_KINDS.has(checkedOperation.kind) ? checkedOperation : null;
     const evidence = Array.isArray(record.evidence)
       ? [...new Set(record.evidence.filter(index => Number.isInteger(index)).map(Number))].slice(0, 8)
       : [];
@@ -158,6 +165,7 @@ function parseProposals(raw: string, source: StoredStorySyncSource): ParsedPropo
 }
 
 function workerMessages(campaign: CampaignDocument, source: StoredStorySyncSource) {
+  const { sceneArchives: _sceneArchives, ...activeCampaign } = campaign;
   const transcript = source.messages.map(message => (
     `[message ${message.index}] ${message.role.toUpperCase()} (${message.name}):\n${message.content}`
   )).join('\n\n');
@@ -177,7 +185,7 @@ function workerMessages(campaign: CampaignDocument, source: StoredStorySyncSourc
     },
     {
       role: 'user',
-      content: `Pinned Campaign document:\n${canonicalJson(campaign)}\n\nUntrusted bounded transcript:\n${transcript}`,
+      content: `Pinned active Campaign document:\n${canonicalJson(activeCampaign)}\n\nUntrusted bounded transcript:\n${transcript}`,
     },
   ];
 }

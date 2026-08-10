@@ -85,6 +85,10 @@ test('Campaign documents and commits validate routed record collections', () => 
       id: 'scene-1', name: 'At the gate', summary: '', placeId: 'place-1',
       worldObjectIds: ['world-object-1'],
     },
+    sceneArchives: [{
+      id: 'scene-0', name: 'Road to the gate', summary: 'The party arrived safely.', placeId: 'place-1',
+      actorIds: ['actor-1'], outcomes: ['The gate was found.'], openThreads: ['Who sealed it?'], closedAt: now,
+    }],
   };
   const commit = {
     campaignId: 'campaign-1', revision: 1, eventId: 'event-1', requestId: 'request-4',

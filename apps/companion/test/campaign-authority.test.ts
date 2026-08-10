@@ -341,9 +341,9 @@ test('Item and current Scene subject Events replay independently', async t => {
     operation: { kind: 'set_current_scene', scene: { id: 'scene-1', name: 'Childhood Bedroom' } },
   });
   await acceptCampaignOperation(journal, created.campaignId, {
-    requestId: 'kinds-scene-two',
+    requestId: 'kinds-scene-edit',
     expectedRevision: 3,
-    operation: { kind: 'set_current_scene', scene: { id: 'scene-2', name: 'Wardrobe Interior' } },
+    operation: { kind: 'set_current_scene', scene: { id: 'scene-1', name: 'Wardrobe Interior' } },
   });
 
   assert.equal(journal.readCampaign(created.campaignId, 1).items.length, 0);

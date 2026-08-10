@@ -8,6 +8,7 @@ import type {
   CampaignQuest,
   CampaignRelationship,
   CampaignScene,
+  CampaignSceneArchive,
   CampaignWorldObject,
 } from '@st-llm-rpg/wire';
 import type { DatabaseSync } from 'node:sqlite';
@@ -117,6 +118,19 @@ type SceneProjectionRow = {
   world_object_ids_json: string | null;
 };
 
+type SceneArchiveProjectionRow = {
+  scene_archive_id: string;
+  name: string;
+  summary: string;
+  place_id: string | null;
+  actor_ids_json: string | null;
+  item_ids_json: string | null;
+  world_object_ids_json: string | null;
+  outcomes_json: string;
+  open_threads_json: string;
+  closed_at: string;
+};
+
 export function hasCurrentCampaignProjections(database: DatabaseSync): boolean {
   return Boolean(database.prepare(`
     SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'campaign_actor_projections'
@@ -138,6 +152,12 @@ function hasCurrentRelationshipProjections(database: DatabaseSync): boolean {
 function hasCurrentWorldRecordProjections(database: DatabaseSync): boolean {
   return Boolean(database.prepare(`
     SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'campaign_fact_projections'
+  `).get());
+}
+
+function hasCurrentSceneArchiveProjections(database: DatabaseSync): boolean {
+  return Boolean(database.prepare(`
+    SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'campaign_scene_archive_projections'
   `).get());
 }
 
@@ -198,6 +218,12 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
     SELECT scene_id, name, summary, ${sceneContextColumns}
     FROM campaign_scene_projections WHERE campaign_id = ?
   `).get(campaign.campaign_id) as SceneProjectionRow | undefined;
+  const sceneArchiveRows = hasCurrentSceneArchiveProjections(database) ? database.prepare(`
+    SELECT scene_archive_id, name, summary, place_id, actor_ids_json, item_ids_json,
+           world_object_ids_json, outcomes_json, open_threads_json, closed_at
+    FROM campaign_scene_archive_projections
+    WHERE campaign_id = ? ORDER BY closed_at DESC, scene_archive_id
+  `).all(campaign.campaign_id) as SceneArchiveProjectionRow[] : [];
 
   return {
     campaign: {
@@ -298,6 +324,18 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
       ...(sceneRow.item_ids_json === null ? {} : { itemIds: parseJson<string[]>(sceneRow.item_ids_json) }),
       ...(sceneRow.world_object_ids_json === null ? {} : { worldObjectIds: parseJson<string[]>(sceneRow.world_object_ids_json) }),
     } satisfies CampaignScene : null,
+    sceneArchives: Object.fromEntries(sceneArchiveRows.map(row => [row.scene_archive_id, {
+      id: row.scene_archive_id,
+      name: row.name,
+      summary: row.summary,
+      ...(row.place_id === null ? {} : { placeId: row.place_id }),
+      ...(row.actor_ids_json === null ? {} : { actorIds: parseJson<string[]>(row.actor_ids_json) }),
+      ...(row.item_ids_json === null ? {} : { itemIds: parseJson<string[]>(row.item_ids_json) }),
+      ...(row.world_object_ids_json === null ? {} : { worldObjectIds: parseJson<string[]>(row.world_object_ids_json) }),
+      outcomes: parseJson<string[]>(row.outcomes_json),
+      openThreads: parseJson<string[]>(row.open_threads_json),
+      closedAt: row.closed_at,
+    } satisfies CampaignSceneArchive])),
   };
 }
 
@@ -322,6 +360,9 @@ export function replaceCurrentCampaignProjections(
     database.prepare('DELETE FROM campaign_relationship_projections WHERE campaign_id = ?').run(campaignId);
   }
   database.prepare('DELETE FROM campaign_scene_projections WHERE campaign_id = ?').run(campaignId);
+  if (hasCurrentSceneArchiveProjections(database)) {
+    database.prepare('DELETE FROM campaign_scene_archive_projections WHERE campaign_id = ?').run(campaignId);
+  }
 
   for (const actor of Object.values(state.actors)) upsertActor(database, campaignId, actor);
   for (const item of Object.values(state.items)) upsertItem(database, campaignId, item);
@@ -333,6 +374,7 @@ export function replaceCurrentCampaignProjections(
   for (const learned of Object.values(state.learnedAbilities ?? {})) upsertLearnedAbility(database, campaignId, learned);
   for (const relationship of Object.values(state.relationships ?? {})) upsertRelationship(database, campaignId, relationship);
   if (state.currentScene) upsertScene(database, campaignId, state.currentScene);
+  for (const archive of Object.values(state.sceneArchives ?? {})) upsertSceneArchive(database, campaignId, archive);
 }
 
 export function applyCurrentCampaignProjectionChanges(
@@ -419,6 +461,15 @@ export function applyCurrentCampaignProjectionChanges(
           .run(campaignId, change.subjectId);
       } else {
         upsertRelationship(database, campaignId, change.afterImage as CampaignRelationship);
+      }
+      continue;
+    }
+    if (change.subjectKind === 'scene_archive') {
+      if (change.afterImage === null) {
+        database.prepare('DELETE FROM campaign_scene_archive_projections WHERE campaign_id = ? AND scene_archive_id = ?')
+          .run(campaignId, change.subjectId);
+      } else {
+        upsertSceneArchive(database, campaignId, change.afterImage as CampaignSceneArchive);
       }
       continue;
     }
@@ -643,4 +694,31 @@ function upsertScene(database: DatabaseSync, campaignId: string, scene: Campaign
     scene.actorIds === undefined ? null : JSON.stringify(scene.actorIds),
     scene.itemIds === undefined ? null : JSON.stringify(scene.itemIds),
     scene.worldObjectIds === undefined ? null : JSON.stringify(scene.worldObjectIds));
+}
+
+function upsertSceneArchive(database: DatabaseSync, campaignId: string, archive: CampaignSceneArchive): void {
+  database.prepare(`
+    INSERT INTO campaign_scene_archive_projections(
+      campaign_id, scene_archive_id, name, summary, place_id, actor_ids_json, item_ids_json,
+      world_object_ids_json, outcomes_json, open_threads_json, closed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(campaign_id, scene_archive_id) DO UPDATE SET
+      name = excluded.name, summary = excluded.summary, place_id = excluded.place_id,
+      actor_ids_json = excluded.actor_ids_json, item_ids_json = excluded.item_ids_json,
+      world_object_ids_json = excluded.world_object_ids_json,
+      outcomes_json = excluded.outcomes_json, open_threads_json = excluded.open_threads_json,
+      closed_at = excluded.closed_at
+  `).run(
+    campaignId,
+    archive.id,
+    archive.name,
+    archive.summary,
+    archive.placeId ?? null,
+    archive.actorIds === undefined ? null : JSON.stringify(archive.actorIds),
+    archive.itemIds === undefined ? null : JSON.stringify(archive.itemIds),
+    archive.worldObjectIds === undefined ? null : JSON.stringify(archive.worldObjectIds),
+    JSON.stringify(archive.outcomes),
+    JSON.stringify(archive.openThreads),
+    archive.closedAt,
+  );
 }

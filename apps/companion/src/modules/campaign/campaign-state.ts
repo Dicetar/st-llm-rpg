@@ -11,6 +11,7 @@ import type {
   CampaignQuest,
   CampaignRelationship,
   CampaignScene,
+  CampaignSceneArchive,
   CampaignSummary,
   CampaignWorldObject,
   NarratorVisibility,
@@ -29,10 +30,11 @@ export type CampaignState = {
   learnedAbilities?: Record<string, CampaignLearnedAbility>;
   relationships?: Record<string, CampaignRelationship>;
   currentScene: CampaignScene | null;
+  sceneArchives?: Record<string, CampaignSceneArchive>;
 };
 
-export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'fact' | 'world_object' | 'ability' | 'learned_ability' | 'relationship' | 'current_scene';
-export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignFact | CampaignWorldObject | CampaignAbility | CampaignLearnedAbility | CampaignRelationship | CampaignScene | null;
+export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'fact' | 'world_object' | 'ability' | 'learned_ability' | 'relationship' | 'current_scene' | 'scene_archive';
+export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignFact | CampaignWorldObject | CampaignAbility | CampaignLearnedAbility | CampaignRelationship | CampaignScene | CampaignSceneArchive | null;
 export type CampaignSubjectChange = Readonly<{
   subjectKind: CampaignSubjectKind;
   subjectId: string;
@@ -73,6 +75,7 @@ export function normalizeCampaignState(state: CampaignState): CampaignState {
     abilities: state.abilities ?? {},
     learnedAbilities: state.learnedAbilities ?? {},
     relationships: state.relationships ?? {},
+    sceneArchives: state.sceneArchives ?? {},
   };
 }
 
@@ -115,6 +118,7 @@ export function asDocument(state: CampaignState): CampaignDocument {
     learnedAbilities: Object.values(state.learnedAbilities ?? {}).sort((left, right) => left.id.localeCompare(right.id)),
     relationships: Object.values(state.relationships ?? {}).sort((left, right) => left.id.localeCompare(right.id)),
     currentScene: state.currentScene ? structuredClone(state.currentScene) : null,
+    sceneArchives: Object.values(state.sceneArchives ?? {}).sort((left, right) => right.closedAt.localeCompare(left.closedAt) || left.id.localeCompare(right.id)),
   };
 }
 
@@ -127,6 +131,7 @@ export function normalizeCampaignDocument(document: CampaignDocument): CampaignD
     abilities?: CampaignAbility[];
     learnedAbilities?: CampaignLearnedAbility[];
     relationships?: CampaignRelationship[];
+    sceneArchives?: CampaignSceneArchive[];
   };
   return {
     ...document,
@@ -137,6 +142,7 @@ export function normalizeCampaignDocument(document: CampaignDocument): CampaignD
     abilities: legacy.abilities ?? [],
     learnedAbilities: legacy.learnedAbilities ?? [],
     relationships: legacy.relationships ?? [],
+    sceneArchives: legacy.sceneArchives ?? [],
   };
 }
 
@@ -166,6 +172,7 @@ function recordIdExists(state: CampaignState, id: string): boolean {
     || state.abilities?.[id]
     || state.learnedAbilities?.[id]
     || state.relationships?.[id]
+    || state.sceneArchives?.[id]
     || state.currentScene?.id === id,
   );
 }
@@ -362,6 +369,17 @@ function cleanAliases(value: readonly string[] | undefined): string[] {
   return aliases;
 }
 
+function cleanSceneNotes(value: readonly string[], field: string): string[] {
+  const notes = value.map((note, index) => cleanText(note, `${field} ${index + 1}`, 1000));
+  if (notes.length > 64) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} may contain at most 64 entries.`, { field, maximum: 64 });
+  }
+  if (new Set(notes).size !== notes.length) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `${field} contains a duplicate entry.`, { field });
+  }
+  return notes;
+}
+
 function cleanVisibility(value: NarratorVisibility | undefined): NarratorVisibility {
   return value ?? 'known';
 }
@@ -427,6 +445,7 @@ export function subjectImageAt(
   if (subjectKind === 'ability') return structuredClone(state.abilities?.[subjectId] ?? null);
   if (subjectKind === 'learned_ability') return structuredClone(state.learnedAbilities?.[subjectId] ?? null);
   if (subjectKind === 'relationship') return structuredClone(state.relationships?.[subjectId] ?? null);
+  if (subjectKind === 'scene_archive') return structuredClone(state.sceneArchives?.[subjectId] ?? null);
   return structuredClone(state.currentScene);
 }
 
@@ -445,6 +464,10 @@ export function subjectChangesForOperation(
     const [abilityId, learnedAbilityId] = affectedIds;
     if (!abilityId || !learnedAbilityId) throw new Error('Campaign Operation create_ability_with_learning produced incomplete subjects.');
     subjects = [['ability', abilityId], ['learned_ability', learnedAbilityId]];
+  } else if (operation.kind === 'advance_scene') {
+    const [archiveId] = affectedIds;
+    if (!archiveId) throw new Error('Campaign Operation advance_scene produced no Scene Archive subject.');
+    subjects = [['scene_archive', archiveId], ['current_scene', 'current']];
   } else {
     const affectedId = affectedIds[0];
     if (!affectedId) throw new Error(`Campaign Operation ${operation.kind} produced no affected subject.`);
@@ -527,6 +550,12 @@ export function applySubjectChanges(
       else state.relationships[change.subjectId] = structuredClone(change.afterImage as CampaignRelationship);
       continue;
     }
+    if (change.subjectKind === 'scene_archive') {
+      state.sceneArchives ??= {};
+      if (change.afterImage === null) delete state.sceneArchives[change.subjectId];
+      else state.sceneArchives[change.subjectId] = structuredClone(change.afterImage as CampaignSceneArchive);
+      continue;
+    }
     state.currentScene = change.afterImage === null
       ? null
       : structuredClone(change.afterImage as CampaignScene);
@@ -534,7 +563,7 @@ export function applySubjectChanges(
   state.campaign = { ...state.campaign, revision, updatedAt: acceptedAt };
 }
 
-export function applyOperation(state: CampaignState, operation: CampaignOperation): string[] {
+export function applyOperation(state: CampaignState, operation: CampaignOperation, acceptedAt: string): string[] {
   if (operation.kind === 'create_actor') {
     const id = requireUnusedId(state, operation.actor.id, 'Actor ID');
     state.actors[id] = {
@@ -925,7 +954,14 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     return [relationship.id];
   }
   if (operation.kind === 'set_current_scene') {
-    const id = operation.scene.id ? cleanIdentifier(operation.scene.id, 'Scene ID') : state.currentScene?.id ?? randomUUID();
+    const requestedId = operation.scene.id ? cleanIdentifier(operation.scene.id, 'Scene ID') : undefined;
+    if (state.currentScene && requestedId && requestedId !== state.currentScene.id) {
+      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Use Advance Scene to replace the current Scene without losing its archive.', {
+        currentSceneId: state.currentScene.id,
+        requestedSceneId: requestedId,
+      });
+    }
+    const id = state.currentScene?.id ?? requireUnusedId(state, requestedId, 'Scene ID');
     const placeId = operation.scene.placeId === undefined
       ? undefined
       : requireActiveSceneRecord(requirePlace(state, operation.scene.placeId), 'Place').id;
@@ -942,6 +978,40 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       ...(worldObjectIds.length ? { worldObjectIds } : {}),
     };
     return [id];
+  }
+  if (operation.kind === 'advance_scene') {
+    const current = state.currentScene;
+    if (!current) {
+      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Start a current Scene before advancing it.');
+    }
+    state.sceneArchives ??= {};
+    if (state.sceneArchives[current.id]) {
+      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Scene ${current.id} was already archived.`, { sceneId: current.id });
+    }
+    const nextId = requireUnusedId(state, operation.nextScene.id, 'Next Scene ID');
+    const placeId = operation.nextScene.placeId === undefined
+      ? undefined
+      : requireActiveSceneRecord(requirePlace(state, operation.nextScene.placeId), 'Place').id;
+    const actorIds = operation.nextScene.actorIds?.map(actorId => requireActiveSceneRecord(requireActor(state, actorId), 'Actor').id) ?? [];
+    const itemIds = operation.nextScene.itemIds?.map(itemId => requireActiveSceneRecord(requireItem(state, itemId), 'Item').id) ?? [];
+    const worldObjectIds = operation.nextScene.worldObjectIds?.map(worldObjectId => requireActiveSceneRecord(requireWorldObject(state, worldObjectId), 'World Object').id) ?? [];
+    state.sceneArchives[current.id] = {
+      ...structuredClone(current),
+      summary: cleanOptionalText(operation.closingSummary, 'Closing summary', 4000),
+      outcomes: cleanSceneNotes(operation.outcomes, 'Outcome'),
+      openThreads: cleanSceneNotes(operation.openThreads, 'Open thread'),
+      closedAt: acceptedAt,
+    };
+    state.currentScene = {
+      id: nextId,
+      name: cleanText(operation.nextScene.name, 'Next Scene name', 160),
+      summary: cleanOptionalText(operation.nextScene.summary, 'Next Scene summary', 4000),
+      ...(placeId ? { placeId } : {}),
+      ...(actorIds.length ? { actorIds } : {}),
+      ...(itemIds.length ? { itemIds } : {}),
+      ...(worldObjectIds.length ? { worldObjectIds } : {}),
+    };
+    return [current.id, nextId];
   }
   const unsupported: never = operation;
   throw new Error(`Unsupported Campaign operation: ${JSON.stringify(unsupported)}`);

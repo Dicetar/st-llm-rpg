@@ -20,6 +20,8 @@ export {
   LinkedFactsPanel,
   PlaceWorldObjectsPanel,
   SceneEditor,
+  AdvanceScenePanel,
+  SceneArchiveList,
   RevisionConflictBanner,
   WorkspaceRouteState,
   parseWorkspacePath,

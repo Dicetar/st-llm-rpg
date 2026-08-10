@@ -59,6 +59,10 @@ import {
   CAMPAIGN_WORLD_RECORDS_MIGRATION,
   campaignWorldRecordsMigrationChecksum,
 } from '../../migrations/010-campaign-world-records.js';
+import {
+  CAMPAIGN_SCENE_ARCHIVES_MIGRATION,
+  campaignSceneArchivesMigrationChecksum,
+} from '../../migrations/011-campaign-scene-archives.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -1355,6 +1359,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       { ...CAMPAIGN_ABILITIES_MIGRATION, checksum: campaignAbilitiesMigrationChecksum() },
       { ...CAMPAIGN_RELATIONSHIPS_MIGRATION, checksum: campaignRelationshipsMigrationChecksum() },
       { ...CAMPAIGN_WORLD_RECORDS_MIGRATION, checksum: campaignWorldRecordsMigrationChecksum() },
+      { ...CAMPAIGN_SCENE_ARCHIVES_MIGRATION, checksum: campaignSceneArchivesMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));

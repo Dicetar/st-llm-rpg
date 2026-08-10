@@ -18,6 +18,8 @@ import {
   LinkedFactsPanel,
   PlaceWorldObjectsPanel,
   SceneEditor,
+  AdvanceScenePanel,
+  SceneArchiveList,
   StorySyncReviewInboxView,
   BackupPanelView,
   AddonPanelView,
@@ -461,6 +463,38 @@ test('Scene editor exposes structural Place, Actor, Item, and World Object attac
   assert.match(html, /Lavir/);
   assert.match(html, /Wardrobe Key/);
   assert.match(html, /Heirloom Wardrobe/);
+});
+
+test('Advance Scene keeps closure, carry-forward controls, and immutable archives in one workflow', () => {
+  const scene = {
+    id: 'scene-bedroom', name: 'Bedroom confrontation', summary: 'Lavir faces the heir.', placeId: 'place-house',
+    actorIds: ['actor-lavir'], itemIds: ['item-key'], worldObjectIds: ['object-wardrobe'],
+  };
+  const actors = [{ id: 'actor-lavir', name: 'Lavir', summary: '', archived: false }];
+  const items = [{ id: 'item-key', name: 'Wardrobe Key', summary: '', archived: false }];
+  const places = [{ id: 'place-house', name: 'House Harcourt', summary: '', archived: false }];
+  const worldObjects = [{ id: 'object-wardrobe', name: 'Heirloom Wardrobe', summary: '', placeId: 'place-house', archived: false }];
+  const advance = renderToStaticMarkup(<AdvanceScenePanel scene={scene} actors={actors} items={items} places={places} worldObjects={worldObjects} busy={false} onAdvance={async () => undefined} />);
+  assert.match(advance, /Advance Scene/);
+  assert.match(advance, /Closing summary/);
+  assert.match(advance, /Outcomes/);
+  assert.match(advance, /Open threads/);
+  assert.match(advance, /Next Scene/);
+  assert.match(advance, /Carry Actors/);
+  assert.match(advance, /Close current and open next/);
+  assert.match(advance, /Nothing is generated automatically/);
+
+  const archive = renderToStaticMarkup(<SceneArchiveList places={places} archives={[{
+    ...scene,
+    summary: 'The heir secures the key.',
+    outcomes: ['Wardrobe opened.'],
+    openThreads: ['Who altered the seal?'],
+    closedAt: '2026-08-10T15:00:00.000Z',
+  }]} />);
+  assert.match(archive, /Past Scenes/);
+  assert.match(archive, /1 immutable/);
+  assert.match(archive, /Wardrobe opened/);
+  assert.match(archive, /Who altered the seal/);
 });
 
 test('Fact and World Object blocks keep add, edit, and remove controls beside their parent Record', () => {

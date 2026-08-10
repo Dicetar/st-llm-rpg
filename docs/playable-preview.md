@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.16` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains preserved. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
+Version `0.3.0-preview.17` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains preserved. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
 
 ## Start
 
@@ -18,7 +18,7 @@ Run `Wayfinder.cmd status` for a read-only stack report. `Wayfinder.cmd stop` dr
 Create or open a Campaign, then make its chat link explicit:
 
 1. In Campaign Book, select the Campaign. Expand **Linked SillyTavern chats**, choose a saved chat without fallback Campaign metadata, and press **Link chat**. SQLite accepts one Binding Event first; the companion then writes and reads back only the small SillyTavern Binding marker. Chats with fallback RPG data stay in the separate reviewed import path.
-2. Edit Actors, Items, Abilities, directed Relationships, Quests, Facts, Places, World Objects, and the Current Scene. An Ability page keeps its reusable definition and every Actor's learned/prepared/enabled/use state together. Facts can be created and edited beside the Record they describe; World Objects can be created and edited beside their Place, then attached structurally to the Current Scene. Each accepted edit advances immutable Campaign history; stale tabs cannot overwrite a newer revision.
+2. Edit Actors, Items, Abilities, directed Relationships, Quests, Facts, Places, World Objects, and the Current Scene. An Ability page keeps its reusable definition and every Actor's learned/prepared/enabled/use state together. Facts can be created and edited beside the Record they describe; World Objects can be created and edited beside their Place, then attached structurally to the Current Scene. **Advance Scene** records the closing summary, outcomes, unresolved threads, and selected carry-forward attachments, then archives the old Scene and opens the next one as one accepted mutation. Each accepted edit advances immutable Campaign history; stale tabs cannot overwrite a newer revision.
 3. Open Context Tray. If this chat is behind Campaign head after an edit, narration stays blocked until you explicitly choose **Follow current Campaign**; the choice advances only that chat's Campaign Anchor and creates a Binding Event. Confirm the exact narrator model profile, automatic budget, and any manual pins. Use **Build Context Plan** for an inspectable dry run with no model call.
 4. In SillyTavern, select the same exact model ID as the saved narrator profile and chat normally. The bridge routes linked generations through one deterministic Context Plan and one LM Studio call. The complete answer is withheld until accepted, so Stop cannot leave partial companion text.
 5. Open **Narration status** in Campaign Book when a reply fails. It shows active requests and only the latest outcome, elapsed time, a safe error message, and concrete recovery guidance. It never stores prompts, generated prose, or request history and resets when the Companion restarts.
@@ -35,7 +35,7 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - create, edit, remove/archive, and restore Actors, Items, Abilities, directed Relationships, Quests, Facts, Places, and World Objects;
 - create and edit Facts inside their related Record and World Objects inside their Place, with no detour to an obscure global form;
 - add/remove an Ability for an Actor in the same Ability editor, including prepared/enabled state and optional remaining/maximum uses;
-- editable Current Scene and read-only historical revisions;
+- editable Current Scene, guarded one-step Scene advance, immutable Past Scenes, and read-only historical revisions;
 - explicit legacy import and verified Chat Binding marker;
 - explicit fresh-chat linking for blank or existing Campaigns, with collision checks and marker readback;
 - visible Binding mismatch detection and explicit per-chat **Follow current Campaign** without automatic anchor movement;

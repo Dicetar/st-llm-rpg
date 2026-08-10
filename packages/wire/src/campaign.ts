@@ -151,6 +151,17 @@ export const CampaignSceneSchema = Type.Object({
 }, { additionalProperties: false });
 export type CampaignScene = Static<typeof CampaignSceneSchema>;
 
+const SceneNote = Type.String({ minLength: 1, maxLength: 1000 });
+const SceneNotes = Type.Array(SceneNote, { maxItems: 64, uniqueItems: true });
+
+export const CampaignSceneArchiveSchema = Type.Object({
+  ...CampaignSceneSchema.properties,
+  outcomes: SceneNotes,
+  openThreads: SceneNotes,
+  closedAt: Timestamp,
+}, { additionalProperties: false });
+export type CampaignSceneArchive = Static<typeof CampaignSceneArchiveSchema>;
+
 export const CampaignSummarySchema = Type.Object({
   id: Identifier,
   title: Title,
@@ -173,6 +184,7 @@ export const CampaignDocumentSchema = Type.Object({
   learnedAbilities: Type.Optional(Type.Array(CampaignLearnedAbilitySchema)),
   relationships: Type.Optional(Type.Array(CampaignRelationshipSchema)),
   currentScene: Type.Union([CampaignSceneSchema, Type.Null()]),
+  sceneArchives: Type.Optional(Type.Array(CampaignSceneArchiveSchema)),
 }, { additionalProperties: false });
 export type CampaignDocument = Static<typeof CampaignDocumentSchema>;
 
@@ -461,6 +473,21 @@ export const CampaignOperationSchema = Type.Union([
   Type.Object({
     kind: Type.Literal('set_current_scene'),
     scene: Type.Object({
+      id: Type.Optional(Identifier),
+      name: Title,
+      summary: Type.Optional(Summary),
+      placeId: Type.Optional(Identifier),
+      actorIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
+      itemIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
+      worldObjectIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
+    }, { additionalProperties: false }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('advance_scene'),
+    closingSummary: Summary,
+    outcomes: SceneNotes,
+    openThreads: SceneNotes,
+    nextScene: Type.Object({
       id: Type.Optional(Identifier),
       name: Title,
       summary: Type.Optional(Summary),
