@@ -1,0 +1,55 @@
+{
+  "kind": "production-compatibility-stage-desktop-evidence",
+  "capturedAt": "2026-08-10",
+  "sanitized": true,
+  "projectCommit": "e602bdd",
+  "environment": {
+    "nodeVersion": "24.15.0",
+    "sillyTavernVersion": "1.18.0",
+    "sillyTavernRevision": "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "activeOrigin": "http://127.0.0.1:8001",
+    "stagingOrigin": "http://127.0.0.1:18001",
+    "companionOrigin": "http://127.0.0.1:8002",
+    "bridgeVersion": "0.3.0"
+  },
+  "preconditions": {
+    "projectWorktreeClean": true,
+    "activeRuntimeTrackedFilesClean": true,
+    "activeRuntimeChangedInPlace": false
+  },
+  "backup": {
+    "id": "backup-41dea7f2-ee93-4e80-aff8-2049c7d23b4b",
+    "verifiedBeforeStage": true
+  },
+  "stage": {
+    "exactRevisionCheckout": true,
+    "dependenciesInstalledFromLockfile": true,
+    "fallbackInstalled": true,
+    "bridgeInstalled": true,
+    "nodePolicyPassed": true,
+    "bridgeContractTestsPassed": 5,
+    "nativePopupInvariantPassed": true,
+    "isolatedStartupPassed": true,
+    "reportedRevisionMatchedLock": true,
+    "installedBridgeMatchedReviewedSource": true,
+    "stageRemovedAfterSuccess": true
+  },
+  "activation": {
+    "switchRequired": false,
+    "reason": "The active runtime already matched the reviewed SillyTavern revision and bridge source.",
+    "activeRuntimeRemainedAvailable": true
+  },
+  "postconditions": {
+    "wayfinderStatusReady": true,
+    "playableSmokePassed": 13,
+    "verifiedBackupCount": 6,
+    "campaignCount": 2,
+    "chatBindingCount": 1,
+    "narratorProfileCount": 1
+  },
+  "remainingAcceptance": [
+    "Exercise an actual changed-pin switch with persistent-state transfer.",
+    "Inject a post-switch smoke failure and prove automatic rollback restores the previous runtime.",
+    "The physical-phone cutover rerun remains deferred and is not represented as passed."
+  ]
+}
