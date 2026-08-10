@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.6` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
+Version `0.3.0-preview.7` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
 
 ## Start
 
@@ -25,6 +25,7 @@ The currently imported and linked Campaign is ready for use:
 6. Open **Review Inbox** and save the separate Campaign Worker model ID. In a linked SillyTavern chat, choose **Sync Story** from the extensions menu. The Companion analyzes only the bounded unseen range and opens editable, evidence-linked proposals. Accept or reject every Proposal, then choose **Finalize review**. Accepted changes become one Campaign revision and the same SQLite transaction advances only that chat's Sync Boundary.
 7. Use **Stop analysis** when a worker must yield. Resume/retry rechecks the Campaign head, Binding, and Sync Boundary before using retained source. **Discard review** removes unresolved source/proposals and changes neither Campaign truth nor the Sync Boundary.
 8. Open **Backups and Restore** in Campaign Book. Today’s verified daily backup appears automatically. Create labelled backups before risky edits; **Preview restore** verifies file identity, hash, and Campaign history before the destructive restore action becomes available. Restore creates another verified safety backup first.
+9. To bulk-author outside the browser, edit `campaign-content/*.json`, open **JSON addon inbox**, choose the target Campaign, and preview. Apply is enabled only for a blocker-free exact manifest diff; it creates a verified pre-import backup and one Campaign revision.
 
 An existing fallback chat can be imported through **Import a fallback chat**. Import is previewed, backed up, and explicit; legacy metadata stays intact. Creating a brand-new Campaign works, but creating a brand-new chat binding without legacy import is not yet part of this preview.
 
@@ -43,6 +44,7 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - separate desktop/mobile Campaign Book page;
 - working SillyTavern fallback kept alongside the production bridge.
 - verified daily and labelled SQLite backups, deterministic retention, restore preview, safety backup, and verified activation;
+- watched JSON addon directory, manual convergence scan, restart-resumable manifest-bound diff, explicit backed-up atomic apply, and additive no-delete behavior;
 
 ## Recovery and fallback
 
@@ -58,5 +60,5 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - This convenience launcher is preview packaging for the active narration tracer, not acceptance of the later supervisor/update tracer. Occupied-port, partial-start, shutdown, update, and rollback failure-injection acceptance remains ahead.
 - New blank Campaigns cannot yet create a fresh Chat Binding from Campaign Book; use the already-linked Campaign or import an existing fallback chat.
 - Live Story Sync remains model-dependent. A conservative real-model desktop trace passed the human-review safety boundary; sanitized evidence lives in `docs/evidence/production-story-sync-desktop-2026-08-10.json`. Physical Android review remains deferred, not passed.
-- Addon reconciliation, supervisor commands, staged ST updates, and final rollback UX remain active #39 work. Daily backup/restore UI is implemented.
+- Rich addon coverage beyond Actors, Items, active/completed Quests, Places, and the simplified current Scene; supervisor commands; staged ST updates; and final rollback UX remain active #39/#40 work. Addon files with unsupported fields show explicit warnings.
 - LM Studio model loading and unloading remains manual by design.

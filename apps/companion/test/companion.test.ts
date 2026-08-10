@@ -25,6 +25,7 @@ function config(workspaceRoot: string) {
     RPG_COMPANION_PORT: '8002',
     RPG_WORKSPACE_DIST: workspaceRoot,
     RPG_DATABASE_PATH: join(workspaceRoot, 'campaigns.sqlite'),
+    RPG_ADDON_DIRECTORY: join(workspaceRoot, 'campaign-content'),
     RPG_SNAPSHOT_INTERVAL: '2',
     RPG_SILLYTAVERN_URL: 'http://127.0.0.1:8001',
     RPG_LM_STUDIO_URL: 'http://127.0.0.1:1234/v1',
@@ -282,6 +283,101 @@ test('backup API creates daily and explicit backups, previews restore, and rolls
   });
   assert.equal(corruptPreview.statusCode, 409, corruptPreview.body);
   assert.equal(corruptPreview.json().code, 'BACKUP_INVALID');
+});
+
+test('addon API previews exact manifest diff, rejects stale files, and applies one backed-up Campaign event', async t => {
+  const workspaceRoot = await workspaceFixture();
+  const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
+  const created = await app.inject({
+    method: 'POST', url: '/api/campaigns', payload: { requestId: 'addon-campaign', title: 'Addon Campaign' },
+  });
+  const campaignId = created.json().campaignId;
+  const addonRoot = join(workspaceRoot, 'campaign-content');
+  await writeFile(join(addonRoot, 'people_addon.json'), JSON.stringify({
+    people: [{ id: 'lavir', name: 'Lavir', summary: 'A precise court mage.', details: 'Private notes stay outside the current model.' }],
+  }));
+  await writeFile(join(addonRoot, 'items_addon.json'), JSON.stringify({
+    items: [{ id: 'wardrobe-key', name: 'Wardrobe key', summary: 'A small iron key.', ownerExternalId: 'lavir' }],
+  }));
+
+  const sources = await app.inject({ method: 'POST', url: '/api/operations/addons/rescan' });
+  assert.equal(sources.statusCode, 200, sources.body);
+  assert.deepEqual(sources.json().files.map((file: { name: string }) => file.name), ['items_addon.json', 'people_addon.json']);
+
+  const firstPreview = await app.inject({
+    method: 'POST', url: '/api/operations/addons/preview', payload: { campaignId },
+  });
+  assert.equal(firstPreview.statusCode, 200, firstPreview.body);
+  assert.equal(firstPreview.json().canApply, true);
+  assert.equal(firstPreview.json().changes.filter((change: { change: string }) => change.change === 'create').length, 2);
+  assert.ok(firstPreview.json().issues.some((entry: { code: string }) => entry.code === 'addon_fields_not_imported'));
+  const persistedCandidates = await app.inject({
+    method: 'GET', url: `/api/operations/addons/candidates?campaignId=${encodeURIComponent(campaignId)}`,
+  });
+  assert.equal(persistedCandidates.statusCode, 200, persistedCandidates.body);
+  assert.equal(persistedCandidates.json().candidates[0].id, firstPreview.json().id);
+
+  await writeFile(join(addonRoot, 'items_addon.json'), JSON.stringify({
+    items: [{ id: 'wardrobe-key', name: 'Wardrobe key', summary: 'A small iron key with a split-crown bow.', ownerExternalId: 'lavir' }],
+  }));
+  const stale = await app.inject({
+    method: 'POST', url: '/api/operations/addons/apply', payload: {
+      candidateId: firstPreview.json().id,
+      campaignId,
+      manifestHash: firstPreview.json().manifestHash,
+      expectedRevision: firstPreview.json().expectedRevision,
+    },
+  });
+  assert.equal(stale.statusCode, 409, stale.body);
+  assert.equal(stale.json().code, 'ADDON_CANDIDATE_STALE');
+
+  const preview = await app.inject({
+    method: 'POST', url: '/api/operations/addons/preview', payload: { campaignId },
+  });
+  const applied = await app.inject({
+    method: 'POST', url: '/api/operations/addons/apply', payload: {
+      candidateId: preview.json().id,
+      campaignId,
+      manifestHash: preview.json().manifestHash,
+      expectedRevision: preview.json().expectedRevision,
+    },
+  });
+  assert.equal(applied.statusCode, 200, applied.body);
+  assert.equal(applied.json().changed, 2);
+  assert.equal(applied.json().backup.kind, 'pre-operation');
+  assert.equal(applied.json().commit.operationKind, 'apply_addon_batch');
+  assert.equal(applied.json().commit.revision, 2);
+
+  const campaign = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}` });
+  assert.equal(campaign.json().actors[0].id, 'addon:actor:lavir');
+  assert.equal(campaign.json().items[0].id, 'addon:item:wardrobe-key');
+  assert.equal(campaign.json().items[0].ownerActorId, 'addon:actor:lavir');
+  assert.match(campaign.json().items[0].summary, /split-crown/);
+  const history = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}/history` });
+  assert.ok(history.json().some((entry: { operationKind: string }) => entry.operationKind === 'apply_addon_batch'));
+  const verified = await app.inject({ method: 'GET', url: '/api/campaign-authority/verify' });
+  assert.equal(verified.statusCode, 200, verified.body);
+
+  await writeFile(join(addonRoot, 'items_addon.json'), JSON.stringify({ items: [] }));
+  const additivePreview = await app.inject({
+    method: 'POST', url: '/api/operations/addons/preview', payload: { campaignId },
+  });
+  assert.equal(additivePreview.json().changes.some((change: { after: { externalId: string } }) => change.after.externalId === 'wardrobe-key'), false);
+  const afterRemoval = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}` });
+  assert.equal(afterRemoval.json().items.length, 1, 'missing addon rows must never delete accepted Campaign records');
+
+  await writeFile(join(addonRoot, 'broken_addon.json'), '{');
+  const blocked = await app.inject({
+    method: 'POST', url: '/api/operations/addons/preview', payload: { campaignId },
+  });
+  assert.equal(blocked.statusCode, 200, blocked.body);
+  assert.equal(blocked.json().status, 'blocked');
+  assert.equal(blocked.json().canApply, false);
+  assert.ok(blocked.json().issues.some((entry: { severity: string }) => entry.severity === 'error'));
 });
 
 test('Campaign startup outage keeps explicit-unlinked narration alive and linked narration fail-closed', async t => {

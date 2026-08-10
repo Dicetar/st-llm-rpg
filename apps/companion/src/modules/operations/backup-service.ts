@@ -119,6 +119,12 @@ export class BackupService {
     return this.serialize(() => this.createBackupUnlocked('explicit', label?.trim() || undefined));
   }
 
+  createPreOperation(label: string): Promise<BackupDocument> {
+    const normalized = label.trim();
+    if (!normalized) throw new Error('Pre-operation backup label cannot be empty.');
+    return this.serialize(() => this.createBackupUnlocked('pre-operation', normalized.slice(0, 160)));
+  }
+
   ensureDailyBackup(): Promise<BackupDocument> {
     return this.serialize(async () => {
       const catalog = await this.catalog();

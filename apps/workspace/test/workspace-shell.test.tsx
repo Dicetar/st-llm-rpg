@@ -16,8 +16,42 @@ import {
   SceneEditor,
   StorySyncReviewInboxView,
   BackupPanelView,
+  AddonPanelView,
   parseWorkspacePath,
 } from '../src/App.js';
+
+test('addon inbox makes source diff, blockers, additive policy, and explicit apply visible', () => {
+  const campaign = {
+    id: 'campaign-1', title: 'House Harcourt', status: 'active' as const, revision: 4,
+    createdAt: '2026-08-10T00:00:00.000Z', updatedAt: '2026-08-10T00:00:00.000Z',
+  };
+  const sourceFile = { name: 'people_addon.json', sizeBytes: 120, modifiedAt: '2026-08-10T00:00:00.000Z', sha256: 'a'.repeat(64) };
+  const after = {
+    recordKind: 'actor' as const, externalId: 'lavir', subjectId: 'addon:actor:lavir', sourceFile: sourceFile.name,
+    name: 'Lavir', summary: 'A precise court mage.', visibility: 'known' as const,
+  };
+  const candidate = {
+    schema: 'st-rpg.addon-candidate' as const, version: '1.0' as const, id: 'candidate-1', status: 'pending' as const,
+    campaignId: campaign.id, expectedRevision: 4, createdAt: '2026-08-10T00:00:01.000Z', directory: 'D:/campaign-content',
+    manifestHash: 'b'.repeat(64), files: [sourceFile],
+    issues: [{ severity: 'warning' as const, code: 'addon_fields_not_imported', source: sourceFile.name, path: 'people[0]', message: 'details is not imported yet.' }],
+    changes: [{ change: 'create' as const, before: null, after, changedFields: ['name', 'summary'] }], canApply: true,
+    deletionPolicy: 'missing-addon-rows-never-delete-campaign-records' as const,
+  };
+  const html = renderToStaticMarkup(<AddonPanelView
+    campaigns={[campaign]} campaignId={campaign.id} onCampaignId={() => undefined}
+    catalog={{ schema: 'st-rpg.addon-source-catalog', version: '1.0', directory: 'D:/campaign-content', observedAt: '2026-08-10T00:00:01.000Z', manifestHash: candidate.manifestHash, files: [sourceFile], issues: [] }}
+    candidate={candidate} receipt={null} busy={false} error=""
+    onRescan={() => undefined} onPreview={() => undefined} onApply={() => undefined}
+  />);
+  assert.match(html, /JSON addon inbox/);
+  assert.match(html, /Files are suggestions, never authority/);
+  assert.match(html, /Missing rows never remove accepted Campaign records/);
+  assert.match(html, /1<\/strong> create/);
+  assert.match(html, /Lavir/);
+  assert.match(html, /details is not imported yet/);
+  assert.match(html, /Apply reviewed diff/);
+});
 
 test('backup catalog exposes daily safety, explicit backup, and verified restore preview', () => {
   const verification = { verified: true as const, verifiedAt: '2026-08-10T00:00:00.000Z', durationMs: 12, campaignCount: 2 };

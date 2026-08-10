@@ -10,6 +10,7 @@ export type CompanionConfig = Readonly<{
   probeTimeoutMs: number;
   workspaceRoot: string;
   databasePath: string;
+  addonDirectory: string;
   snapshotInterval: number;
   serviceVersion: string;
   logLevel: CompanionLogLevel;
@@ -86,6 +87,7 @@ export function readCompanionConfig(env: NodeJS.ProcessEnv = process.env): Compa
     probeTimeoutMs: parsePositiveInteger(env.RPG_PROBE_TIMEOUT_MS, 800, 'RPG_PROBE_TIMEOUT_MS'),
     workspaceRoot: resolve(env.RPG_WORKSPACE_DIST ?? 'apps/workspace/dist'),
     databasePath: resolve(env.RPG_DATABASE_PATH ?? '.runtime/companion/campaigns.sqlite'),
+    addonDirectory: resolve(env.RPG_ADDON_DIRECTORY ?? 'campaign-content'),
     snapshotInterval: parsePositiveInteger(env.RPG_SNAPSHOT_INTERVAL, 100, 'RPG_SNAPSHOT_INTERVAL', 10_000),
     serviceVersion: String(env.RPG_COMPANION_VERSION ?? '0.2.0'),
     logLevel: logLevel(env.RPG_LOG_LEVEL),

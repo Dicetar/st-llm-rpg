@@ -7,6 +7,7 @@ import type {
 import CampaignWorkspace from './CampaignWorkspace.js';
 import { NarrationStatusPanel } from './NarrationStatusPanel.js';
 import { BackupPanel } from './BackupPanel.js';
+import { AddonPanel } from './AddonPanel.js';
 import { buildStatusCards } from './status-model.js';
 
 export {
@@ -23,6 +24,7 @@ export { ContextTray } from './ContextTray.js';
 export { NarrationStatusPanel } from './NarrationStatusPanel.js';
 export { StorySyncReviewInbox, StorySyncReviewInboxView } from './StorySyncReviewInbox.js';
 export { BackupPanel, BackupPanelView } from './BackupPanel.js';
+export { AddonPanel, AddonPanelView } from './AddonPanel.js';
 
 type Snapshot = Readonly<{
   health: HealthDocument | null;
@@ -169,6 +171,7 @@ export default function App() {
       onRefreshNarration={() => { refreshNarration(undefined, true); }}
     >
       <BackupPanel />
+      <AddonPanel />
       <CampaignWorkspace />
     </CampaignBookView>
   );

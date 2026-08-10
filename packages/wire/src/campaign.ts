@@ -250,7 +250,7 @@ export const CampaignCommitSchema = Type.Object({
   eventId: Identifier,
   requestId: RequestId,
   operationKind: Type.String({ minLength: 1, maxLength: 64 }),
-  affectedIds: Type.Array(Identifier, { maxItems: 64 }),
+  affectedIds: Type.Array(Identifier, { maxItems: 2000 }),
   committedAt: Timestamp,
   idempotent: Type.Boolean(),
   document: CampaignDocumentSchema,

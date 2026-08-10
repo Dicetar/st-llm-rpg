@@ -185,6 +185,7 @@ test('legacy migration HTTP boundary lists, previews, imports, and exposes Bindi
     RPG_COMPANION_PORT: '8002',
     RPG_WORKSPACE_DIST: workspaceRoot,
     RPG_DATABASE_PATH: join(root, 'campaigns.sqlite'),
+    RPG_ADDON_DIRECTORY: join(root, 'campaign-content'),
     RPG_SILLYTAVERN_URL: 'http://127.0.0.1:8001',
     RPG_LM_STUDIO_URL: 'http://127.0.0.1:1234/v1',
     RPG_LOG_LEVEL: 'silent',

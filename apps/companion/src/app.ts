@@ -36,6 +36,8 @@ import { StorySyncService } from './modules/story-sync/story-sync-service.js';
 import { registerStorySyncRoutes } from './modules/story-sync/story-sync-routes.js';
 import { BackupService } from './modules/operations/backup-service.js';
 import { registerBackupRoutes } from './modules/operations/backup-routes.js';
+import { AddonService } from './modules/operations/addon-service.js';
+import { registerAddonRoutes } from './modules/operations/addon-routes.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -185,6 +187,14 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   const backupService = campaignJournal
     ? new BackupService(campaignJournal, join(dirname(options.config.databasePath), 'backups'))
     : null;
+  const addonService = campaignEngine && backupService
+    ? new AddonService(
+        campaignEngine,
+        backupService,
+        options.config.addonDirectory,
+        join(dirname(options.config.databasePath), 'addon-candidates'),
+      )
+    : null;
   const probeDependencies = options.probeDependencies
     ?? createDefaultDependencyProbe(options.config, () => campaignEngine?.observation() ?? {
       id: 'sqlite-runtime',
@@ -202,16 +212,19 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   });
 
   await backupService?.start();
+  await addonService?.start();
 
   if (ownsCampaignEngine && campaignEngine) {
     app.addHook('onClose', async () => {
       await storySyncService?.close();
+      await addonService?.close();
       await backupService?.close();
       await campaignEngine.close();
     });
-  } else if (storySyncService || backupService) {
+  } else if (storySyncService || backupService || addonService) {
     app.addHook('onClose', async () => {
       await storySyncService?.close();
+      await addonService?.close();
       await backupService?.close();
     });
   }
@@ -254,6 +267,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   if (contextService) registerContextRoutes(app, contextService);
   if (storySyncService && campaignEngine) registerStorySyncRoutes(app, storySyncService, campaignEngine);
   if (backupService) registerBackupRoutes(app, backupService);
+  if (addonService) registerAddonRoutes(app, addonService);
   registerNarrationRoutes(app, narrationService);
 
   app.get('/assets/*', async (request, reply) => {

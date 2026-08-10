@@ -3,6 +3,7 @@ import { Value } from '@sinclair/typebox/value';
 import { NarrationGenerationSchema } from './narration.js';
 
 export * from './campaign.js';
+export * from './addons.js';
 export * from './context.js';
 export * from './legacy-import.js';
 export * from './narration.js';
@@ -66,6 +67,10 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('BACKUP_NOT_FOUND'),
   Type.Literal('BACKUP_INVALID'),
   Type.Literal('RESTORE_CONFIRMATION_REQUIRED'),
+  Type.Literal('ADDON_SOURCE_INVALID'),
+  Type.Literal('ADDON_CANDIDATE_NOT_FOUND'),
+  Type.Literal('ADDON_CANDIDATE_STALE'),
+  Type.Literal('ADDON_IMPORT_BLOCKED'),
   Type.Literal('NOT_FOUND'),
   Type.Literal('INTERNAL_ERROR'),
 ]);

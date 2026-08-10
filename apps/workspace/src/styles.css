@@ -407,6 +407,44 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .restore-preview dd { margin: 0; overflow-wrap: anywhere; }
 .restore-preview p { margin: 0; color: #d8c7b1; line-height: 1.45; }
 
+.addon-panel { margin-bottom: 1rem; border: 1px solid #5d4b31; border-radius: 0.9rem; background: linear-gradient(135deg, rgba(32, 27, 20, 0.92), rgba(19, 19, 16, 0.92)); }
+.addon-panel > summary { display: flex; min-height: 56px; align-items: center; gap: 0.75rem; padding: 0.75rem 0.9rem; cursor: pointer; list-style: none; }
+.addon-panel > summary::-webkit-details-marker { display: none; }
+.addon-panel > summary::before { content: '\25B8'; color: #e9bd72; }
+.addon-panel[open] > summary::before { content: '\25BE'; }
+.addon-panel > summary > span:first-of-type { display: grid; flex: 1; min-width: 0; gap: 0.15rem; }
+.addon-panel > summary small { color: #aa9d88; font-weight: 400; }
+.addon-panel > summary > span:last-child { color: #e9bd72; font-size: 0.78rem; text-transform: uppercase; }
+.addon-panel__body { display: grid; gap: 1rem; border-top: 1px solid #5d4b31; padding: 1rem; }
+.addon-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.addon-intro h3 { margin: 0.1rem 0 0.3rem; font-family: Georgia, "Times New Roman", serif; }
+.addon-intro p:last-child { margin: 0; color: #b9ae9c; line-height: 1.45; }
+.addon-source-error { margin: 0; border-left: 3px solid #a9554e; padding: 0.65rem 0.75rem; background: rgba(114, 40, 34, 0.2); color: #ffd7d2; }
+.addon-target { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.75rem; }
+.addon-target label { display: grid; gap: 0.35rem; color: #d6c8b2; }
+.addon-candidate { display: grid; gap: 0.85rem; border: 1px solid #80643e; border-radius: 0.85rem; padding: 0.9rem; background: rgba(18, 17, 14, 0.76); }
+.addon-candidate--blocked, .addon-candidate--stale { border-color: #a9554e; }
+.addon-candidate--applied { border-color: #47755a; }
+.addon-counts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.45rem; }
+.addon-counts span { display: grid; gap: 0.15rem; border-left: 2px solid #80643e; padding: 0.45rem 0.55rem; background: #151510; color: #aa9d88; font-size: 0.75rem; text-transform: uppercase; }
+.addon-counts strong { color: #f0d6ad; font-size: 1.05rem; }
+.addon-proof { margin: 0; color: #aa9d88; font-family: ui-monospace, "Cascadia Code", monospace; font-size: 0.78rem; overflow-wrap: anywhere; }
+.addon-issues { border-top: 1px solid #4c4032; border-bottom: 1px solid #4c4032; }
+.addon-issues > summary { display: flex; min-height: 44px; align-items: center; cursor: pointer; color: #e9bd72; }
+.addon-issues ul { display: grid; gap: 0.45rem; margin: 0 0 0.75rem; padding: 0; list-style: none; }
+.addon-issue { display: grid; gap: 0.2rem; border-left: 3px solid #98713b; padding: 0.55rem 0.65rem; background: #17130f; }
+.addon-issue--error { border-left-color: #a9554e; color: #ffd7d2; }
+.addon-issue span { color: #b9ae9c; line-height: 1.4; }
+.addon-diff-list { display: grid; gap: 0.5rem; }
+.addon-diff { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 1rem; border-left: 3px solid #47755a; padding: 0.65rem 0.75rem; background: #151510; }
+.addon-diff--update { border-left-color: #d39b48; }
+.addon-diff strong { overflow-wrap: anywhere; }
+.addon-diff p { margin: 0.16rem 0 0; color: #b9ae9c; line-height: 1.35; }
+.addon-diff .eyebrow { color: #e9bd72; }
+.addon-diff > small { max-width: 40%; color: #aa9d88; text-align: right; overflow-wrap: anywhere; }
+.addon-apply-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid #4c4032; padding-top: 0.8rem; }
+.addon-apply-bar p { margin: 0; color: #c8bba7; line-height: 1.4; }
+
 @media (max-width: 900px) {
   .collection-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .command-deck__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -445,6 +483,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .backup-create, .restore-preview dl { grid-template-columns: 1fr; }
   .backup-card__actions { display: grid; grid-template-columns: 1fr; }
   .backup-card__actions button, .restore-preview > button, .backup-panel__heading > button { width: 100%; }
+  .addon-intro, .addon-diff, .addon-apply-bar { align-items: stretch; flex-direction: column; }
+  .addon-target { grid-template-columns: 1fr; }
+  .addon-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .addon-diff > small { max-width: none; text-align: left; }
+  .addon-intro button, .addon-target button, .addon-apply-bar button { width: 100%; }
 }
 
 @media (max-width: 600px) {

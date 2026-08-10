@@ -4,6 +4,7 @@ import type {
   CampaignCommitPerformance,
   CampaignDocument,
   CampaignHistoryEntry,
+  CampaignOperation,
   CampaignSummary,
   CampaignVerificationResult,
   CreateCampaignRequest,
@@ -42,6 +43,14 @@ export type Outcome<T> =
   | { ok: false; problem: Problem };
 
 export type CampaignRevisionListener = (revision: number) => void;
+
+export type ApplyAddonBatchRequest = Readonly<{
+  requestId: string;
+  candidateId: string;
+  manifestHash: string;
+  expectedRevision: number;
+  operations: readonly CampaignOperation[];
+}>;
 
 function asReceipt(commit: CampaignCommit): CampaignCommitReceipt {
   const { document: _document, idempotent: _idempotent, ...receipt } = commit;
@@ -424,6 +433,98 @@ export class CampaignEngine {
       const listeners = this.#revisionListeners.get(outcome.value.campaignId);
       if (listeners) for (const listener of [...listeners]) listener(outcome.value.campaignRevision);
     }
+    return outcome;
+  }
+
+  async applyAddonBatch(campaignId: string, request: ApplyAddonBatchRequest): Promise<Outcome<CampaignCommit>> {
+    const outcome = normalizeCommitOutcome(
+      await this.capture(request.requestId, async () => {
+        const id = cleanIdentifier(campaignId, 'Campaign ID');
+        const requestId = cleanIdentifier(request.requestId, 'Request ID');
+        const candidateId = cleanIdentifier(request.candidateId, 'Addon candidate ID');
+        const manifestHash = cleanIdentifier(request.manifestHash, 'Addon manifest hash');
+        if (request.operations.length < 1 || request.operations.length > 2000) {
+          throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Addon batch must contain from 1 through 2000 changes.');
+        }
+        const acceptedOperation = {
+          kind: 'apply_addon_batch',
+          candidateId,
+          manifestHash,
+          operations: request.operations,
+        };
+        const requestHash = sha256({
+          campaignId: id,
+          expectedRevision: request.expectedRevision,
+          operation: acceptedOperation,
+        });
+        return this.#journal.transact(transaction => {
+          const receipt = this.acceptReceipt(transaction, requestId, requestHash);
+          if (receipt) {
+            return readAfterJournalTransaction({
+              kind: 'campaign', campaignId: receipt.campaignId, revision: receipt.revision,
+            }, document => ({ ...receipt, idempotent: true, document }));
+          }
+          const head = transaction.findHead(id);
+          if (!head) throw new CampaignExpectedError('CAMPAIGN_NOT_FOUND', `Campaign ${id} was not found.`);
+          if (head.state.campaign.revision !== request.expectedRevision) {
+            throw new CampaignExpectedError(
+              'CAMPAIGN_REVISION_CONFLICT',
+              `Campaign changed from revision ${request.expectedRevision} to ${head.state.campaign.revision}. Preview the addon diff again.`,
+            );
+          }
+          const afterState = structuredClone(head.state);
+          const affectedIds: string[] = [];
+          const changesBySubject = new Map<string, ReturnType<typeof subjectChangesForOperation>[number]>();
+          for (const operation of request.operations) {
+            const operationAffected = applyOperation(afterState, operation);
+            affectedIds.push(...operationAffected);
+            for (const change of subjectChangesForOperation(head.state, afterState, operation, operationAffected)) {
+              changesBySubject.set(`${change.subjectKind}:${change.subjectId}`, change);
+            }
+          }
+          const changes = [...changesBySubject.values()];
+          const revision = head.state.campaign.revision + 1;
+          const committedAt = new Date().toISOString();
+          afterState.campaign = { ...afterState.campaign, revision, updatedAt: committedAt };
+          const eventId = randomUUID();
+          const eventHash = subjectEventHash({
+            campaignId: id,
+            revision,
+            eventId,
+            requestId,
+            operationKind: acceptedOperation.kind,
+            operation: acceptedOperation,
+            acceptedAt: committedAt,
+            previousEventHash: head.headEventHash,
+            baseStateHash: null,
+            changes,
+          });
+          const commit: CampaignCommit = {
+            campaignId: id,
+            revision,
+            eventId,
+            requestId,
+            operationKind: acceptedOperation.kind,
+            affectedIds: [...new Set(affectedIds)],
+            committedAt,
+            idempotent: false,
+            document: asDocument(afterState),
+          };
+          transaction.append({
+            kind: 'revision',
+            requestId,
+            requestHash,
+            operation: acceptedOperation,
+            changes,
+            afterState,
+            eventHash,
+            commit: asReceipt(commit),
+          });
+          return completeJournalTransaction(commit);
+        });
+      }),
+    );
+    this.publishCommit(outcome);
     return outcome;
   }
 

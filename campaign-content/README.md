@@ -4,11 +4,17 @@ This folder is the external authoring surface for RPG Campaign content.
 
 ## Fast workflow
 
-1. Fill one or more `*_addon.json` files. The matching `*_example.json` shows every supported field.
-2. Double-click `Sync-JSON-Addons.bat` in this folder.
-3. Refresh SillyTavern, open Campaign Workspace, and press **Sync JSON Addons**.
+1. Fill one or more `*_addon.json` files. The matching `*_example.json` shows every fallback field.
+2. In the production Companion, open `http://127.0.0.1:8002/` → **JSON addon inbox**.
+3. Choose the target Campaign and press **Preview import diff**. Review, then explicitly apply.
 
-The batch file validates and installs the files. The Workspace button performs the revision-checked Campaign update for the current chat.
+The Companion watches this directory and also provides manual **Rescan files**. A watcher signal never mutates Campaign truth. Apply rechecks the exact manifest and Campaign revision, creates a verified pre-import SQLite backup, then accepts one atomic Campaign event. Missing file rows never delete accepted records.
+
+The current Companion slice imports Actors (`people`), Items, Quests with `active`/`completed` status, Places, and its simplified current Scene. Richer fallback-only fields and collections are shown as warnings; they are never silently claimed as imported.
+
+For the fallback extension, double-click `Sync-JSON-Addons.bat`, refresh SillyTavern, then press **Sync JSON Addons** in Campaign Workspace.
+
+The batch file validates and installs the files for the fallback. The Companion reads this directory directly; it does not require the batch file.
 
 ## Supported content
 

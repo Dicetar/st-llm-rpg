@@ -112,6 +112,22 @@ async function main() {
     return `${available.length} verified backup${available.length === 1 ? '' : 's'} available; daily safety is current.`;
   });
 
+  await check('addon-inbox', async () => {
+    const [catalog, candidates] = await Promise.all([
+      readResponse(`${companionBase}/api/operations/addons`),
+      readResponse(`${companionBase}/api/operations/addons/candidates`),
+    ]);
+    if (catalog.schema !== 'st-rpg.addon-source-catalog' || !Array.isArray(catalog.files) || !Array.isArray(catalog.issues)) {
+      throw new Error('Addon source catalog does not match the playable operations contract.');
+    }
+    const blockers = catalog.issues.filter(issue => issue?.severity === 'error');
+    if (blockers.length > 0) throw new Error(`Addon source catalog has ${blockers.length} blocking source problem(s).`);
+    if (candidates.schema !== 'st-rpg.addon-candidate-catalog' || !Array.isArray(candidates.candidates)) {
+      throw new Error('Persisted addon candidate catalog is unavailable.');
+    }
+    return `${catalog.files.length} addon file${catalog.files.length === 1 ? '' : 's'} scanned; manifest ${String(catalog.manifestHash).slice(0, 12)}… is reviewable.`;
+  });
+
   await check('campaign-authority', async () => {
     const campaigns = await readResponse(`${companionBase}/api/campaigns`);
     const values = collectionValues(campaigns, 'campaigns');
