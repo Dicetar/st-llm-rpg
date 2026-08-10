@@ -72,7 +72,7 @@ function Write-SmokeConfig([int]$Port) {
     New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
     $content = @"
 dataRoot: ./.wayfinder-smoke-data
-listen: true
+listen: false
 listenAddress:
   ipv4: 127.0.0.1
   ipv6: "[::1]"
