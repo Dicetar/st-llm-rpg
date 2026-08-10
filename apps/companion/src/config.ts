@@ -13,6 +13,7 @@ export type CompanionConfig = Readonly<{
   addonDirectory: string;
   snapshotInterval: number;
   serviceVersion: string;
+  supervisorRunId?: string;
   logLevel: CompanionLogLevel;
 }>;
 
@@ -90,6 +91,7 @@ export function readCompanionConfig(env: NodeJS.ProcessEnv = process.env): Compa
     addonDirectory: resolve(env.RPG_ADDON_DIRECTORY ?? 'campaign-content'),
     snapshotInterval: parsePositiveInteger(env.RPG_SNAPSHOT_INTERVAL, 100, 'RPG_SNAPSHOT_INTERVAL', 10_000),
     serviceVersion: String(env.RPG_COMPANION_VERSION ?? '0.2.0'),
+    ...(String(env.RPG_WAYFINDER_RUN_ID ?? '').trim() ? { supervisorRunId: String(env.RPG_WAYFINDER_RUN_ID).trim() } : {}),
     logLevel: logLevel(env.RPG_LOG_LEVEL),
   });
 }

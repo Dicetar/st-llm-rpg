@@ -5,6 +5,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+test('Wayfinder exposes identity-safe supervisor commands through one rooted PowerShell entrypoint', async () => {
+  const [batch, supervisor, launcher] = await Promise.all([
+    import('node:fs/promises').then(({ readFile }) => readFile('Wayfinder.cmd', 'utf8')),
+    import('node:fs/promises').then(({ readFile }) => readFile('tools/wayfinder.ps1', 'utf8')),
+    import('node:fs/promises').then(({ readFile }) => readFile('tools/start-local-sillytavern.ps1', 'utf8')),
+  ]);
+  assert.match(batch, /tools\\wayfinder\.ps1/i);
+  for (const command of ['start', 'status', 'stop', 'companion', 'backup', 'restore']) {
+    assert.match(supervisor, new RegExp(`'${command}'`));
+  }
+  for (const identity of ['startTimeUtc', 'executablePath', 'commandHash', 'runId']) {
+    assert.match(supervisor, new RegExp(identity));
+    assert.match(launcher, new RegExp(identity));
+  }
+  assert.match(supervisor, /Refusing to stop PID/);
+  assert.doesNotMatch(supervisor, /taskkill|Stop-Process\s+-Name|kill.*800[12]/i);
+  assert.match(supervisor, /x-wayfinder-run-id/);
+});
+
 test('Wayfinder batch entrypoint preserves a PowerShell startup failure', async t => {
   const fakeBin = await mkdtemp(join(tmpdir(), 'wayfinder-powershell-'));
   await writeFile(join(fakeBin, 'powershell.cmd'), '@echo fake PowerShell failure\r\n@exit /b 23\r\n');

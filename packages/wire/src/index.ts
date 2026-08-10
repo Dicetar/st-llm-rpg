@@ -71,6 +71,7 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('ADDON_CANDIDATE_NOT_FOUND'),
   Type.Literal('ADDON_CANDIDATE_STALE'),
   Type.Literal('ADDON_IMPORT_BLOCKED'),
+  Type.Literal('SUPERVISOR_OWNERSHIP_MISMATCH'),
   Type.Literal('NOT_FOUND'),
   Type.Literal('INTERNAL_ERROR'),
 ]);

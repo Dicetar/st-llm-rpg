@@ -21,7 +21,20 @@ powershell -ExecutionPolicy Bypass -File tools/start-local-sillytavern.ps1
 ```
 
 Pass `-NoBrowser` when starting it for diagnostics without opening a browser.
-Pass `-StatusOnly` to check both SillyTavern and the companion without starting them, or run `Wayfinder.cmd status`.
+Use `Wayfinder.cmd status` to check both SillyTavern and the companion without starting them. The lower-level `start-local-sillytavern.ps1 -StatusOnly` compatibility path remains available.
+
+The visible supervisor command surface is:
+
+```powershell
+.\Wayfinder.cmd start
+.\Wayfinder.cmd status
+.\Wayfinder.cmd stop
+.\Wayfinder.cmd companion
+.\Wayfinder.cmd backup Optional-label
+.\Wayfinder.cmd restore [backup-id] [--confirm]
+```
+
+Wayfinder records process creation time, executable path, command hash, PID, role, and run identity. `stop` refuses a changed identity and leaves any listener without a matching ownership record untouched. LM Studio is observed but never owned or stopped.
 
 Hidden or detached startup is deliberately refused. `-NoBrowser` only suppresses browser launch; it does not hide the server console. Silent `-StatusOnly` checks remain allowed because they never start a server.
 

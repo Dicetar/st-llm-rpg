@@ -215,6 +215,39 @@ test('invalid configuration throws before server construction', () => {
   assert.throws(() => readCompanionConfig({ RPG_LOG_LEVEL: 'verbose' }), /must be one of/);
 });
 
+test('supervisor shutdown requires the exact local run identity and drains the Companion', async t => {
+  const workspaceRoot = await workspaceFixture();
+  const supervisedConfig = readCompanionConfig({
+    RPG_COMPANION_HOST: '127.0.0.1', RPG_COMPANION_PORT: '8002',
+    RPG_WORKSPACE_DIST: workspaceRoot, RPG_DATABASE_PATH: join(workspaceRoot, 'campaigns.sqlite'),
+    RPG_ADDON_DIRECTORY: join(workspaceRoot, 'campaign-content'),
+    RPG_SILLYTAVERN_URL: 'http://127.0.0.1:8001', RPG_LM_STUDIO_URL: 'http://127.0.0.1:1234/v1',
+    RPG_WAYFINDER_RUN_ID: 'supervisor-test-run', RPG_LOG_LEVEL: 'silent',
+  });
+  const app = await buildCompanion({ config: supervisedConfig, probeDependencies: async () => observations });
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  t.after(async () => {
+    if (app.server.listening) await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
+  const address = app.server.address();
+  if (!address || typeof address === 'string') throw new Error('Test Companion did not expose a TCP address.');
+  const base = `http://127.0.0.1:${address.port}`;
+  const denied = await fetch(`${base}/api/operations/shutdown`, {
+    method: 'POST', headers: { 'x-wayfinder-run-id': 'wrong-run' },
+  });
+  assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).code, 'SUPERVISOR_OWNERSHIP_MISMATCH');
+  const accepted = await fetch(`${base}/api/operations/shutdown`, {
+    method: 'POST', headers: { 'x-wayfinder-run-id': 'supervisor-test-run' },
+  });
+  assert.equal(accepted.status, 202);
+  assert.equal((await accepted.json()).state, 'draining');
+  const deadline = Date.now() + 5_000;
+  while (app.server.listening && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(app.server.listening, false);
+});
+
 test('backup API creates daily and explicit backups, previews restore, and rolls authority back safely', async t => {
   const workspaceRoot = await workspaceFixture();
   const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });

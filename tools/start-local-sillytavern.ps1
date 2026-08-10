@@ -51,6 +51,49 @@ function Format-PortOwners([object[]]$Owners) {
     }) -join '; '
 }
 
+function Get-CommandHash([string]$CommandLine) {
+    $bytes = [Text.Encoding]::UTF8.GetBytes($CommandLine.Trim())
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($hash.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $hash.Dispose()
+    }
+}
+
+function Write-ProcessOwnershipRecord(
+    [Diagnostics.Process]$Process,
+    [string]$Role,
+    [string]$Entry,
+    [string]$RecordPath,
+    [string]$RunId
+) {
+    $owner = $null
+    $deadline = (Get-Date).AddSeconds(5)
+    do {
+        $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($Process.Id)" -ErrorAction SilentlyContinue
+        if (-not $owner -or -not $owner.CommandLine -or -not $owner.ExecutablePath) { Start-Sleep -Milliseconds 50 }
+    } while ((Get-Date) -lt $deadline -and (-not $owner -or -not $owner.CommandLine -or -not $owner.ExecutablePath))
+    if (-not $owner -or -not $owner.CommandLine -or -not $owner.ExecutablePath) {
+        throw "Could not capture the complete $Role process identity for PID $($Process.Id)."
+    }
+    $Process.Refresh()
+    New-Item -ItemType Directory -Path (Split-Path -Parent $RecordPath) -Force | Out-Null
+    [ordered]@{
+        schema = 'st-rpg.wayfinder-process'
+        version = '1.0'
+        role = $Role
+        runId = $RunId
+        processId = $Process.Id
+        startTimeUtc = $Process.StartTime.ToUniversalTime().ToString('o')
+        executablePath = [IO.Path]::GetFullPath([string]$owner.ExecutablePath)
+        commandHash = Get-CommandHash ([string]$owner.CommandLine)
+        entry = $Entry
+        recordedAt = (Get-Date).ToUniversalTime().ToString('o')
+    } | ConvertTo-Json | Set-Content -LiteralPath $RecordPath -Encoding UTF8
+}
+
 function Read-JsonEndpoint([string]$Url, [int]$TimeoutSeconds = 2) {
     try {
         return Invoke-RestMethod -UseBasicParsing -Uri $Url -TimeoutSec $TimeoutSeconds
@@ -162,7 +205,9 @@ $companionUrl = "http://127.0.0.1:$companionPort"
 $stateRoot = Join-Path $projectRoot '.runtime\wayfinder'
 $logRoot = Join-Path $stateRoot 'logs'
 $companionRecord = Join-Path $stateRoot 'companion-process.json'
+$sillyTavernRecord = Join-Path $stateRoot 'sillytavern-process.json'
 $buildStamp = Join-Path $stateRoot 'successful-build.json'
+$launcherRunId = [guid]::NewGuid().ToString()
 
 if ($StatusOnly) {
     & node $statusTool
@@ -261,18 +306,22 @@ try {
         $stdoutLog = Join-Path $logRoot 'companion.stdout.log'
         $stderrLog = Join-Path $logRoot 'companion.stderr.log'
         Write-Host "Starting RPG Companion on port $companionPort..."
-        $spawnedCompanion = Start-Process -FilePath $nodeCommand.Source `
-            -ArgumentList @('--enable-source-maps', "`"$companionEntry`"") `
-            -WorkingDirectory $projectRoot `
-            -WindowStyle Hidden `
-            -RedirectStandardOutput $stdoutLog `
-            -RedirectStandardError $stderrLog `
-            -PassThru
-        [ordered]@{
-            processId = $spawnedCompanion.Id
-            entry = $companionEntry
-            startedAt = (Get-Date).ToUniversalTime().ToString('o')
-        } | ConvertTo-Json | Set-Content -LiteralPath $companionRecord -Encoding UTF8
+        $previousRunId = $env:RPG_WAYFINDER_RUN_ID
+        $env:RPG_WAYFINDER_RUN_ID = $launcherRunId
+        try {
+            $spawnedCompanion = Start-Process -FilePath $nodeCommand.Source `
+                -ArgumentList @('--enable-source-maps', "`"$companionEntry`"") `
+                -WorkingDirectory $projectRoot `
+                -WindowStyle Hidden `
+                -RedirectStandardOutput $stdoutLog `
+                -RedirectStandardError $stderrLog `
+                -PassThru
+        }
+        finally {
+            if ($null -eq $previousRunId) { Remove-Item Env:RPG_WAYFINDER_RUN_ID -ErrorAction SilentlyContinue }
+            else { $env:RPG_WAYFINDER_RUN_ID = $previousRunId }
+        }
+        Write-ProcessOwnershipRecord $spawnedCompanion 'companion' $companionEntry $companionRecord $launcherRunId
 
         $deadline = (Get-Date).AddSeconds(20)
         do {
@@ -311,13 +360,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'The playable stack failed its status check.' }
         if (-not $NoBrowser) { Start-Process "http://localhost:$listenPort/" }
         if ($spawnedCompanion) {
-            Write-Host "Monitoring existing SillyTavern PID $($stOwner.ProcessId). Close this window or stop SillyTavern to stop the launcher-owned companion."
-            try {
-                Wait-Process -Id $stOwner.ProcessId -ErrorAction SilentlyContinue
-            }
-            finally {
-                Stop-LauncherOwnedCompanion $spawnedCompanion $companionEntry $companionRecord
-            }
+            Write-Host 'Companion started under Wayfinder ownership. Use Wayfinder.cmd stop for an identity-safe shutdown.'
         }
         return
     }
@@ -335,14 +378,29 @@ try {
     $serverArguments = @($serverEntry)
     if ($NoBrowser) { $serverArguments += '--browserLaunchEnabled=false' }
 
-    Push-Location $runtimeRoot
+    $stProcess = $null
     try {
         Write-Host "Starting pinned SillyTavern on port $listenPort. Close this window or press Ctrl+C to stop the stack."
-        & $nodeCommand.Source @serverArguments
-        if ($LASTEXITCODE -ne 0) { throw "SillyTavern exited with code $LASTEXITCODE" }
+        $quotedArguments = @($serverArguments | ForEach-Object {
+            if ($_ -match '\s') { "`"$_`"" } else { $_ }
+        })
+        $stProcess = Start-Process -FilePath $nodeCommand.Source -ArgumentList $quotedArguments `
+            -WorkingDirectory $runtimeRoot -NoNewWindow -PassThru
+        Write-ProcessOwnershipRecord $stProcess 'sillytavern' $serverEntry $sillyTavernRecord $launcherRunId
+        Wait-Process -Id $stProcess.Id
+        $stProcess.Refresh()
+        if ($stProcess.ExitCode -ne 0) { throw "SillyTavern exited with code $($stProcess.ExitCode)" }
     }
     finally {
-        Pop-Location
+        if ($stProcess -and -not (Get-Process -Id $stProcess.Id -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $sillyTavernRecord)) {
+            try {
+                $record = Get-Content -Raw -LiteralPath $sillyTavernRecord | ConvertFrom-Json
+                if ($record.processId -eq $stProcess.Id) { Remove-Item -LiteralPath $sillyTavernRecord -Force }
+            }
+            catch {
+                Write-Warning "Could not clean the SillyTavern ownership record at $sillyTavernRecord."
+            }
+        }
         if ($spawnedCompanion) {
             Stop-LauncherOwnedCompanion $spawnedCompanion $companionEntry $companionRecord
         }

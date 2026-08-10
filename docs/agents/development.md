@@ -23,7 +23,7 @@ Issues #32 through #37 are complete. Issue #37 shipped its production envelope, 
 
 Issues #32 through #38 are complete. Issue #38 shipped durable Story Sync jobs, editable source-linked Proposals, a separate configurable Campaign Worker on the shared narrator-priority inference lane, atomic human-only finalization, and stop/resume/discard recovery. A sanitized real LM Studio desktop trace is recorded in `docs/evidence/production-story-sync-desktop-2026-08-10.json`; physical Android remains explicitly deferred, not represented as passed.
 
-Issue #39 is active. Verified backup/restore shipped in preview.6; reviewable manifest-bound addon reconciliation shipped in preview.7 for the current companion record surface. Continue the Windows operations layer with one visible supervisor, staged pinned-SillyTavern updates, smoke-gated rollback, degraded LM Studio operation, and broader addon coverage as the Campaign model expands.
+Issue #39 is active. Verified backup/restore shipped in preview.6; reviewable manifest-bound addon reconciliation shipped in preview.7; the identity-safe visible supervisor and CLI backup/restore shipped in preview.8. Continue with staged pinned-SillyTavern updates, smoke-gated rollback, functional fallback/companion switching, and broader addon coverage as the Campaign model expands.
 
 Work directly on `main` unless the user explicitly requests another workflow. Claim the active issue before substantive work.
 

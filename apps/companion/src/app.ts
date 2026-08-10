@@ -38,6 +38,7 @@ import { BackupService } from './modules/operations/backup-service.js';
 import { registerBackupRoutes } from './modules/operations/backup-routes.js';
 import { AddonService } from './modules/operations/addon-service.js';
 import { registerAddonRoutes } from './modules/operations/addon-routes.js';
+import { registerSupervisorRoutes } from './modules/operations/supervisor-routes.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -268,6 +269,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   if (storySyncService && campaignEngine) registerStorySyncRoutes(app, storySyncService, campaignEngine);
   if (backupService) registerBackupRoutes(app, backupService);
   if (addonService) registerAddonRoutes(app, addonService);
+  registerSupervisorRoutes(app, options.config.supervisorRunId);
   registerNarrationRoutes(app, narrationService);
 
   app.get('/assets/*', async (request, reply) => {

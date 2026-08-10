@@ -4,7 +4,7 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 
 ## Status
 
-- **Playable preview:** `0.3.0-preview.7` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` launcher. The imported Campaign, linked narration, Campaign Book editing, Context Tray, content-free narration status, recoverable atomic Story Sync Review Inbox, reviewable JSON addon inbox, verified backup/restore catalog, immutable history, and working fallback are available now.
+- **Playable preview:** `0.3.0-preview.8` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` supervisor. The imported Campaign, linked narration, Campaign Book editing, Context Tray, content-free narration status, recoverable atomic Story Sync Review Inbox, reviewable JSON addon inbox, verified backup/restore catalog, immutable history, and working fallback are available now.
 - **Working product:** `extension/st-rpg-campaign` is the tested SillyTavern fallback used today.
 - **Durable companion authority:** issue #33 owns Campaign truth in SQLite, with immutable history, reconstruction, stale-write protection, verified backup/restore, and restart evidence.
 - **Context planning milestone:** issue #36 adds revision-pinned Context Plans, visibility, ordered per-chat pins, exact/Scene/FTS5/relation retrieval, token budgets, and the inspectable Context Tray.
@@ -13,6 +13,7 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 - **Story Sync recovery:** active analysis can be stopped; stopped, interrupted, or failed jobs can resume only after fresh Campaign/Binding/Sync checks; unresolved jobs can be discarded without changing Campaign truth or the Sync Boundary.
 - **Backups and restore:** Companion creates one verified daily SQLite backup, supports labelled manual backups, previews and re-verifies restore targets, creates a new safety backup before activation, and reloads restored Campaign truth. Deterministic retention preserves manual backups, recent daily/pre-operation sets, and weekly anchors.
 - **JSON addon inbox:** Companion watches `campaign-content`, rescans the complete directory, persists and resumes exact manifest-bound import candidates, displays creates/updates/warnings/blockers, and applies only an explicitly reviewed diff after a verified backup. Missing addon rows never delete accepted Campaign truth.
+- **Visible supervisor:** `Wayfinder.cmd` now owns explicit `start`, `status`, `stop`, `companion`, `backup`, and confirmed `restore` commands. Process records bind PID, creation time, executable path, command hash, role, and run identity. Stop drains only an identity-matched Companion and never kills an unknown port owner or user-managed LM Studio.
 
 The planning phase is complete. Existing files under `prototypes/` are frozen decision evidence: do not extend them or treat them as production code.
 
@@ -32,6 +33,17 @@ Check the running stack without starting anything:
 .\Wayfinder.cmd status
 npm run smoke:playable
 ```
+
+Operational commands:
+
+```powershell
+.\Wayfinder.cmd stop
+.\Wayfinder.cmd backup Before-major-edit
+.\Wayfinder.cmd restore
+.\Wayfinder.cmd restore backup-... --confirm
+```
+
+`restore` without an ID lists available verified backups. Without `--confirm`, it requires an exact typed confirmation. `fallback` and `update-compatibility` currently fail safely without changing runtime state; their staged workflows remain active #39 work.
 
 Campaign Book is available locally at `http://127.0.0.1:8002/` and from Android on the trusted LAN/VPN at `http://<PC-IP>:8002/`.
 
