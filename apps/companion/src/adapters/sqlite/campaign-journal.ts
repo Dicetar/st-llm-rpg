@@ -772,7 +772,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
   async beginStorySyncAttempt(jobId: string, attemptId: string, startedAt: string): Promise<StorySyncJobDocument> {
     return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
       const job = this.requireStorySyncJob(cleanIdentifier(jobId, 'Story Sync Job ID'));
-      if (!['queued', 'interrupted', 'failed', 'cancelled'].includes(job.status)) {
+      if (job.status !== 'queued') {
         throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', `Story Sync Job ${jobId} cannot start from ${job.status}.`);
       }
       const attemptNumber = Number(job.attempt_count) + 1;
@@ -802,6 +802,9 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
   async completeStorySyncAttempt(input: CompleteStorySyncAttempt): Promise<StorySyncJobDocument> {
     return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
       const job = this.requireStorySyncJob(cleanIdentifier(input.jobId, 'Story Sync Job ID'));
+      if (!['running', 'parsing', 'repairing'].includes(job.status)) {
+        throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', `Story Sync Job ${job.job_id} cannot save worker output from ${job.status}.`);
+      }
       this.#database.prepare('DELETE FROM story_sync_proposals WHERE job_id = ?').run(job.job_id);
       const insert = this.#database.prepare(`
         INSERT INTO story_sync_proposals(
@@ -845,6 +848,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
   }>): Promise<StorySyncJobDocument> {
     return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
       const job = this.requireStorySyncJob(cleanIdentifier(input.jobId, 'Story Sync Job ID'));
+      if (['cancelled', 'discarded', 'completed'].includes(job.status)) return this.storySyncJobDocument(job);
       this.#database.prepare(`
         UPDATE worker_attempts
         SET status = 'failed', termination = ?, completed_at = ?
@@ -853,7 +857,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       this.#database.prepare(`
         UPDATE worker_jobs
         SET status = 'failed', problem_code = ?, problem_message = ?, updated_at = ?
-        WHERE job_id = ?
+        WHERE job_id = ? AND status IN ('queued', 'waiting-for-lane', 'running', 'parsing', 'repairing')
       `).run(input.code.slice(0, 64), input.message.slice(0, 512), input.completedAt, job.job_id);
       return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
     })));
@@ -885,6 +889,70 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       }
       this.#database.prepare('UPDATE worker_jobs SET updated_at = ? WHERE job_id = ?')
         .run(new Date().toISOString(), job.job_id);
+      return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
+    })));
+  }
+
+  async cancelStorySyncJob(jobId: string, cancelledAt: string): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const job = this.requireStorySyncJob(cleanIdentifier(jobId, 'Story Sync Job ID'));
+      if (job.status === 'cancelled') return this.storySyncJobDocument(job);
+      if (!['queued', 'waiting-for-lane', 'running', 'parsing', 'repairing'].includes(job.status)) {
+        throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', `Story Sync Job ${job.job_id} cannot stop from ${job.status}.`);
+      }
+      this.#database.prepare(`
+        UPDATE worker_attempts
+        SET status = 'cancelled', termination = 'user-cancelled', completed_at = ?
+        WHERE job_id = ? AND status = 'running'
+      `).run(cancelledAt, job.job_id);
+      this.#database.prepare(`
+        UPDATE worker_jobs
+        SET status = 'cancelled', problem_code = 'STORY_SYNC_CANCELLED',
+            problem_message = 'Story Sync was stopped. Resume or discard this job.', updated_at = ?
+        WHERE job_id = ?
+      `).run(cancelledAt, job.job_id);
+      return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
+    })));
+  }
+
+  async prepareStorySyncResume(jobId: string, resumedAt: string): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const job = this.requireStorySyncJob(cleanIdentifier(jobId, 'Story Sync Job ID'));
+      if (!['cancelled', 'interrupted', 'failed'].includes(job.status)) {
+        throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', `Story Sync Job ${job.job_id} cannot resume from ${job.status}.`);
+      }
+      if (Boolean(job.source_content_pruned)) {
+        throw new CampaignExpectedError('STORY_SYNC_SOURCE_PROOF_MISMATCH', 'This Story Sync source was already pruned and cannot be resumed.');
+      }
+      this.#database.prepare(`
+        UPDATE worker_jobs
+        SET status = 'queued', problem_code = NULL, problem_message = NULL, updated_at = ?
+        WHERE job_id = ?
+      `).run(resumedAt, job.job_id);
+      return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
+    })));
+  }
+
+  async discardStorySyncJob(jobId: string, discardedAt: string): Promise<StorySyncJobDocument> {
+    return this.serializeLifecycle(() => this.serializeWrite(() => this.transaction(() => {
+      const job = this.requireStorySyncJob(cleanIdentifier(jobId, 'Story Sync Job ID'));
+      if (job.status === 'discarded') return this.storySyncJobDocument(job);
+      if (job.status === 'completed') {
+        throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', 'A completed Story Sync review is immutable and cannot be discarded.');
+      }
+      this.#database.prepare(`
+        UPDATE worker_attempts
+        SET status = 'cancelled', termination = 'job-discarded', completed_at = ?
+        WHERE job_id = ? AND status = 'running'
+      `).run(discardedAt, job.job_id);
+      this.#database.prepare('DELETE FROM story_sync_proposals WHERE job_id = ?').run(job.job_id);
+      const source = parseJson<StoredStorySyncSource>(job.source_json);
+      this.#database.prepare(`
+        UPDATE worker_jobs
+        SET status = 'discarded', source_json = ?, source_content_pruned = 1,
+            problem_code = NULL, problem_message = NULL, updated_at = ?
+        WHERE job_id = ?
+      `).run(canonicalJson({ ...source, messages: [] }), discardedAt, job.job_id);
       return this.storySyncJobDocument(this.requireStorySyncJob(job.job_id));
     })));
   }

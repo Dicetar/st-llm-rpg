@@ -332,6 +332,7 @@ test('Story Sync Review Inbox keeps worker setup and structured editable proposa
     onSaveProfile={async () => undefined}
     onSaveProposal={async () => undefined}
     onFinalizeJob={async () => undefined}
+    onJobAction={async () => undefined}
     onRefresh={() => undefined}
   />);
 
@@ -346,6 +347,7 @@ test('Story Sync Review Inbox keeps worker setup and structured editable proposa
   assert.match(html, /Defer/);
   assert.match(html, /Finalize review/);
   assert.match(html, /one atomic Campaign revision/);
+  assert.match(html, /Discard review/);
   assert.doesNotMatch(html, /Draft JSON/);
 });
 

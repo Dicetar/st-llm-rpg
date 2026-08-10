@@ -4,12 +4,13 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 
 ## Status
 
-- **Playable preview:** `0.3.0-preview.4` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` launcher. The imported Campaign, linked narration, Campaign Book editing, Context Tray, content-free narration status, atomic Story Sync Review Inbox, immutable history, and working fallback are available now.
+- **Playable preview:** `0.3.0-preview.5` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` launcher. The imported Campaign, linked narration, Campaign Book editing, Context Tray, content-free narration status, recoverable atomic Story Sync Review Inbox, immutable history, and working fallback are available now.
 - **Working product:** `extension/st-rpg-campaign` is the tested SillyTavern fallback used today.
 - **Durable companion authority:** issue #33 owns Campaign truth in SQLite, with immutable history, reconstruction, stale-write protection, verified backup/restore, and restart evidence.
 - **Context planning milestone:** issue #36 adds revision-pinned Context Plans, visibility, ordered per-chat pins, exact/Scene/FTS5/relation retrieval, token budgets, and the inspectable Context Tray.
 - **Narration routing:** issue #37 shipped the strict production bridge envelope, fail-closed linked admission, transparent explicit-unlinked forwarding, one serial inference lane, deterministic Context assembly, and atomic buffered delivery. Direct production LM Studio and real pinned-ST desktop browser/chat-history traces pass; the product owner deferred the additional physical-phone rerun.
 - **Story Sync preview:** issue #38 persists bounded worker jobs and editable source-linked Proposals in SQLite. The worker is configured separately from the narrator and cannot mutate Campaign truth. Only the explicit **Finalize review** action applies accepted Proposals as one Campaign revision while advancing the originating chat's Sync Boundary in the same SQLite transaction.
+- **Story Sync recovery:** active analysis can be stopped; stopped, interrupted, or failed jobs can resume only after fresh Campaign/Binding/Sync checks; unresolved jobs can be discarded without changing Campaign truth or the Sync Boundary.
 
 The planning phase is complete. Existing files under `prototypes/` are frozen decision evidence: do not extend them or treat them as production code.
 

@@ -72,9 +72,19 @@ test('Story Sync creates a durable editable Proposal without mutating Campaign t
     RPG_LOG_LEVEL: 'silent',
   });
   const source = new StorySyncLegacySource();
+  let holdWorker = false;
+  let markWorkerHeld: (() => void) | null = null;
   const gateway = {
     models: async () => new Response('{"data":[]}'),
-    chat: async () => new Response(JSON.stringify({
+    chat: async (_request: Readonly<Record<string, unknown>>, signal: AbortSignal) => {
+      if (holdWorker) {
+        markWorkerHeld?.();
+        await new Promise<never>((_resolve, reject) => {
+          if (signal.aborted) reject(new Error('Worker aborted.'));
+          else signal.addEventListener('abort', () => reject(new Error('Worker aborted.')), { once: true });
+        });
+      }
+      return new Response(JSON.stringify({
       id: 'worker-completion', object: 'chat.completion', created: 1, model: 'local/worker-model',
       choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify({
         proposals: [{
@@ -86,7 +96,8 @@ test('Story Sync creates a durable editable Proposal without mutating Campaign t
           evidence: [1], confidence: 'high',
         }],
       }) }, finish_reason: 'stop' }],
-    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
   };
   let app = await buildCompanion({ config, legacyChatSource: source, lmStudioGateway: gateway });
   t.after(async () => {
@@ -200,4 +211,53 @@ test('Story Sync creates a durable editable Proposal without mutating Campaign t
   assert.equal(repeated.statusCode, 200, repeated.body);
   assert.equal(repeated.json().idempotent, true);
   assert.equal(repeated.json().campaignRevision, 2);
+
+  holdWorker = true;
+  const workerHeld = new Promise<void>(resolve => { markWorkerHeld = resolve; });
+  const cancellable = await app.inject({
+    method: 'POST', url: '/api/story-sync/jobs',
+    payload: {
+      requestId: 'story-sync-cancellable', bindingId, profileId: 'worker-default',
+      locator: {
+        version: 1, hostId: 'desktop-host',
+        chat: { kind: 'character', ownerId: locator.avatar, chatId: locator.chatId },
+      },
+      messages: [
+        { index: 0, role: 'player', name: 'Dan', content: 'I take the Silver Key.' },
+        { index: 1, role: 'narrator', name: 'Narrator', content: 'The key settles into your pocket.' },
+        { index: 2, role: 'player', name: 'Dan', content: 'I inspect the next door.' },
+        { index: 3, role: 'narrator', name: 'Narrator', content: 'It remains closed.' },
+      ],
+    },
+  });
+  assert.equal(cancellable.statusCode, 202, cancellable.body);
+  const enteredInference = await Promise.race([
+    workerHeld.then(() => true),
+    new Promise<false>(resolve => setTimeout(() => resolve(false), 3_000)),
+  ]);
+  if (!enteredInference) {
+    const stalled = await app.inject({ method: 'GET', url: `/api/story-sync/jobs/${cancellable.json().jobId}` });
+    assert.fail(`Worker did not enter held inference: ${stalled.body}`);
+  }
+  const cancelled = await app.inject({ method: 'POST', url: `/api/story-sync/jobs/${cancellable.json().jobId}/cancel` });
+  assert.equal(cancelled.statusCode, 200, cancelled.body);
+  assert.equal(cancelled.json().status, 'cancelled');
+  assert.equal(cancelled.json().source.contentPruned, false);
+
+  holdWorker = false;
+  markWorkerHeld = null;
+  const resumed = await app.inject({ method: 'POST', url: `/api/story-sync/jobs/${cancellable.json().jobId}/resume` });
+  assert.equal(resumed.statusCode, 200, resumed.body);
+  const resumedReview = await waitForReview(app, cancellable.json().jobId);
+  assert.equal(resumedReview.status, 'ready-for-review');
+  const discarded = await app.inject({ method: 'POST', url: `/api/story-sync/jobs/${cancellable.json().jobId}/discard` });
+  assert.equal(discarded.statusCode, 200, discarded.body);
+  assert.equal(discarded.json().status, 'discarded');
+  assert.equal(discarded.json().source.contentPruned, true);
+  assert.equal(discarded.json().proposals.length, 0);
+
+  const afterDiscardCampaign = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}` });
+  assert.equal(afterDiscardCampaign.json().campaign.revision, 2, 'discard cannot mutate Campaign truth');
+  const afterDiscardBinding = await app.inject({ method: 'GET', url: `/api/chat-bindings/${bindingId}` });
+  assert.equal(afterDiscardBinding.json().syncBoundary.throughMessageIndex, 1, 'discard cannot advance the Sync Boundary');
 });

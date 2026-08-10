@@ -66,6 +66,9 @@ type StoredBinding = {
   marker_problem: string | null;
   context_focus_revision?: number;
   pins_json?: string;
+  sync_facet_revision?: number;
+  sync_through_message_index?: number;
+  sync_prefix_hash?: string;
 };
 
 type StoredBindingEvent = {
@@ -202,6 +205,10 @@ function verifyChatBindings(database: DatabaseSync): void {
     let markerProblem: string | null = null;
     let contextFocusRevision = 1;
     let pins: string[] = [];
+    let campaignAnchor: number | null = null;
+    let syncFacetRevision = 1;
+    let syncThroughMessageIndex = -1;
+    let syncPrefixHash = sha256('');
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index]!;
       if (Number(event.revision) !== index + 1) {
@@ -211,10 +218,12 @@ function verifyChatBindings(database: DatabaseSync): void {
       if (index === 0) {
         if (event.operation_kind !== 'create_chat_binding' || operation.kind !== 'create_chat_binding'
           || operation.campaignId !== binding.campaign_id
-          || Number(operation.campaignAnchor) !== Number(binding.campaign_anchor)
+          || !Number.isInteger(Number(operation.campaignAnchor))
+          || Number(operation.campaignAnchor) < 1
           || canonicalJson(operation.locator) !== canonicalJson(locator)) {
           throw new Error(`Chat Binding ${binding.binding_id} creation Event verification failed.`);
         }
+        campaignAnchor = Number(operation.campaignAnchor);
         continue;
       }
       if (event.operation_kind === 'reconcile_binding_marker' && operation.kind === 'reconcile_binding_marker'
@@ -231,6 +240,18 @@ function verifyChatBindings(database: DatabaseSync): void {
         contextFocusRevision += 1;
         continue;
       }
+      if (event.operation_kind === 'set_sync_boundary' && operation.kind === 'set_sync_boundary'
+        && typeof operation.boundary === 'object' && operation.boundary !== null
+        && Number.isInteger(Number((operation.boundary as Record<string, unknown>).throughMessageIndex))
+        && Number((operation.boundary as Record<string, unknown>).throughMessageIndex) >= 0
+        && typeof (operation.boundary as Record<string, unknown>).prefixHash === 'string'
+        && Number.isInteger(Number(operation.campaignAnchor)) && Number(operation.campaignAnchor) >= 1) {
+        syncThroughMessageIndex = Number((operation.boundary as Record<string, unknown>).throughMessageIndex);
+        syncPrefixHash = String((operation.boundary as Record<string, unknown>).prefixHash);
+        campaignAnchor = Number(operation.campaignAnchor);
+        syncFacetRevision += 1;
+        continue;
+      }
       throw new Error(`Chat Binding ${binding.binding_id} Event ${event.revision} verification failed.`);
     }
     if (markerState !== binding.marker_state || markerProblem !== binding.marker_problem) {
@@ -243,6 +264,14 @@ function verifyChatBindings(database: DatabaseSync): void {
     if (contextFocusRevision !== storedContextFocusRevision
       || canonicalJson(pins) !== canonicalJson(storedPins)) {
       throw new Error(`Chat Binding ${binding.binding_id} Context Focus head does not match immutable history.`);
+    }
+    if (
+      campaignAnchor !== Number(binding.campaign_anchor)
+      || syncFacetRevision !== Number(binding.sync_facet_revision ?? 1)
+      || syncThroughMessageIndex !== Number(binding.sync_through_message_index ?? -1)
+      || syncPrefixHash !== String(binding.sync_prefix_hash ?? sha256(''))
+    ) {
+      throw new Error(`Chat Binding ${binding.binding_id} Sync or Campaign Anchor head does not match immutable history.`);
     }
     const markerProblemValid = binding.marker_state === 'blocked'
       ? Boolean(binding.marker_problem?.trim())

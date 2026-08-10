@@ -70,4 +70,7 @@ export interface StorySyncJournal {
     proposalId: string,
     request: DecideStorySyncProposalRequest,
   ): Promise<StorySyncJobDocument>;
+  cancelStorySyncJob(jobId: string, cancelledAt: string): Promise<StorySyncJobDocument>;
+  prepareStorySyncResume(jobId: string, resumedAt: string): Promise<StorySyncJobDocument>;
+  discardStorySyncJob(jobId: string, discardedAt: string): Promise<StorySyncJobDocument>;
 }

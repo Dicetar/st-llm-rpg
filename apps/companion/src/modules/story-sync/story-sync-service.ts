@@ -186,6 +186,7 @@ export class StorySyncService {
   readonly #lmStudio: LmStudioGateway;
   readonly #controllers = new Map<string, AbortController>();
   readonly #running = new Set<Promise<void>>();
+  readonly #tasks = new Map<string, Promise<void>>();
 
   constructor(input: Readonly<{
     journal: StorySyncJournal;
@@ -272,15 +273,61 @@ export class StorySyncService {
     return this.#journal.decideStorySyncProposal(proposalId, request);
   }
 
+  async cancel(jobId: string): Promise<StorySyncJobDocument> {
+    const job = await this.#journal.cancelStorySyncJob(jobId, new Date().toISOString());
+    this.#controllers.get(jobId)?.abort(new Error('Story Sync stopped by the player.'));
+    await this.#tasks.get(jobId)?.catch(() => undefined);
+    return this.#journal.readStorySyncJob(job.id);
+  }
+
+  async resume(jobId: string): Promise<StorySyncJobDocument> {
+    if (this.#tasks.has(jobId)) {
+      throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', 'Story Sync is still stopping. Wait a moment, then resume.');
+    }
+    const job = await this.#journal.readStorySyncJob(jobId);
+    const binding = await this.#authority.readBinding(job.bindingId);
+    const campaignHead = await this.#authority.readCampaignRevision(job.campaignId);
+    const source = await this.#journal.readStorySyncSource(job.id);
+    if (
+      binding.markerState !== 'verified'
+      || binding.campaignId !== job.campaignId
+      || binding.campaignAnchor !== job.campaignAnchor
+      || campaignHead !== job.campaignAnchor
+      || (binding.syncFacetRevision ?? 1) !== job.syncFacetRevision
+      || binding.syncBoundary?.throughMessageIndex !== source.boundary.throughMessageIndex
+      || binding.syncBoundary?.prefixHash !== source.boundary.prefixHash
+    ) {
+      throw new CampaignExpectedError(
+        'STORY_SYNC_SOURCE_PROOF_MISMATCH',
+        'Campaign, Chat Binding, or Sync Boundary changed while this job was stopped. Discard it and run Sync Story again.',
+      );
+    }
+    const queued = await this.#journal.prepareStorySyncResume(job.id, new Date().toISOString());
+    this.schedule(job.id);
+    return queued;
+  }
+
+  async discard(jobId: string): Promise<StorySyncJobDocument> {
+    const job = await this.#journal.discardStorySyncJob(jobId, new Date().toISOString());
+    this.#controllers.get(jobId)?.abort(new Error('Story Sync discarded by the player.'));
+    await this.#tasks.get(jobId)?.catch(() => undefined);
+    return this.#journal.readStorySyncJob(job.id);
+  }
+
   async close(): Promise<void> {
     for (const controller of this.#controllers.values()) controller.abort();
     await Promise.allSettled(this.#running);
   }
 
   private schedule(jobId: string): void {
+    if (this.#tasks.has(jobId)) throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', `Story Sync Job ${jobId} is already running.`);
     const task = this.run(jobId);
     this.#running.add(task);
-    void task.finally(() => this.#running.delete(task));
+    this.#tasks.set(jobId, task);
+    void task.finally(() => {
+      this.#running.delete(task);
+      if (this.#tasks.get(jobId) === task) this.#tasks.delete(jobId);
+    });
   }
 
   private async run(jobId: string): Promise<void> {
@@ -345,7 +392,7 @@ export class StorySyncService {
         // A concurrent shutdown may close SQLite after cancellation. Startup recovery owns that case.
       }
     } finally {
-      this.#controllers.delete(jobId);
+      if (this.#controllers.get(jobId) === controller) this.#controllers.delete(jobId);
     }
   }
 

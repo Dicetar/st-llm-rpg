@@ -164,4 +164,26 @@ export function registerStorySyncRoutes(app: FastifyInstance, service: StorySync
       request.body as FinalizeStorySyncJobRequest,
     ),
   ));
+
+  for (const action of ['cancel', 'resume', 'discard'] as const) {
+    app.post(`/api/story-sync/jobs/:jobId/${action}`, {
+      schema: {
+        params: {
+          type: 'object', additionalProperties: false, required: ['jobId'],
+          properties: { jobId: { type: 'string', minLength: 1, maxLength: 128 } },
+        },
+        response: {
+          200: StorySyncJobDocumentSchema,
+          404: ProblemSchema,
+          409: ProblemSchema,
+          422: ProblemSchema,
+          503: ProblemSchema,
+        },
+      },
+    }, async (request, reply) => send(
+      reply,
+      String(request.id),
+      () => service[action]((request.params as { jobId: string }).jobId),
+    ));
+  }
 }

@@ -228,6 +228,7 @@ export type StorySyncReviewInboxViewProps = Readonly<{
   onSaveProfile: (modelId: string, requestedOutputTokens: number) => Promise<void>;
   onSaveProposal: (proposalId: string, request: DecideStorySyncProposalRequest) => Promise<void>;
   onFinalizeJob: (job: StorySyncJobDocument) => Promise<void>;
+  onJobAction: (job: StorySyncJobDocument, action: 'cancel' | 'resume' | 'discard') => Promise<void>;
   onRefresh: () => void;
 }>;
 
@@ -265,6 +266,8 @@ export function StorySyncReviewInboxView(props: StorySyncReviewInboxViewProps) {
         <header className="story-job__heading"><div><p className="eyebrow">Messages {job.source.firstMessageIndex}–{job.source.lastMessageIndex} · {job.source.messageCount} captured</p><h5>{job.status === 'ready-for-review' ? 'Ready for review' : kindLabel(job.status)}</h5></div><span>{job.attemptCount} attempt{job.attemptCount === 1 ? '' : 's'}</span></header>
         {job.problem ? <p className="error-banner">{job.problem.message}</p> : null}
         {ACTIVE_JOB_STATES.has(job.status) ? <p className="story-job__progress" role="status">The Campaign Worker is analyzing this bounded chat range. This page updates automatically.</p> : null}
+        {ACTIVE_JOB_STATES.has(job.status) ? <div className="story-job__controls"><button type="button" className="button-secondary" disabled={props.busy} onClick={() => { void props.onJobAction(job, 'cancel'); }}>Stop analysis</button></div> : null}
+        {['cancelled', 'interrupted', 'failed'].includes(job.status) ? <div className="story-job__controls"><button type="button" disabled={props.busy} onClick={() => { void props.onJobAction(job, 'resume'); }}>{job.status === 'failed' ? 'Retry analysis' : 'Resume analysis'}</button></div> : null}
         {job.proposals.map(proposal => <ProposalCard key={proposal.id} proposal={proposal} campaign={props.campaign} busy={props.busy} onSave={props.onSaveProposal} />)}
         {job.status === 'ready-for-review' ? <div className="story-finalize">
           <div><strong>Finalize review</strong><span>{reviewComplete ? `${acceptedCount} accepted · ${job.proposals.length - acceptedCount} rejected` : 'Every Proposal needs Accept or Reject'}</span></div>
@@ -272,6 +275,7 @@ export function StorySyncReviewInboxView(props: StorySyncReviewInboxViewProps) {
             {acceptedCount > 0 ? `Apply ${acceptedCount} and finish` : 'Finish with no changes'}
           </button>
         </div> : null}
+        {!['completed', 'discarded'].includes(job.status) ? <div className="story-job__discard"><button type="button" className="button-secondary" disabled={props.busy} onClick={() => { void props.onJobAction(job, 'discard'); }}>Discard review</button></div> : null}
       </section>;
       })}
     </div>
@@ -348,5 +352,15 @@ export function StorySyncReviewInbox(props: Readonly<{ campaign: CampaignDocumen
     } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
     finally { setBusy(false); }
   };
-  return <StorySyncReviewInboxView campaign={props.campaign} profiles={profiles} jobs={jobs} loading={loading} busy={busy} error={error} message={message} onSaveProfile={saveProfile} onSaveProposal={saveProposal} onFinalizeJob={finalizeJob} onRefresh={() => { void refresh(); }} />;
+  const jobAction = async (job: StorySyncJobDocument, action: 'cancel' | 'resume' | 'discard') => {
+    if (action === 'discard' && !window.confirm('Discard this unresolved Story Sync review? Its retained source and proposals will be removed. Campaign truth and the Sync Boundary will not change.')) return;
+    setBusy(true); setMessage(''); setError('');
+    try {
+      const updated = await responseJson<StorySyncJobDocument>(`/api/story-sync/jobs/${encodeURIComponent(job.id)}/${action}`, { method: 'POST' });
+      setJobs(current => current.map(candidate => candidate.id === updated.id ? updated : candidate));
+      setMessage(action === 'cancel' ? 'Story Sync stopped. You can resume or discard it.' : action === 'resume' ? 'Story Sync resumed with fresh Campaign and Binding checks.' : 'Story Sync review discarded. Campaign truth and Sync Boundary were unchanged.');
+    } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
+    finally { setBusy(false); }
+  };
+  return <StorySyncReviewInboxView campaign={props.campaign} profiles={profiles} jobs={jobs} loading={loading} busy={busy} error={error} message={message} onSaveProfile={saveProfile} onSaveProposal={saveProposal} onFinalizeJob={finalizeJob} onJobAction={jobAction} onRefresh={() => { void refresh(); }} />;
 }
