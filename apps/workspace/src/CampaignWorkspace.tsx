@@ -12,6 +12,7 @@ import {
   type CampaignActor,
   type CampaignCommit,
   type CampaignDocument,
+  type CampaignFact,
   type CampaignHistoryEntry,
   type CampaignItem,
   type CampaignLearnedAbility,
@@ -23,6 +24,7 @@ import {
   type CampaignRelationshipStatus,
   type CampaignScene,
   type CampaignSummary,
+  type CampaignWorldObject,
   type NarratorVisibility,
   type Problem,
 } from '@st-llm-rpg/wire';
@@ -32,7 +34,7 @@ import { ContextTray } from './ContextTray.js';
 import { createUuid } from './browser-uuid.js';
 import { StorySyncReviewInbox } from './StorySyncReviewInbox.js';
 
-export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'abilities' | 'relationships' | 'scene' | 'review' | 'context' | 'history';
+export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'facts' | 'world-objects' | 'abilities' | 'relationships' | 'scene' | 'review' | 'context' | 'history';
 
 type WorkspaceRoute = Readonly<{
   campaignId: string | null;
@@ -78,6 +80,8 @@ const COLLECTION_KEYS: readonly CollectionKey[] = [
   'items',
   'quests',
   'places',
+  'facts',
+  'world-objects',
   'abilities',
   'relationships',
   'scene',
@@ -210,6 +214,8 @@ function collectionLabel(collection: CollectionKey): string {
   if (collection === 'items') return 'Items';
   if (collection === 'quests') return 'Quests';
   if (collection === 'places') return 'Places';
+  if (collection === 'facts') return 'Facts';
+  if (collection === 'world-objects') return 'World Objects';
   if (collection === 'abilities') return 'Abilities';
   if (collection === 'relationships') return 'Relationships';
   if (collection === 'scene') return 'Current Scene';
@@ -295,6 +301,8 @@ export function CampaignCommandDeck(props: {
     { collection: 'items', label: 'Add Item', description: 'Create or attach an object.', mutationEntry: true },
     { collection: 'abilities', label: 'Add Ability', description: 'Create a spell, skill, feat, or other capability.', mutationEntry: true },
     { collection: 'relationships', label: 'Add Relationship', description: 'Connect two Actors with explicit directed state.', mutationEntry: true },
+    { collection: 'facts', label: 'Add Fact', description: 'Record a durable truth, optionally about another Record.', mutationEntry: true },
+    { collection: 'world-objects', label: 'Add World Object', description: 'Create a persistent feature attached to a Place.', mutationEntry: true },
     {
       collection: 'scene',
       label: props.hasCurrentScene ? 'Open Scene' : 'Start Scene',
@@ -378,6 +386,8 @@ function CollectionNavigation(props: {
     { key: 'items', label: 'Items', count: props.document.items.filter(record => !record.archived).length },
     { key: 'quests', label: 'Quests', count: props.document.quests.filter(record => !record.archived).length },
     { key: 'places', label: 'Places', count: props.document.places.filter(record => !record.archived).length },
+    { key: 'facts', label: 'Facts', count: (props.document.facts ?? []).filter(record => !record.archived).length },
+    { key: 'world-objects', label: 'World Objects', count: (props.document.worldObjects ?? []).filter(record => !record.archived).length },
     { key: 'abilities', label: 'Abilities', count: (props.document.abilities ?? []).filter(record => !record.archived).length },
     { key: 'relationships', label: 'Relationships', count: (props.document.relationships ?? []).filter(record => !record.archived).length },
     { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
@@ -642,6 +652,127 @@ export function RecordEditor(props: RecordEditorProps) {
       </div>
     </form>
   );
+}
+
+type SubjectOption = Readonly<{ id: string; label: string; archived: boolean }>;
+type WorldRecordDraft = Readonly<{
+  name: string;
+  summary: string;
+  aliases: readonly string[];
+  visibility: NarratorVisibility;
+  relationId: string;
+}>;
+
+function sameWorldRecordDraft(left: WorldRecordDraft, right: WorldRecordDraft): boolean {
+  return left.name.trim() === right.name.trim()
+    && left.summary.trim() === right.summary.trim()
+    && left.aliases.map(value => value.trim()).join('\u0000') === right.aliases.map(value => value.trim()).join('\u0000')
+    && left.visibility === right.visibility
+    && left.relationId === right.relationId;
+}
+
+export function WorldRecordEditor(props: Readonly<{
+  kind: 'fact' | 'world-object';
+  record: CampaignFact | CampaignWorldObject;
+  options: readonly SubjectOption[];
+  busy: boolean;
+  readOnly: boolean;
+  onSave: (id: string, draft: WorldRecordDraft) => Promise<void>;
+  onArchive: (id: string, archived: boolean) => Promise<void>;
+}>) {
+  const relationId = props.kind === 'fact'
+    ? (props.record as CampaignFact).subjectId ?? ''
+    : (props.record as CampaignWorldObject).placeId ?? '';
+  const initial: WorldRecordDraft = {
+    name: props.record.name,
+    summary: props.record.summary,
+    aliases: props.record.aliases ?? [],
+    visibility: props.record.visibility ?? 'known',
+    relationId,
+  };
+  const [draft, setDraft] = useState(initial);
+  const [baseline, setBaseline] = useState(initial);
+  const aliasesKey = (props.record.aliases ?? []).join('\u0000');
+  useEffect(() => {
+    const next: WorldRecordDraft = {
+      name: props.record.name,
+      summary: props.record.summary,
+      aliases: props.record.aliases ?? [],
+      visibility: props.record.visibility ?? 'known',
+      relationId,
+    };
+    const dirty = !sameWorldRecordDraft(draft, baseline);
+    setBaseline(next);
+    if (!dirty) setDraft(next);
+  }, [props.kind, props.record.id, props.record.name, props.record.summary, aliasesKey, props.record.visibility, props.record.archived, relationId]);
+  const dirty = !sameWorldRecordDraft(draft, baseline);
+  const label = props.kind === 'fact' ? 'Fact' : 'World Object';
+  const relationLabel = props.kind === 'fact' ? 'About Record' : 'Place';
+  return (
+    <form className={props.record.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
+      event.preventDefault();
+      void props.onSave(props.record.id, {
+        ...draft,
+        aliases: draft.aliases.map(value => value.trim()).filter(Boolean),
+      });
+    }}>
+      <div className="record-card__heading"><strong>{props.record.archived ? `Removed ${label}` : label}</strong><span>{props.record.id}</span></div>
+      <label><span>Name</span><input value={draft.name} onChange={event => setDraft(value => ({ ...value, name: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} /></label>
+      <label><span>{relationLabel}</span><select value={draft.relationId} onChange={event => setDraft(value => ({ ...value, relationId: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived}><option value="">{props.kind === 'fact' ? 'Campaign-wide' : 'No attached Place'}</option>{props.options.map(option => <option key={option.id} value={option.id} disabled={option.archived && option.id !== relationId}>{option.label}{option.archived ? ' · archived' : ''}</option>)}</select></label>
+      <fieldset className="alias-editor"><legend>Aliases</legend>
+        {draft.aliases.map((alias, index) => <div className="alias-row" key={`${index}-${alias}`}><label><span>Alias {index + 1}</span><input value={alias} onChange={event => setDraft(value => ({ ...value, aliases: value.aliases.map((entry, candidate) => candidate === index ? event.target.value : entry) }))} disabled={props.busy || props.readOnly || props.record.archived} /></label><button type="button" className="button-secondary" onClick={() => setDraft(value => ({ ...value, aliases: value.aliases.filter((_entry, candidate) => candidate !== index) }))} disabled={props.busy || props.readOnly || props.record.archived}>Remove</button></div>)}
+        <button type="button" className="button-secondary" onClick={() => setDraft(value => ({ ...value, aliases: [...value.aliases, ''] }))} disabled={props.busy || props.readOnly || props.record.archived || draft.aliases.length >= 32}>+ Add alias</button>
+      </fieldset>
+      <label><span>Narrator Visibility</span><select value={draft.visibility} onChange={event => setDraft(value => ({ ...value, visibility: event.target.value as NarratorVisibility }))} disabled={props.busy || props.readOnly || props.record.archived}><option value="known">Known · may be used and revealed</option><option value="narrator_secret">Narrator Secret · use silently</option><option value="campaign_private">Campaign Private · never sent</option></select></label>
+      <label><span>{props.kind === 'fact' ? 'Statement' : 'Description'}</span><textarea rows={5} value={draft.summary} onChange={event => setDraft(value => ({ ...value, summary: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} /></label>
+      <div className="record-actions">
+        {!props.record.archived ? <button type="submit" disabled={props.busy || props.readOnly || !draft.name.trim() || !dirty}>Save {label}</button> : null}
+        <button type="button" className="button-secondary" disabled={props.busy || props.readOnly} onClick={() => { void props.onArchive(props.record.id, !props.record.archived); }}>{props.record.archived ? `Restore ${label}` : `Remove ${label}`}</button>
+      </div>
+    </form>
+  );
+}
+
+export function LinkedFactsPanel(props: Readonly<{
+  facts: readonly CampaignFact[];
+  subjectId: string;
+  subjectLabel: string;
+  options: readonly SubjectOption[];
+  busy: boolean;
+  readOnly: boolean;
+  onCreate: (name: string, summary: string, visibility: NarratorVisibility) => Promise<void>;
+  onSave: (id: string, draft: WorldRecordDraft) => Promise<void>;
+  onArchive: (id: string, archived: boolean) => Promise<void>;
+}>) {
+  const [name, setName] = useState('');
+  const [summary, setSummary] = useState('');
+  const [visibility, setVisibility] = useState<NarratorVisibility>('known');
+  const linked = props.facts.filter(fact => fact.subjectId === props.subjectId);
+  return <section className="linked-records"><div className="collection-heading"><div><h4>Facts about {props.subjectLabel}</h4><p>Add and edit durable truths here, without leaving this Record.</p></div></div>
+    {!props.readOnly ? <form className="create-record-form create-record-form--inline" onSubmit={event => { event.preventDefault(); void props.onCreate(name, summary, visibility).then(() => { setName(''); setSummary(''); setVisibility('known'); }); }}><label><span>Fact name</span><input value={name} onChange={event => setName(event.target.value)} disabled={props.busy} /></label><label><span>Statement</span><textarea rows={2} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy} /></label><label><span>Visibility</span><select value={visibility} onChange={event => setVisibility(event.target.value as NarratorVisibility)} disabled={props.busy}><option value="known">Known</option><option value="narrator_secret">Narrator Secret</option><option value="campaign_private">Campaign Private</option></select></label><button type="submit" disabled={props.busy || !name.trim()}>+ Add Fact</button></form> : null}
+    {linked.length === 0 ? <p className="empty-state">No attached Facts yet.</p> : linked.map(fact => <WorldRecordEditor key={fact.id} kind="fact" record={fact} options={props.options} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
+  </section>;
+}
+
+export function PlaceWorldObjectsPanel(props: Readonly<{
+  worldObjects: readonly CampaignWorldObject[];
+  placeId: string;
+  placeLabel: string;
+  places: readonly CampaignPlace[];
+  busy: boolean;
+  readOnly: boolean;
+  onCreate: (name: string, summary: string) => Promise<void>;
+  onSave: (id: string, draft: WorldRecordDraft) => Promise<void>;
+  onArchive: (id: string, archived: boolean) => Promise<void>;
+}>) {
+  const [name, setName] = useState('');
+  const [summary, setSummary] = useState('');
+  const linked = props.worldObjects.filter(record => record.placeId === props.placeId);
+  const options = props.places.map(record => ({ id: record.id, label: record.name, archived: record.archived }));
+  return <section className="linked-records"><div className="collection-heading"><div><h4>World Objects in {props.placeLabel}</h4><p>Persistent non-portable features. Add and edit them beside their Place.</p></div></div>
+    {!props.readOnly ? <form className="create-record-form create-record-form--inline" onSubmit={event => { event.preventDefault(); void props.onCreate(name, summary).then(() => { setName(''); setSummary(''); }); }}><label><span>World Object name</span><input value={name} onChange={event => setName(event.target.value)} disabled={props.busy} /></label><label><span>Description</span><textarea rows={2} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy} /></label><button type="submit" disabled={props.busy || !name.trim()}>+ Add World Object</button></form> : null}
+    {linked.length === 0 ? <p className="empty-state">No World Objects attached yet.</p> : linked.map(record => <WorldRecordEditor key={record.id} kind="world-object" record={record} options={options} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
+  </section>;
 }
 
 type LearnedDraft = Readonly<{
@@ -932,6 +1063,7 @@ type SceneDraft = Readonly<{
   placeId: string;
   actorIds: readonly string[];
   itemIds: readonly string[];
+  worldObjectIds: readonly string[];
 }>;
 
 function sceneDraft(scene: CampaignScene | null): SceneDraft {
@@ -941,6 +1073,7 @@ function sceneDraft(scene: CampaignScene | null): SceneDraft {
     placeId: scene?.placeId ?? '',
     actorIds: scene?.actorIds ?? [],
     itemIds: scene?.itemIds ?? [],
+    worldObjectIds: scene?.worldObjectIds ?? [],
   };
 }
 
@@ -949,7 +1082,8 @@ function sameSceneDraft(left: SceneDraft, right: SceneDraft): boolean {
     && left.summary.trim() === right.summary.trim()
     && left.placeId === right.placeId
     && left.actorIds.join('\u0000') === right.actorIds.join('\u0000')
-    && left.itemIds.join('\u0000') === right.itemIds.join('\u0000');
+    && left.itemIds.join('\u0000') === right.itemIds.join('\u0000')
+    && left.worldObjectIds.join('\u0000') === right.worldObjectIds.join('\u0000');
 }
 
 export function SceneEditor(props: {
@@ -957,9 +1091,10 @@ export function SceneEditor(props: {
   actors: readonly CampaignActor[];
   items: readonly CampaignItem[];
   places: readonly CampaignPlace[];
+  worldObjects: readonly CampaignWorldObject[];
   busy: boolean;
   readOnly: boolean;
-  onSave: (name: string, summary: string, placeId: string | null, actorIds: readonly string[], itemIds: readonly string[]) => Promise<void>;
+  onSave: (name: string, summary: string, placeId: string | null, actorIds: readonly string[], itemIds: readonly string[], worldObjectIds: readonly string[]) => Promise<void>;
 }) {
   const canonical = sceneDraft(props.scene);
   const [draft, setDraft] = useState(canonical);
@@ -967,15 +1102,16 @@ export function SceneEditor(props: {
   const dirty = !sameSceneDraft(draft, baseline);
   const actorIdsKey = (props.scene?.actorIds ?? []).join('\u0000');
   const itemIdsKey = (props.scene?.itemIds ?? []).join('\u0000');
+  const worldObjectIdsKey = (props.scene?.worldObjectIds ?? []).join('\u0000');
 
   useEffect(() => {
     const next = sceneDraft(props.scene);
     const wasDirty = !sameSceneDraft(draft, baseline);
     setBaseline(next);
     if (!wasDirty) setDraft(next);
-  }, [props.scene?.id, props.scene?.name, props.scene?.summary, props.scene?.placeId, actorIdsKey, itemIdsKey]);
+  }, [props.scene?.id, props.scene?.name, props.scene?.summary, props.scene?.placeId, actorIdsKey, itemIdsKey, worldObjectIdsKey]);
 
-  const toggle = (field: 'actorIds' | 'itemIds', id: string) => setDraft(previous => ({
+  const toggle = (field: 'actorIds' | 'itemIds' | 'worldObjectIds', id: string) => setDraft(previous => ({
     ...previous,
     [field]: previous[field].includes(id)
       ? previous[field].filter(candidate => candidate !== id)
@@ -985,7 +1121,7 @@ export function SceneEditor(props: {
   return (
     <form className="record-card" onSubmit={event => {
       event.preventDefault();
-      void props.onSave(draft.name, draft.summary, draft.placeId || null, draft.actorIds, draft.itemIds);
+      void props.onSave(draft.name, draft.summary, draft.placeId || null, draft.actorIds, draft.itemIds, draft.worldObjectIds);
     }}>
       <div className="record-card__heading">
         <strong>{props.scene ? 'Current Scene' : 'Start Current Scene'}</strong>
@@ -1022,6 +1158,15 @@ export function SceneEditor(props: {
             <label key={item.id}>
               <input type="checkbox" checked={draft.itemIds.includes(item.id)} onChange={() => toggle('itemIds', item.id)} disabled={props.busy || props.readOnly || (item.archived && !draft.itemIds.includes(item.id))} />
               <span>{item.name}{item.archived ? ' · archived' : ''}</span>
+            </label>
+          ))}
+        </fieldset>
+        <fieldset>
+          <legend>Present World Objects</legend>
+          {props.worldObjects.length === 0 ? <p className="empty-state">No World Objects available.</p> : props.worldObjects.map(record => (
+            <label key={record.id}>
+              <input type="checkbox" checked={draft.worldObjectIds.includes(record.id)} onChange={() => toggle('worldObjectIds', record.id)} disabled={props.busy || props.readOnly || (record.archived && !draft.worldObjectIds.includes(record.id))} />
+              <span>{record.name}{record.archived ? ' · archived' : ''}</span>
             </label>
           ))}
         </fieldset>
@@ -1064,7 +1209,33 @@ function recordMeta(
     const learnedCount = (document.learnedAbilities ?? []).filter(entry => entry.abilityId === ability.id && !entry.archived).length;
     return `${ability.category} · ${learnedCount} Actor${learnedCount === 1 ? '' : 's'}`;
   }
+  if (collection === 'facts') {
+    const fact = record as CampaignFact;
+    return fact.subjectId ? subjectOptions(document).find(option => option.id === fact.subjectId)?.label ?? 'Unknown Record' : 'Campaign-wide';
+  }
+  if (collection === 'world-objects') {
+    const worldObject = record as CampaignWorldObject;
+    return worldObject.placeId
+      ? document.places.find(place => place.id === worldObject.placeId)?.name ?? 'Unknown Place'
+      : 'No Place';
+  }
   return record.archived ? 'Archived' : 'Active';
+}
+
+function subjectOptions(document: CampaignDocument): SubjectOption[] {
+  const groups: ReadonlyArray<readonly [string, readonly CommonRecord[]]> = [
+    ['Actor', document.actors],
+    ['Item', document.items],
+    ['Quest', document.quests],
+    ['Place', document.places],
+    ['Ability', document.abilities ?? []],
+    ['World Object', document.worldObjects ?? []],
+  ];
+  return groups.flatMap(([kind, records]) => records.map(record => ({
+    id: record.id,
+    label: `${kind} · ${record.name}`,
+    archived: record.archived,
+  }))).sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
 }
 
 function RecordIndex(props: {
@@ -1164,6 +1335,12 @@ export default function CampaignWorkspace() {
   const [questStatus, setQuestStatus] = useState<CampaignQuestStatus>('active');
   const [placeName, setPlaceName] = useState('');
   const [placeSummary, setPlaceSummary] = useState('');
+  const [factName, setFactName] = useState('');
+  const [factSummary, setFactSummary] = useState('');
+  const [factSubjectId, setFactSubjectId] = useState('');
+  const [worldObjectName, setWorldObjectName] = useState('');
+  const [worldObjectSummary, setWorldObjectSummary] = useState('');
+  const [worldObjectPlaceId, setWorldObjectPlaceId] = useState('');
   const [abilityName, setAbilityName] = useState('');
   const [abilitySummary, setAbilitySummary] = useState('');
   const [abilityCategory, setAbilityCategory] = useState<CampaignAbilityCategory>('spell');
@@ -1540,6 +1717,42 @@ export default function CampaignWorkspace() {
     });
   }
 
+  async function createFact(event: FormEvent) {
+    event.preventDefault();
+    await run(async () => {
+      const commit = await executeOperation({
+        kind: 'create_fact',
+        fact: {
+          name: factName,
+          summary: factSummary,
+          ...(factSubjectId ? { subjectId: factSubjectId } : {}),
+        },
+      });
+      setFactName('');
+      setFactSummary('');
+      setFactSubjectId('');
+      navigateCollection('facts', commit.affectedIds[0] ?? null);
+    });
+  }
+
+  async function createWorldObject(event: FormEvent) {
+    event.preventDefault();
+    await run(async () => {
+      const commit = await executeOperation({
+        kind: 'create_world_object',
+        worldObject: {
+          name: worldObjectName,
+          summary: worldObjectSummary,
+          ...(worldObjectPlaceId ? { placeId: worldObjectPlaceId } : {}),
+        },
+      });
+      setWorldObjectName('');
+      setWorldObjectSummary('');
+      setWorldObjectPlaceId('');
+      navigateCollection('world-objects', commit.affectedIds[0] ?? null);
+    });
+  }
+
   async function createJoinedActorItem(event: FormEvent) {
     event.preventDefault();
     await run(async () => {
@@ -1572,6 +1785,13 @@ export default function CampaignWorkspace() {
   const ability = route.collection === 'abilities' && recordId
     ? (displayed?.abilities ?? []).find(record => record.id === recordId) ?? null
     : null;
+  const fact = route.collection === 'facts' && recordId
+    ? (displayed?.facts ?? []).find(record => record.id === recordId) ?? null
+    : null;
+  const worldObject = route.collection === 'world-objects' && recordId
+    ? (displayed?.worldObjects ?? []).find(record => record.id === recordId) ?? null
+    : null;
+  const availableSubjects = displayed ? subjectOptions(displayed) : [];
   const activeActors = displayed?.actors.filter(record => !record.archived) ?? [];
   const retryRoute = () => {
     setError('');
@@ -1613,7 +1833,7 @@ export default function CampaignWorkspace() {
       <div className="section-heading">
         <div>
           <h2 id="campaign-authority">Campaign Workspace</h2>
-          <p>Routed Actors, Items, Abilities, Relationships, Quests, Places, Scene, and immutable history backed by one SQLite authority.</p>
+          <p>Routed Actors, Items, Abilities, Relationships, Quests, Facts, Places, World Objects, Scene, and immutable history backed by one SQLite authority.</p>
         </div>
         {displayed ? (
           <div className="workspace-state">
@@ -1784,6 +2004,17 @@ export default function CampaignWorkspace() {
                             }).then(() => undefined))}
                             onArchive={(relationshipId, archived) => run(() => executeOperation({ kind: 'set_relationship_archived', relationshipId, archived }).then(() => undefined))}
                           />
+                          <LinkedFactsPanel
+                            facts={displayed.facts ?? []}
+                            subjectId={actor.id}
+                            subjectLabel={actor.name}
+                            options={availableSubjects}
+                            busy={busy}
+                            readOnly={readOnly || actor.archived}
+                            onCreate={(name, summary, visibility) => run(() => executeOperation({ kind: 'create_fact', fact: { name, summary, visibility, subjectId: actor.id } }).then(() => undefined))}
+                            onSave={(factId, draft) => run(() => executeOperation({ kind: 'update_fact', factId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, subjectId: draft.relationId || null }).then(() => undefined))}
+                            onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))}
+                          />
                         </>
                       ) : <p className="error-banner">Actor {recordId} does not exist in this revision.</p>}
                     </>
@@ -1826,7 +2057,7 @@ export default function CampaignWorkspace() {
                   {recordId ? (
                     <>
                       <RecordRouteHeader route={route} onNavigate={navigate} />
-                      {item ? (
+                      {item ? (<>
                         <RecordEditor
                           kind="item"
                           record={item}
@@ -1836,7 +2067,11 @@ export default function CampaignWorkspace() {
                            onSave={(itemId, name, summary, aliases, visibility, ownerActorId) => run(() => executeOperation({ kind: 'update_item', itemId, name, summary, aliases: [...aliases], visibility, ownerActorId }).then(() => undefined))}
                           onArchive={(itemId, archived) => run(() => executeOperation({ kind: 'set_item_archived', itemId, archived }).then(() => undefined))}
                         />
-                      ) : <p className="error-banner">Item {recordId} does not exist in this revision.</p>}
+                        <LinkedFactsPanel facts={displayed.facts ?? []} subjectId={item.id} subjectLabel={item.name} options={availableSubjects} busy={busy} readOnly={readOnly || item.archived}
+                          onCreate={(name, summary, visibility) => run(() => executeOperation({ kind: 'create_fact', fact: { name, summary, visibility, subjectId: item.id } }).then(() => undefined))}
+                          onSave={(factId, draft) => run(() => executeOperation({ kind: 'update_fact', factId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, subjectId: draft.relationId || null }).then(() => undefined))}
+                          onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))} />
+                      </>) : <p className="error-banner">Item {recordId} does not exist in this revision.</p>}
                     </>
                   ) : (
                     <>
@@ -1866,7 +2101,7 @@ export default function CampaignWorkspace() {
                   {recordId ? (
                     <>
                       <RecordRouteHeader route={route} onNavigate={navigate} />
-                      {quest ? (
+                      {quest ? (<>
                         <RecordEditor
                           kind="quest"
                           record={quest}
@@ -1876,7 +2111,11 @@ export default function CampaignWorkspace() {
                            onSave={(questId, name, summary, aliases, visibility, status) => run(() => executeOperation({ kind: 'update_quest', questId, name, summary, aliases: [...aliases], visibility, status }).then(() => undefined))}
                           onArchive={(questId, archived) => run(() => executeOperation({ kind: 'set_quest_archived', questId, archived }).then(() => undefined))}
                         />
-                      ) : <p className="error-banner">Quest {recordId} does not exist in this revision.</p>}
+                        <LinkedFactsPanel facts={displayed.facts ?? []} subjectId={quest.id} subjectLabel={quest.name} options={availableSubjects} busy={busy} readOnly={readOnly || quest.archived}
+                          onCreate={(name, summary, visibility) => run(() => executeOperation({ kind: 'create_fact', fact: { name, summary, visibility, subjectId: quest.id } }).then(() => undefined))}
+                          onSave={(factId, draft) => run(() => executeOperation({ kind: 'update_fact', factId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, subjectId: draft.relationId || null }).then(() => undefined))}
+                          onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))} />
+                      </>) : <p className="error-banner">Quest {recordId} does not exist in this revision.</p>}
                     </>
                   ) : (
                     <>
@@ -1906,17 +2145,39 @@ export default function CampaignWorkspace() {
                   {recordId ? (
                     <>
                       <RecordRouteHeader route={route} onNavigate={navigate} />
-                      {place ? (
+                      {place ? (<>
                         <RecordEditor
                           kind="place"
                           record={place}
                           actors={displayed.actors}
                           busy={busy}
                           readOnly={readOnly}
-                           onSave={(placeId, name, summary, aliases, visibility) => run(() => executeOperation({ kind: 'update_place', placeId, name, summary, aliases: [...aliases], visibility }).then(() => undefined))}
+                          onSave={(placeId, name, summary, aliases, visibility) => run(() => executeOperation({ kind: 'update_place', placeId, name, summary, aliases: [...aliases], visibility }).then(() => undefined))}
                           onArchive={(placeId, archived) => run(() => executeOperation({ kind: 'set_place_archived', placeId, archived }).then(() => undefined))}
                         />
-                      ) : <p className="error-banner">Place {recordId} does not exist in this revision.</p>}
+                        <PlaceWorldObjectsPanel
+                          worldObjects={displayed.worldObjects ?? []}
+                          placeId={place.id}
+                          placeLabel={place.name}
+                          places={displayed.places}
+                          busy={busy}
+                          readOnly={readOnly || place.archived}
+                          onCreate={(name, summary) => run(() => executeOperation({ kind: 'create_world_object', worldObject: { name, summary, placeId: place.id } }).then(() => undefined))}
+                          onSave={(worldObjectId, draft) => run(() => executeOperation({ kind: 'update_world_object', worldObjectId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, placeId: draft.relationId || null }).then(() => undefined))}
+                          onArchive={(worldObjectId, archived) => run(() => executeOperation({ kind: 'set_world_object_archived', worldObjectId, archived }).then(() => undefined))}
+                        />
+                        <LinkedFactsPanel
+                          facts={displayed.facts ?? []}
+                          subjectId={place.id}
+                          subjectLabel={place.name}
+                          options={availableSubjects}
+                          busy={busy}
+                          readOnly={readOnly || place.archived}
+                          onCreate={(name, summary, visibility) => run(() => executeOperation({ kind: 'create_fact', fact: { name, summary, visibility, subjectId: place.id } }).then(() => undefined))}
+                          onSave={(factId, draft) => run(() => executeOperation({ kind: 'update_fact', factId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, subjectId: draft.relationId || null }).then(() => undefined))}
+                          onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))}
+                        />
+                      </>) : <p className="error-banner">Place {recordId} does not exist in this revision.</p>}
                     </>
                   ) : (
                     <>
@@ -1930,6 +2191,51 @@ export default function CampaignWorkspace() {
                       <RecordIndex collection="places" records={displayed.places} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
+                </section>
+              ) : null}
+
+              {route.collection === 'facts' ? (
+                <section className="collection-view" aria-labelledby="facts-heading">
+                  <div className="collection-heading"><div><h4 id="facts-heading">Facts</h4><p>Durable Campaign truths, optionally attached to a specific Record.</p></div></div>
+                  {recordId ? (<><RecordRouteHeader route={route} onNavigate={navigate} />
+                    {fact ? <WorldRecordEditor kind="fact" record={fact} options={availableSubjects} busy={busy} readOnly={readOnly}
+                      onSave={(factId, draft) => run(() => executeOperation({ kind: 'update_fact', factId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, subjectId: draft.relationId || null }).then(() => undefined))}
+                      onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))} />
+                      : <p className="error-banner">Fact {recordId} does not exist in this revision.</p>}
+                  </>) : (<>
+                    {!readOnly ? <form className="create-record-form" onSubmit={createFact}>
+                      <label><span>Fact name</span><input value={factName} onChange={event => setFactName(event.target.value)} disabled={busy} /></label>
+                      <label><span>Statement</span><textarea rows={3} value={factSummary} onChange={event => setFactSummary(event.target.value)} disabled={busy} /></label>
+                      <label><span>About Record</span><select value={factSubjectId} onChange={event => setFactSubjectId(event.target.value)} disabled={busy}><option value="">Campaign-wide</option>{availableSubjects.filter(option => !option.archived).map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+                      <button type="submit" disabled={busy || !factName.trim()}>Create Fact</button>
+                    </form> : null}
+                    <RecordIndex collection="facts" records={displayed.facts ?? []} document={displayed} route={route} onNavigate={navigate} />
+                  </>)}
+                </section>
+              ) : null}
+
+              {route.collection === 'world-objects' ? (
+                <section className="collection-view" aria-labelledby="world-objects-heading">
+                  <div className="collection-heading"><div><h4 id="world-objects-heading">World Objects</h4><p>Persistent non-portable objects and features, with optional Place attachment.</p></div></div>
+                  {recordId ? (<><RecordRouteHeader route={route} onNavigate={navigate} />
+                    {worldObject ? <>
+                      <WorldRecordEditor kind="world-object" record={worldObject} options={displayed.places.map(record => ({ id: record.id, label: record.name, archived: record.archived }))} busy={busy} readOnly={readOnly}
+                        onSave={(worldObjectId, draft) => run(() => executeOperation({ kind: 'update_world_object', worldObjectId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, placeId: draft.relationId || null }).then(() => undefined))}
+                        onArchive={(worldObjectId, archived) => run(() => executeOperation({ kind: 'set_world_object_archived', worldObjectId, archived }).then(() => undefined))} />
+                      <LinkedFactsPanel facts={displayed.facts ?? []} subjectId={worldObject.id} subjectLabel={worldObject.name} options={availableSubjects} busy={busy} readOnly={readOnly || worldObject.archived}
+                        onCreate={(name, summary, visibility) => run(() => executeOperation({ kind: 'create_fact', fact: { name, summary, visibility, subjectId: worldObject.id } }).then(() => undefined))}
+                        onSave={(factId, draft) => run(() => executeOperation({ kind: 'update_fact', factId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, subjectId: draft.relationId || null }).then(() => undefined))}
+                        onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))} />
+                    </> : <p className="error-banner">World Object {recordId} does not exist in this revision.</p>}
+                  </>) : (<>
+                    {!readOnly ? <form className="create-record-form" onSubmit={createWorldObject}>
+                      <label><span>World Object name</span><input value={worldObjectName} onChange={event => setWorldObjectName(event.target.value)} disabled={busy} /></label>
+                      <label><span>Description</span><textarea rows={3} value={worldObjectSummary} onChange={event => setWorldObjectSummary(event.target.value)} disabled={busy} /></label>
+                      <label><span>Place</span><select value={worldObjectPlaceId} onChange={event => setWorldObjectPlaceId(event.target.value)} disabled={busy}><option value="">No attached Place</option>{displayed.places.filter(record => !record.archived).map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+                      <button type="submit" disabled={busy || !worldObjectName.trim()}>Create World Object</button>
+                    </form> : null}
+                    <RecordIndex collection="world-objects" records={displayed.worldObjects ?? []} document={displayed} route={route} onNavigate={navigate} />
+                  </>)}
                 </section>
               ) : null}
 
@@ -1976,6 +2282,10 @@ export default function CampaignWorkspace() {
                             }).then(() => undefined))}
                             onArchive={(learnedAbilityId, archived) => run(() => executeOperation({ kind: 'set_learned_ability_archived', learnedAbilityId, archived }).then(() => undefined))}
                           />
+                          <LinkedFactsPanel facts={displayed.facts ?? []} subjectId={ability.id} subjectLabel={ability.name} options={availableSubjects} busy={busy} readOnly={readOnly || ability.archived}
+                            onCreate={(name, summary, visibility) => run(() => executeOperation({ kind: 'create_fact', fact: { name, summary, visibility, subjectId: ability.id } }).then(() => undefined))}
+                            onSave={(factId, draft) => run(() => executeOperation({ kind: 'update_fact', factId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, subjectId: draft.relationId || null }).then(() => undefined))}
+                            onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))} />
                         </>
                       ) : <p className="error-banner">Ability {recordId} does not exist in this revision.</p>}
                     </>
@@ -2034,9 +2344,10 @@ export default function CampaignWorkspace() {
                     actors={displayed.actors}
                     items={displayed.items}
                     places={displayed.places}
+                    worldObjects={displayed.worldObjects ?? []}
                     busy={busy}
                     readOnly={readOnly}
-                    onSave={(name, summary, placeId, actorIds, itemIds) => run(() => executeOperation({
+                    onSave={(name, summary, placeId, actorIds, itemIds, worldObjectIds) => run(() => executeOperation({
                       kind: 'set_current_scene',
                       scene: {
                         name,
@@ -2044,6 +2355,7 @@ export default function CampaignWorkspace() {
                         ...(placeId ? { placeId } : {}),
                         actorIds: [...actorIds],
                         itemIds: [...itemIds],
+                        worldObjectIds: [...worldObjectIds],
                       },
                     }).then(() => undefined))}
                   />

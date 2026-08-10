@@ -25,11 +25,9 @@ const PERIODIC_RESCAN_MS = 60_000;
 const WATCH_DEBOUNCE_MS = 250;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
-const SUPPORTED_TOP_LEVEL = new Set(['people', 'items', 'quests', 'places', 'abilities', 'relationships', 'scene', 'records']);
+const SUPPORTED_TOP_LEVEL = new Set(['people', 'items', 'quests', 'places', 'facts', 'worldObjects', 'abilities', 'relationships', 'scene', 'records']);
 const KNOWN_UNSUPPORTED = new Map([
   ['character', 'Player Character identity is not represented by the current companion addon model.'],
-  ['facts', 'Facts are not represented by the current companion addon model yet.'],
-  ['worldObjects', 'World Objects are not represented by the current companion addon model yet.'],
 ]);
 
 type SourceDocument = Readonly<{ name: string; document: Record<string, unknown> }>;
@@ -115,6 +113,14 @@ function campaignValue(document: CampaignDocument, after: AddonValue): AddonValu
     const record = document.places.find(candidate => candidate.id === after.subjectId);
     return record ? common(record) : null;
   }
+  if (after.recordKind === 'fact') {
+    const record = (document.facts ?? []).find(candidate => candidate.id === after.subjectId);
+    return record ? { ...common(record), ...(record.subjectId ? { aboutId: record.subjectId } : {}) } : null;
+  }
+  if (after.recordKind === 'world_object') {
+    const record = (document.worldObjects ?? []).find(candidate => candidate.id === after.subjectId);
+    return record ? { ...common(record), ...(record.placeId ? { placeId: record.placeId } : {}) } : null;
+  }
   if (after.recordKind === 'ability') {
     const record = (document.abilities ?? []).find(candidate => candidate.id === after.subjectId);
     return record ? { ...common(record), category: record.category } : null;
@@ -140,6 +146,7 @@ function campaignValue(document: CampaignDocument, after: AddonValue): AddonValu
     ...(record.placeId ? { placeId: record.placeId } : {}),
     ...(record.actorIds?.length ? { actorIds: record.actorIds } : {}),
     ...(record.itemIds?.length ? { itemIds: record.itemIds } : {}),
+    ...(record.worldObjectIds?.length ? { worldObjectIds: record.worldObjectIds } : {}),
   } : null;
 }
 
@@ -182,6 +189,14 @@ function operationsFor(changes: readonly AddonChange[]): CampaignOperation[] {
       operations.push(change.change === 'create'
         ? { kind: 'create_place', place: { id: value.subjectId, name: value.name, summary: value.summary, ...narrator } }
         : { kind: 'update_place', placeId: value.subjectId, name: value.name, summary: value.summary, ...narrator });
+    } else if (value.recordKind === 'fact') {
+      operations.push(change.change === 'create'
+        ? { kind: 'create_fact', fact: { id: value.subjectId, name: value.name, summary: value.summary, ...narrator, ...(value.aboutId ? { subjectId: value.aboutId } : {}) } }
+        : { kind: 'update_fact', factId: value.subjectId, name: value.name, summary: value.summary, ...narrator, subjectId: value.aboutId ?? null });
+    } else if (value.recordKind === 'world_object') {
+      operations.push(change.change === 'create'
+        ? { kind: 'create_world_object', worldObject: { id: value.subjectId, name: value.name, summary: value.summary, ...narrator, ...(value.placeId ? { placeId: value.placeId } : {}) } }
+        : { kind: 'update_world_object', worldObjectId: value.subjectId, name: value.name, summary: value.summary, ...narrator, placeId: value.placeId ?? null });
     } else if (value.recordKind === 'ability') {
       operations.push(change.change === 'create'
         ? { kind: 'create_ability', ability: { id: value.subjectId, name: value.name, summary: value.summary, category: value.category ?? 'other', ...narrator } }
@@ -209,6 +224,7 @@ function operationsFor(changes: readonly AddonChange[]): CampaignOperation[] {
           ...(value.placeId ? { placeId: value.placeId } : {}),
           ...(value.actorIds?.length ? { actorIds: value.actorIds } : {}),
           ...(value.itemIds?.length ? { itemIds: value.itemIds } : {}),
+          ...(value.worldObjectIds?.length ? { worldObjectIds: value.worldObjectIds } : {}),
         },
       });
     }
@@ -216,11 +232,13 @@ function operationsFor(changes: readonly AddonChange[]): CampaignOperation[] {
   const order: Record<CampaignOperation['kind'], number> = {
     create_actor: 0, rename_actor: 0, update_actor: 0, set_actor_archived: 0,
     create_place: 1, update_place: 1, set_place_archived: 1,
+    create_fact: 6, update_fact: 6, set_fact_archived: 6,
+    create_world_object: 3, update_world_object: 3, set_world_object_archived: 3,
     create_item: 2, update_item: 2, set_item_archived: 2, create_actor_with_item: 2,
-    create_quest: 3, update_quest: 3, set_quest_archived: 3,
-    create_ability: 4, create_ability_with_learning: 4, update_ability: 4, set_ability_archived: 4,
-    create_learned_ability: 5, update_learned_ability: 5, set_learned_ability_archived: 5,
-    create_relationship: 6, update_relationship: 6, set_relationship_archived: 6,
+    create_quest: 4, update_quest: 4, set_quest_archived: 4,
+    create_ability: 2, create_ability_with_learning: 2, update_ability: 2, set_ability_archived: 2,
+    create_learned_ability: 3, update_learned_ability: 3, set_learned_ability_archived: 3,
+    create_relationship: 5, update_relationship: 5, set_relationship_archived: 5,
     set_current_scene: 7,
   };
   return operations.sort((left, right) => order[left.kind] - order[right.kind]);
@@ -500,7 +518,7 @@ export class AddonService {
       }
       const common: AddonValue = {
         recordKind: kind, externalId, subjectId, sourceFile, name,
-        summary: text(input.summary),
+        summary: kind === 'fact' ? text(input.proposition ?? input.summary) : text(input.summary),
         ...(rawAliases?.length ? { aliases: rawAliases } : {}),
         ...(rawVisibility ? { visibility: rawVisibility } : { visibility: 'known' }),
       };
@@ -523,6 +541,27 @@ export class AddonService {
           return;
         }
         Object.assign(common, { category });
+      } else if (kind === 'fact') {
+        const subject = object(input.subject);
+        const subjectKind = text(subject?.kind);
+        const subjectExternalId = text(subject?.id);
+        const kindMap: Record<string, AddonRecordKind> = {
+          actor: 'actor', item: 'item', quest: 'quest', place: 'place', ability: 'ability',
+          worldObject: 'world_object', world_object: 'world_object', relationship: 'relationship',
+        };
+        let aboutId = text(input.aboutId ?? input.subjectId);
+        if (!aboutId && subjectKind && subjectExternalId) {
+          const mapped = kindMap[subjectKind];
+          if (!mapped || subjectExternalId === '$player') {
+            issues.push(issue('error', 'addon_fact_subject_invalid', sourceFile, `${path}.subject`, 'Fact subject must reference a supported Campaign Record. The Companion does not guess $player.'));
+            return;
+          }
+          aboutId = addonSubjectId(mapped, subjectExternalId);
+        }
+        if (aboutId) Object.assign(common, { aboutId });
+      } else if (kind === 'world_object') {
+        const placeId = text(input.placeId) || (text(input.homePlace) ? addonSubjectId('place', text(input.homePlace)) : '');
+        if (placeId) Object.assign(common, { placeId });
       } else if (kind === 'relationship') {
         const relationshipStatus = text(input.status, 'active');
         if (!relationshipSource || !relationshipTarget || relationshipSource === relationshipTarget) {
@@ -553,6 +592,7 @@ export class AddonService {
         const placeId = text(input.placeId) || (text(input.place) ? addonSubjectId('place', text(input.place)) : '');
         const actorIds = Array.isArray(input.actorIds) ? input.actorIds.map(String) : [];
         const itemIds = Array.isArray(input.itemIds) ? input.itemIds.map(String) : [];
+        const worldObjectIds = Array.isArray(input.worldObjectIds) ? input.worldObjectIds.map(String) : [];
         if (Array.isArray(input.presences)) {
           for (const [presenceIndex, presence] of input.presences.entries()) {
             const subject = object(object(presence)?.subject);
@@ -569,6 +609,7 @@ export class AddonService {
             const subjectExternalId = text(subject.id);
             if (subjectKind === 'actor' && subjectExternalId !== '$player') actorIds.push(addonSubjectId('actor', subjectExternalId));
             else if (subjectKind === 'item') itemIds.push(addonSubjectId('item', subjectExternalId));
+            else if (subjectKind === 'worldObject' || subjectKind === 'world_object') worldObjectIds.push(addonSubjectId('world_object', subjectExternalId));
             else issues.push(issue('warning', 'addon_scene_presence_not_imported', sourceFile, presencePath, `Scene subject ${subjectKind}:${subjectExternalId} is not represented by the current companion Scene model.`));
           }
         }
@@ -576,14 +617,17 @@ export class AddonService {
           ...(placeId ? { placeId } : {}),
           ...(actorIds.length ? { actorIds: [...new Set(actorIds)] } : {}),
           ...(itemIds.length ? { itemIds: [...new Set(itemIds)] } : {}),
+          ...(worldObjectIds.length ? { worldObjectIds: [...new Set(worldObjectIds)] } : {}),
         });
       }
       const accepted = new Set(['kind', 'id', 'externalId', 'name', 'title', 'summary', 'aliases', 'visibility']);
       if (kind === 'item') ['ownerActorId', 'ownerExternalId'].forEach(key => accepted.add(key));
       if (kind === 'quest') accepted.add('status');
       if (kind === 'ability') accepted.add('category');
+      if (kind === 'fact') ['proposition', 'subject', 'subjectId', 'aboutId'].forEach(key => accepted.add(key));
+      if (kind === 'world_object') ['placeId', 'homePlace'].forEach(key => accepted.add(key));
       if (kind === 'relationship') ['source', 'target', 'sourceActorId', 'targetActorId', 'relationshipKind', 'status', 'notes'].forEach(key => accepted.add(key));
-      if (kind === 'scene') ['place', 'placeId', 'actorIds', 'itemIds', 'presences'].forEach(key => accepted.add(key));
+      if (kind === 'scene') ['place', 'placeId', 'actorIds', 'itemIds', 'worldObjectIds', 'presences'].forEach(key => accepted.add(key));
       const omitted = Object.keys(input).filter(key => !accepted.has(key) && meaningful(input[key]));
       if (omitted.length) {
         issues.push(issue('warning', 'addon_fields_not_imported', sourceFile, path, `Current companion does not import these fields: ${omitted.join(', ')}.`));
@@ -593,7 +637,8 @@ export class AddonService {
     for (const source of documents) {
       const document = source.document;
       const collections: Array<readonly [string, AddonRecordKind]> = [
-        ['people', 'actor'], ['items', 'item'], ['quests', 'quest'], ['places', 'place'], ['abilities', 'ability'], ['relationships', 'relationship'],
+        ['people', 'actor'], ['items', 'item'], ['quests', 'quest'], ['places', 'place'], ['facts', 'fact'],
+        ['worldObjects', 'world_object'], ['abilities', 'ability'], ['relationships', 'relationship'],
       ];
       for (const [key, kind] of collections) {
         const raw = document[key];
@@ -611,8 +656,8 @@ export class AddonService {
         } else {
           document.records.forEach((record, index) => {
             const kind = text(object(record)?.kind) as AddonRecordKind;
-            if (!['actor', 'item', 'quest', 'place', 'ability', 'relationship', 'scene'].includes(kind)) {
-              issues.push(issue('error', 'addon_kind_unsupported', source.name, `records[${index}].kind`, 'Kind must be actor, item, quest, place, ability, relationship, or scene.'));
+            if (!['actor', 'item', 'quest', 'place', 'fact', 'world_object', 'ability', 'relationship', 'scene'].includes(kind)) {
+              issues.push(issue('error', 'addon_kind_unsupported', source.name, `records[${index}].kind`, 'Kind must be actor, item, quest, place, fact, world_object, ability, relationship, or scene.'));
               return;
             }
             add(kind, record, source.name, `records[${index}]`);
@@ -635,14 +680,20 @@ export class AddonService {
       ...document.actors.map(record => record.id),
       ...document.items.map(record => record.id),
       ...document.places.map(record => record.id),
+      ...(document.facts ?? []).map(record => record.id),
+      ...(document.worldObjects ?? []).map(record => record.id),
+      ...(document.abilities ?? []).map(record => record.id),
+      ...(document.relationships ?? []).map(record => record.id),
       ...values.map(value => value.subjectId),
     ]);
     for (const value of values) {
       const references = [
         ...(value.ownerActorId ? [value.ownerActorId] : []),
         ...(value.placeId ? [value.placeId] : []),
+        ...(value.aboutId ? [value.aboutId] : []),
         ...(value.actorIds ?? []),
         ...(value.itemIds ?? []),
+        ...(value.worldObjectIds ?? []),
         ...(value.sourceActorId ? [value.sourceActorId] : []),
         ...(value.targetActorId ? [value.targetActorId] : []),
       ];

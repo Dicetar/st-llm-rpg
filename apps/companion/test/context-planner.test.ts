@@ -550,6 +550,50 @@ test('exact Ability mention retrieves definition, live uses, and linked Actor wi
   assert.doesNotMatch(outcome.value.blocks.known, /different spell that should not be selected/);
 });
 
+test('exact World Object mention retrieves its Place and attached Fact without dumping the whole world', async () => {
+  const worldCampaign: CampaignDocument = {
+    ...campaign,
+    items: campaign.items.filter(record => record.id !== 'item-wardrobe'),
+    places: [{ id: 'place-bedroom', name: 'Childhood Bedroom', summary: 'The heir left it untouched.', archived: false }],
+    worldObjects: [{
+      id: 'object-wardrobe', name: 'Heirloom Wardrobe', aliases: ['red wardrobe'],
+      summary: 'Ancient red mahogany with silver draconic filigree.', placeId: 'place-bedroom',
+      visibility: 'known', archived: false,
+    }, {
+      id: 'object-mirror', name: 'Court Mirror', aliases: [], summary: 'Unrelated furnishing.',
+      visibility: 'known', archived: false,
+    }],
+    facts: [{
+      id: 'fact-key-missing', name: 'Wardrobe key is missing', aliases: [],
+      summary: 'The silver key was removed before the heir returned.', subjectId: 'object-wardrobe',
+      visibility: 'narrator_secret', archived: false,
+    }],
+    currentScene: {
+      id: 'scene-bedroom', name: 'Childhood Bedroom', summary: '', placeId: 'place-bedroom',
+      worldObjectIds: ['object-wardrobe'],
+    },
+  };
+  const planner = new ContextPlanner(source([], {
+    campaign: worldCampaign,
+    binding: { ...binding, pins: [] },
+    profile,
+  }));
+  const outcome = await planner.plan({
+    requestId: 'context-world-object', campaignId: campaign.campaign.id, campaignRevision: 7,
+    bindingId: binding.id, bindingRevision: 3, contextFocusRevision: 2,
+    modelProfileId: profile.id, generationType: 'normal',
+    messages: [{ role: 'user', content: 'I inspect the Heirloom Wardrobe carefully.' }],
+  }, new AbortController().signal);
+
+  assert.equal(outcome.ok, true);
+  if (!outcome.ok) return;
+  assert.equal(outcome.value.selections.some(selection => selection.recordId === 'object-wardrobe' && selection.tier === 'exact-mention'), true);
+  assert.equal(outcome.value.selections.some(selection => selection.recordId === 'fact-key-missing' && selection.tier === 'relation-hop'), true);
+  assert.match(outcome.value.blocks.known, /WORLD OBJECT: Heirloom Wardrobe/);
+  assert.match(outcome.value.blocks.secret ?? '', /FACT: Wardrobe key is missing/);
+  assert.doesNotMatch(JSON.stringify(outcome.value), /Unrelated furnishing/);
+});
+
 test('an Actor mention expands one explicit Relationship and its counterpart without exposing private links', async () => {
   const relationshipCampaign: CampaignDocument = {
     ...campaign,

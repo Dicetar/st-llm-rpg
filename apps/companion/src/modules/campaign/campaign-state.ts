@@ -3,6 +3,7 @@ import type {
   CampaignActor,
   CampaignAbility,
   CampaignDocument,
+  CampaignFact,
   CampaignItem,
   CampaignLearnedAbility,
   CampaignOperation,
@@ -11,6 +12,7 @@ import type {
   CampaignRelationship,
   CampaignScene,
   CampaignSummary,
+  CampaignWorldObject,
   NarratorVisibility,
 } from '@st-llm-rpg/wire';
 import { CampaignExpectedError } from './campaign-error.js';
@@ -21,14 +23,16 @@ export type CampaignState = {
   items: Record<string, CampaignItem>;
   quests?: Record<string, CampaignQuest>;
   places?: Record<string, CampaignPlace>;
+  facts?: Record<string, CampaignFact>;
+  worldObjects?: Record<string, CampaignWorldObject>;
   abilities?: Record<string, CampaignAbility>;
   learnedAbilities?: Record<string, CampaignLearnedAbility>;
   relationships?: Record<string, CampaignRelationship>;
   currentScene: CampaignScene | null;
 };
 
-export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'ability' | 'learned_ability' | 'relationship' | 'current_scene';
-export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignAbility | CampaignLearnedAbility | CampaignRelationship | CampaignScene | null;
+export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'fact' | 'world_object' | 'ability' | 'learned_ability' | 'relationship' | 'current_scene';
+export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignFact | CampaignWorldObject | CampaignAbility | CampaignLearnedAbility | CampaignRelationship | CampaignScene | null;
 export type CampaignSubjectChange = Readonly<{
   subjectKind: CampaignSubjectKind;
   subjectId: string;
@@ -64,6 +68,8 @@ export function normalizeCampaignState(state: CampaignState): CampaignState {
     ...state,
     quests: state.quests ?? {},
     places: state.places ?? {},
+    facts: state.facts ?? {},
+    worldObjects: state.worldObjects ?? {},
     abilities: state.abilities ?? {},
     learnedAbilities: state.learnedAbilities ?? {},
     relationships: state.relationships ?? {},
@@ -103,6 +109,8 @@ export function asDocument(state: CampaignState): CampaignDocument {
     items: Object.values(state.items).sort(byName),
     quests: Object.values(state.quests ?? {}).sort(byName),
     places: Object.values(state.places ?? {}).sort(byName),
+    facts: Object.values(state.facts ?? {}).sort(byName),
+    worldObjects: Object.values(state.worldObjects ?? {}).sort(byName),
     abilities: Object.values(state.abilities ?? {}).sort(byName),
     learnedAbilities: Object.values(state.learnedAbilities ?? {}).sort((left, right) => left.id.localeCompare(right.id)),
     relationships: Object.values(state.relationships ?? {}).sort((left, right) => left.id.localeCompare(right.id)),
@@ -114,6 +122,8 @@ export function normalizeCampaignDocument(document: CampaignDocument): CampaignD
   const legacy = document as CampaignDocument & {
     quests?: CampaignQuest[];
     places?: CampaignPlace[];
+    facts?: CampaignFact[];
+    worldObjects?: CampaignWorldObject[];
     abilities?: CampaignAbility[];
     learnedAbilities?: CampaignLearnedAbility[];
     relationships?: CampaignRelationship[];
@@ -122,6 +132,8 @@ export function normalizeCampaignDocument(document: CampaignDocument): CampaignD
     ...document,
     quests: legacy.quests ?? [],
     places: legacy.places ?? [],
+    facts: legacy.facts ?? [],
+    worldObjects: legacy.worldObjects ?? [],
     abilities: legacy.abilities ?? [],
     learnedAbilities: legacy.learnedAbilities ?? [],
     relationships: legacy.relationships ?? [],
@@ -149,6 +161,8 @@ function recordIdExists(state: CampaignState, id: string): boolean {
     || state.items[id]
     || state.quests?.[id]
     || state.places?.[id]
+    || state.facts?.[id]
+    || state.worldObjects?.[id]
     || state.abilities?.[id]
     || state.learnedAbilities?.[id]
     || state.relationships?.[id]
@@ -202,6 +216,28 @@ function requirePlace(state: CampaignState, placeId: string): CampaignPlace {
   const place = state.places?.[id];
   if (!place) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Place ${id} was not found.`, { placeId: id });
   return place;
+}
+
+function requireFact(state: CampaignState, factId: string): CampaignFact {
+  const id = cleanIdentifier(factId, 'Fact ID');
+  const fact = state.facts?.[id];
+  if (!fact) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Fact ${id} was not found.`, { factId: id });
+  return fact;
+}
+
+function requireWorldObject(state: CampaignState, worldObjectId: string): CampaignWorldObject {
+  const id = cleanIdentifier(worldObjectId, 'World Object ID');
+  const worldObject = state.worldObjects?.[id];
+  if (!worldObject) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `World Object ${id} was not found.`, { worldObjectId: id });
+  return worldObject;
+}
+
+function requireRecordId(state: CampaignState, recordId: string, field: string): string {
+  const id = cleanIdentifier(recordId, field);
+  if (!recordIdExists(state, id)) {
+    throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Record ${id} was not found.`, { recordId: id });
+  }
+  return id;
 }
 
 function requireAbility(state: CampaignState, abilityId: string): CampaignAbility {
@@ -386,6 +422,8 @@ export function subjectImageAt(
   if (subjectKind === 'item') return structuredClone(state.items[subjectId] ?? null);
   if (subjectKind === 'quest') return structuredClone(state.quests?.[subjectId] ?? null);
   if (subjectKind === 'place') return structuredClone(state.places?.[subjectId] ?? null);
+  if (subjectKind === 'fact') return structuredClone(state.facts?.[subjectId] ?? null);
+  if (subjectKind === 'world_object') return structuredClone(state.worldObjects?.[subjectId] ?? null);
   if (subjectKind === 'ability') return structuredClone(state.abilities?.[subjectId] ?? null);
   if (subjectKind === 'learned_ability') return structuredClone(state.learnedAbilities?.[subjectId] ?? null);
   if (subjectKind === 'relationship') return structuredClone(state.relationships?.[subjectId] ?? null);
@@ -410,21 +448,16 @@ export function subjectChangesForOperation(
   } else {
     const affectedId = affectedIds[0];
     if (!affectedId) throw new Error(`Campaign Operation ${operation.kind} produced no affected subject.`);
-    const subjectKind: CampaignSubjectKind = operation.kind === 'set_current_scene'
-      ? 'current_scene'
-      : operation.kind.includes('item')
-        ? 'item'
-        : operation.kind.includes('quest')
-          ? 'quest'
-          : operation.kind.includes('place')
-            ? 'place'
-            : operation.kind.includes('learned_ability')
-              ? 'learned_ability'
-              : operation.kind.includes('relationship')
-                ? 'relationship'
-              : operation.kind.includes('ability')
-                ? 'ability'
-            : 'actor';
+    const subjectKind: CampaignSubjectKind = operation.kind === 'set_current_scene' ? 'current_scene'
+      : operation.kind.includes('world_object') ? 'world_object'
+        : operation.kind.includes('learned_ability') ? 'learned_ability'
+          : operation.kind.includes('relationship') ? 'relationship'
+            : operation.kind.includes('ability') ? 'ability'
+              : operation.kind.includes('item') ? 'item'
+                : operation.kind.includes('quest') ? 'quest'
+                  : operation.kind.includes('fact') ? 'fact'
+                    : operation.kind.includes('place') ? 'place'
+                      : 'actor';
     subjects = [[subjectKind, subjectKind === 'current_scene' ? 'current' : affectedId]];
   }
   return subjects.map(([subjectKind, subjectId]) => ({
@@ -462,6 +495,18 @@ export function applySubjectChanges(
       state.places ??= {};
       if (change.afterImage === null) delete state.places[change.subjectId];
       else state.places[change.subjectId] = structuredClone(change.afterImage as CampaignPlace);
+      continue;
+    }
+    if (change.subjectKind === 'fact') {
+      state.facts ??= {};
+      if (change.afterImage === null) delete state.facts[change.subjectId];
+      else state.facts[change.subjectId] = structuredClone(change.afterImage as CampaignFact);
+      continue;
+    }
+    if (change.subjectKind === 'world_object') {
+      state.worldObjects ??= {};
+      if (change.afterImage === null) delete state.worldObjects[change.subjectId];
+      else state.worldObjects[change.subjectId] = structuredClone(change.afterImage as CampaignWorldObject);
       continue;
     }
     if (change.subjectKind === 'ability') {
@@ -657,6 +702,84 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
     state.places[place.id] = { ...place, archived: operation.archived };
     return [place.id];
   }
+  if (operation.kind === 'create_fact') {
+    const id = requireUnusedId(state, operation.fact.id, 'Fact ID');
+    const subjectId = operation.fact.subjectId === undefined
+      ? undefined
+      : requireRecordId(state, operation.fact.subjectId, 'Fact subject ID');
+    state.facts ??= {};
+    state.facts[id] = {
+      id,
+      name: cleanText(operation.fact.name, 'Fact name', 160),
+      aliases: cleanAliases(operation.fact.aliases),
+      summary: cleanOptionalText(operation.fact.summary, 'Fact statement', 4000),
+      visibility: cleanVisibility(operation.fact.visibility),
+      archived: false,
+      ...(subjectId === undefined ? {} : { subjectId }),
+    };
+    return [id];
+  }
+  if (operation.kind === 'update_fact') {
+    const fact = requireFact(state, operation.factId);
+    const subjectId = operation.subjectId === null || operation.subjectId === undefined
+      ? undefined
+      : requireRecordId(state, operation.subjectId, 'Fact subject ID');
+    state.facts ??= {};
+    state.facts[fact.id] = {
+      id: fact.id,
+      name: cleanText(operation.name, 'Fact name', 160),
+      summary: cleanOptionalText(operation.summary, 'Fact statement', 4000),
+      ...narratorFields(fact, operation.aliases, operation.visibility),
+      archived: fact.archived,
+      ...(subjectId === undefined ? {} : { subjectId }),
+    };
+    return [fact.id];
+  }
+  if (operation.kind === 'set_fact_archived') {
+    const fact = requireFact(state, operation.factId);
+    state.facts ??= {};
+    state.facts[fact.id] = { ...fact, archived: operation.archived };
+    return [fact.id];
+  }
+  if (operation.kind === 'create_world_object') {
+    const id = requireUnusedId(state, operation.worldObject.id, 'World Object ID');
+    const placeId = operation.worldObject.placeId === undefined
+      ? undefined
+      : requireActiveSceneRecord(requirePlace(state, operation.worldObject.placeId), 'Place').id;
+    state.worldObjects ??= {};
+    state.worldObjects[id] = {
+      id,
+      name: cleanText(operation.worldObject.name, 'World Object name', 160),
+      aliases: cleanAliases(operation.worldObject.aliases),
+      summary: cleanOptionalText(operation.worldObject.summary, 'World Object summary', 4000),
+      visibility: cleanVisibility(operation.worldObject.visibility),
+      archived: false,
+      ...(placeId === undefined ? {} : { placeId }),
+    };
+    return [id];
+  }
+  if (operation.kind === 'update_world_object') {
+    const worldObject = requireWorldObject(state, operation.worldObjectId);
+    const placeId = operation.placeId === null || operation.placeId === undefined
+      ? undefined
+      : requireActiveSceneRecord(requirePlace(state, operation.placeId), 'Place').id;
+    state.worldObjects ??= {};
+    state.worldObjects[worldObject.id] = {
+      id: worldObject.id,
+      name: cleanText(operation.name, 'World Object name', 160),
+      summary: cleanOptionalText(operation.summary, 'World Object summary', 4000),
+      ...narratorFields(worldObject, operation.aliases, operation.visibility),
+      archived: worldObject.archived,
+      ...(placeId === undefined ? {} : { placeId }),
+    };
+    return [worldObject.id];
+  }
+  if (operation.kind === 'set_world_object_archived') {
+    const worldObject = requireWorldObject(state, operation.worldObjectId);
+    state.worldObjects ??= {};
+    state.worldObjects[worldObject.id] = { ...worldObject, archived: operation.archived };
+    return [worldObject.id];
+  }
   if (operation.kind === 'create_ability' || operation.kind === 'create_ability_with_learning') {
     const id = requireUnusedId(state, operation.ability.id, 'Ability ID');
     state.abilities ??= {};
@@ -808,6 +931,7 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       : requireActiveSceneRecord(requirePlace(state, operation.scene.placeId), 'Place').id;
     const actorIds = operation.scene.actorIds?.map(actorId => requireActiveSceneRecord(requireActor(state, actorId), 'Actor').id) ?? [];
     const itemIds = operation.scene.itemIds?.map(itemId => requireActiveSceneRecord(requireItem(state, itemId), 'Item').id) ?? [];
+    const worldObjectIds = operation.scene.worldObjectIds?.map(worldObjectId => requireActiveSceneRecord(requireWorldObject(state, worldObjectId), 'World Object').id) ?? [];
     state.currentScene = {
       id,
       name: cleanText(operation.scene.name, 'Scene name', 160),
@@ -815,6 +939,7 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       ...(placeId ? { placeId } : {}),
       ...(actorIds.length ? { actorIds } : {}),
       ...(itemIds.length ? { itemIds } : {}),
+      ...(worldObjectIds.length ? { worldObjectIds } : {}),
     };
     return [id];
   }

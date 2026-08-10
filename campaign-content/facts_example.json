@@ -2,21 +2,21 @@
   "_comment": "Documentation example only. Facts are concise canonical propositions, not copied chat prose.",
   "_field_help": {
     "proposition": "The exact durable claim treated as true.",
-    "subject": "Optional typed reference to the subject of the claim.",
+    "subject": "Optional typed reference to an actor, item, quest, place, ability, worldObject, or relationship addon id.",
     "importance": "normal, important, or critical.",
     "contextPolicy": "automatic, pinned, or excluded."
   },
   "facts": [
     {
-      "id": "evelyn-sole-heir",
-      "name": "Evelyn is the sole heir",
-      "proposition": "Evelyn Harcourt is the sole legitimate heir of House Harcourt.",
+      "id": "harcourt-registry-names-one-heir",
+      "name": "The registry names one heir",
+      "proposition": "The surviving Harcourt registry names Evelyn as the sole legitimate heir.",
       "summary": "The central legal fact of the succession dispute.",
       "details": "The opposing faction disputes the surviving registry copy.",
       "category": "succession",
       "scope": "campaign",
       "tags": ["house-harcourt", "inheritance"],
-      "subject": { "kind": "actor", "id": "$player" },
+      "subject": { "kind": "place", "id": "harcourt-estate" },
       "importance": "critical",
       "contextPolicy": "pinned"
     }

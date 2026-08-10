@@ -3,10 +3,12 @@ import type {
   CampaignActor,
   CampaignAbility,
   CampaignDocument,
+  CampaignFact,
   CampaignItem,
   CampaignPlace,
   CampaignQuest,
   CampaignRelationship,
+  CampaignWorldObject,
   ChatBindingDocument,
   ContextAmbiguity,
   ContextOmission,
@@ -48,7 +50,7 @@ export type ContextOutcome =
 
 type ContextRecord = Readonly<{
   id: string;
-  kind: 'actor' | 'item' | 'quest' | 'place' | 'ability' | 'relationship';
+  kind: 'actor' | 'item' | 'quest' | 'place' | 'fact' | 'world_object' | 'ability' | 'relationship';
   name: string;
   aliases: readonly string[];
   summary: string;
@@ -58,6 +60,8 @@ type ContextRecord = Readonly<{
   category?: CampaignAbility['category'];
   learningLabels?: readonly string[];
   relationshipLabel?: string;
+  subjectLabel?: string;
+  placeLabel?: string;
 }>;
 
 const INSTRUCTION_OVERHEAD_TOKENS = 128;
@@ -84,6 +88,16 @@ function visibilityOf(record: { visibility?: NarratorVisibility }): NarratorVisi
 }
 
 function recordsOf(document: CampaignDocument): ContextRecord[] {
+  const factIdsBySubject = new Map<string, string[]>();
+  for (const fact of (document.facts ?? [])) {
+    if (fact.archived || visibilityOf(fact) === 'campaign_private' || !fact.subjectId) continue;
+    factIdsBySubject.set(fact.subjectId, [...(factIdsBySubject.get(fact.subjectId) ?? []), fact.id]);
+  }
+  const worldObjectIdsByPlace = new Map<string, string[]>();
+  for (const worldObject of (document.worldObjects ?? [])) {
+    if (worldObject.archived || visibilityOf(worldObject) === 'campaign_private' || !worldObject.placeId) continue;
+    worldObjectIdsByPlace.set(worldObject.placeId, [...(worldObjectIdsByPlace.get(worldObject.placeId) ?? []), worldObject.id]);
+  }
   const learned = (document.learnedAbilities ?? []).filter(record => !record.archived);
   const abilityIdsByActor = new Map<string, string[]>();
   const actorIdsByAbility = new Map<string, string[]>();
@@ -110,7 +124,7 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     summary: record.summary,
     visibility: visibilityOf(record),
     archived: record.archived,
-    relations: [...new Set([...(abilityIdsByActor.get(record.id) ?? []), ...(relationIdsByActor.get(record.id) ?? [])])],
+    relations: [...new Set([...(abilityIdsByActor.get(record.id) ?? []), ...(relationIdsByActor.get(record.id) ?? []), ...(factIdsBySubject.get(record.id) ?? [])])],
   }));
   const items = document.items.map((record: CampaignItem): ContextRecord => ({
     id: record.id,
@@ -120,7 +134,7 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     summary: record.summary,
     visibility: visibilityOf(record),
     archived: record.archived,
-    relations: record.ownerActorId ? [record.ownerActorId] : [],
+    relations: [...(record.ownerActorId ? [record.ownerActorId] : []), ...(factIdsBySubject.get(record.id) ?? [])],
   }));
   const quests = document.quests.map((record: CampaignQuest): ContextRecord => ({
     id: record.id,
@@ -130,7 +144,7 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     summary: record.summary,
     visibility: visibilityOf(record),
     archived: record.archived,
-    relations: [],
+    relations: factIdsBySubject.get(record.id) ?? [],
   }));
   const places = document.places.map((record: CampaignPlace): ContextRecord => ({
     id: record.id,
@@ -140,7 +154,31 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     summary: record.summary,
     visibility: visibilityOf(record),
     archived: record.archived,
-    relations: [],
+    relations: [...(worldObjectIdsByPlace.get(record.id) ?? []), ...(factIdsBySubject.get(record.id) ?? [])],
+  }));
+  const facts = (document.facts ?? []).map((record: CampaignFact): ContextRecord => ({
+    id: record.id,
+    kind: 'fact',
+    name: record.name,
+    aliases: record.aliases ?? [],
+    summary: record.summary,
+    visibility: visibilityOf(record),
+    archived: record.archived,
+    relations: record.subjectId ? [record.subjectId] : [],
+    ...(record.subjectId ? { subjectLabel: recordsLabel(document, record.subjectId) ?? record.subjectId } : {}),
+  }));
+  const worldObjects = (document.worldObjects ?? []).map((record: CampaignWorldObject): ContextRecord => ({
+    id: record.id,
+    kind: 'world_object',
+    name: record.name,
+    aliases: record.aliases ?? [],
+    summary: record.summary,
+    visibility: visibilityOf(record),
+    archived: record.archived,
+    relations: [...(record.placeId ? [record.placeId] : []), ...(factIdsBySubject.get(record.id) ?? [])],
+    ...(record.placeId ? {
+      placeLabel: document.places.find(candidate => candidate.id === record.placeId)?.name ?? record.placeId,
+    } : {}),
   }));
   const abilities = (document.abilities ?? []).map((record: CampaignAbility): ContextRecord => ({
     id: record.id,
@@ -150,7 +188,7 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     summary: record.summary,
     visibility: visibilityOf(record),
     archived: record.archived,
-    relations: actorIdsByAbility.get(record.id) ?? [],
+    relations: [...(actorIdsByAbility.get(record.id) ?? []), ...(factIdsBySubject.get(record.id) ?? [])],
     category: record.category,
     learningLabels: learned.filter(entry => entry.abilityId === record.id).map(entry => {
       const actor = document.actors.find(candidate => candidate.id === entry.actorId);
@@ -176,7 +214,7 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
       relationshipLabel: `${source.name} —${record.kind}→ ${target.name} (${record.status})`,
     }];
   });
-  return [...actors, ...items, ...quests, ...places, ...abilities, ...relationships]
+  return [...actors, ...items, ...quests, ...places, ...facts, ...worldObjects, ...abilities, ...relationships]
     .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
 }
 
@@ -204,12 +242,26 @@ function renderCore(document: CampaignDocument): string {
   return rows.join('\n');
 }
 
+function recordsLabel(document: CampaignDocument, recordId: string): string | undefined {
+  return [
+    ...document.actors,
+    ...document.items,
+    ...document.quests,
+    ...document.places,
+    ...(document.facts ?? []),
+    ...(document.worldObjects ?? []),
+    ...(document.abilities ?? []),
+  ].find(record => record.id === recordId)?.name;
+}
+
 function renderRecord(record: ContextRecord): string {
   const aliases = record.aliases.length ? `\nAliases: ${record.aliases.join(', ')}` : '';
   const category = record.category ? `\nCategory: ${record.category}` : '';
   const learning = record.learningLabels?.length ? `\nKnown by: ${record.learningLabels.join('; ')}` : '';
   const relationship = record.relationshipLabel ? `\n${record.relationshipLabel}` : '';
-  return `${record.kind.toUpperCase()}: ${record.name}${category}${aliases}${relationship}${record.summary ? `\n${record.summary}` : ''}${learning}`;
+  const subject = record.subjectLabel ? `\nAbout: ${record.subjectLabel}` : '';
+  const place = record.placeLabel ? `\nPlace: ${record.placeLabel}` : '';
+  return `${record.kind.replace('_', ' ').toUpperCase()}: ${record.name}${category}${aliases}${relationship}${subject}${place}${record.summary ? `\n${record.summary}` : ''}${learning}`;
 }
 
 function fitToTokenBudget(value: string, maximumTokens: number): string {
@@ -460,7 +512,7 @@ export class ContextPlanner {
 
     const scene = authority.campaign.currentScene;
     const sceneAnchorIds = scene
-      ? [scene.placeId, ...(scene.actorIds ?? []), ...(scene.itemIds ?? [])].filter((id): id is string => Boolean(id)).slice(0, 4)
+      ? [scene.placeId, ...(scene.actorIds ?? []), ...(scene.itemIds ?? []), ...(scene.worldObjectIds ?? [])].filter((id): id is string => Boolean(id)).slice(0, 4)
       : [];
     for (const recordId of sceneAnchorIds) {
       const record = byId.get(recordId);

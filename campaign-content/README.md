@@ -10,7 +10,7 @@ This folder is the external authoring surface for RPG Campaign content.
 
 The Companion watches this directory and also provides manual **Rescan files**. A watcher signal never mutates Campaign truth. Apply rechecks the exact manifest and Campaign revision, creates a verified pre-import SQLite backup, then accepts one atomic Campaign event. Missing file rows never delete accepted records.
 
-The current Companion slice imports Actors (`people`), Items, Abilities, directed Relationships, Quests with `active`/`completed` status, Places, and its simplified current Scene. Richer fallback-only fields and collections are shown as warnings; they are never silently claimed as imported.
+The current Companion imports Actors (`people`), Items, Abilities, directed Relationships, Quests with `active`/`completed` status, Facts, Places, World Objects, and its simplified current Scene. Scene World Object presences become explicit structural attachments. Richer fallback-only fields are shown as warnings; they are never silently claimed as imported.
 
 For the fallback extension, double-click `Sync-JSON-Addons.bat`, refresh SillyTavern, then press **Sync JSON Addons** in Campaign Workspace.
 
@@ -40,6 +40,7 @@ Events, accepted history, closed Scene Archives, Story Sync Proposals, and journ
 - IDs are unique per collection across all addon files.
 - In the production Companion, Relationship `source` and `target` use People addon IDs; `sourceActorId` and `targetActorId` may instead name existing canonical Actor IDs. The fallback also understands `$player`, but the Companion never guesses which Actor is the player.
 - Typed references use stable addon IDs and must point to entries included in the same installed bundle.
+- A Fact `subject` uses a typed addon reference. A World Object `homePlace` uses a Place addon ID.
 - At most one non-null `character` and one non-null `scene` may exist across all addon files.
 - A Scene addon can update the same open Scene but cannot replace a different open Scene.
 - Removing an entry from a file does not delete it from SillyTavern. Archive or delete it in the Workspace.

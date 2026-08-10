@@ -195,6 +195,70 @@ test('directed Relationships edit, archive, restore, search, reconstruct, and su
   journal.verifyOrThrow();
 });
 
+test('Facts and World Objects attach beside world records, enter Scenes, retrieve, and survive restart', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'st-rpg-world-records-'));
+  const databasePath = join(root, 'campaigns.sqlite');
+  let journal = await SqliteCampaignJournal.open(databasePath, 25);
+  t.after(async () => {
+    await journal.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const created = await acceptCampaignCreate(journal, { requestId: 'world-campaign', title: 'World Book' });
+  assert.deepEqual(created.document.facts, []);
+  assert.deepEqual(created.document.worldObjects, []);
+  const place = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'world-place', expectedRevision: created.revision,
+    operation: { kind: 'create_place', place: { id: 'place-bedroom', name: 'Childhood Bedroom' } },
+  });
+  const worldObject = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'world-object', expectedRevision: place.revision,
+    operation: { kind: 'create_world_object', worldObject: {
+      id: 'object-wardrobe', name: 'Heirloom Wardrobe', placeId: 'place-bedroom',
+      summary: 'Ancient red mahogany with silver draconic filigree.',
+    } },
+  });
+  const fact = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'world-fact', expectedRevision: worldObject.revision,
+    operation: { kind: 'create_fact', fact: {
+      id: 'fact-wardrobe-key', name: 'Wardrobe key is missing', subjectId: 'object-wardrobe',
+      summary: 'The silver key was removed before the heir returned.', visibility: 'narrator_secret',
+    } },
+  });
+  const scene = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'world-scene', expectedRevision: fact.revision,
+    operation: { kind: 'set_current_scene', scene: {
+      id: 'scene-bedroom', name: 'Return to the bedroom', placeId: 'place-bedroom',
+      worldObjectIds: ['object-wardrobe'],
+    } },
+  });
+  assert.equal(scene.document.worldObjects?.[0]?.placeId, 'place-bedroom');
+  assert.equal(scene.document.facts?.[0]?.subjectId, 'object-wardrobe');
+  assert.deepEqual(scene.document.currentScene?.worldObjectIds, ['object-wardrobe']);
+  const hits = await journal.search({
+    campaignId: created.campaignId,
+    campaignRevision: scene.revision,
+    query: 'red mahogany wardrobe filigree',
+    limit: 8,
+  });
+  assert.equal(hits.some(hit => hit.recordId === 'object-wardrobe'), true);
+
+  const archived = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'world-fact-archive', expectedRevision: scene.revision,
+    operation: { kind: 'set_fact_archived', factId: 'fact-wardrobe-key', archived: true },
+  });
+  assert.equal(archived.document.facts?.[0]?.archived, true);
+  assert.equal(journal.readCampaign(created.campaignId, fact.revision).facts?.[0]?.archived, false);
+
+  await journal.close();
+  journal = await SqliteCampaignJournal.open(databasePath, 25);
+  const reopened = journal.readCampaign(created.campaignId);
+  assert.equal(reopened.worldObjects?.[0]?.name, 'Heirloom Wardrobe');
+  assert.equal(reopened.facts?.[0]?.archived, true);
+  assert.deepEqual(reopened.currentScene?.worldObjectIds, ['object-wardrobe']);
+  journal.verifyOrThrow();
+});
+
 test('V7 authority backs up, expands subject history, and opens with empty Ability collections', async t => {
   const root = await mkdtemp(join(tmpdir(), 'st-rpg-v7-ability-upgrade-'));
   const databasePath = join(root, 'campaigns.sqlite');
@@ -297,4 +361,58 @@ test('V8 authority receives an automatic backup before Relationship schema migra
   journal.verifyOrThrow();
   await journal.close();
   assert.equal((await readdir(root)).some(name => name.startsWith('campaigns.sqlite.pre-migration-v9-')), true);
+});
+
+test('V9 authority receives an automatic backup before Fact and World Object schema migration', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'st-rpg-v9-world-upgrade-'));
+  const databasePath = join(root, 'campaigns.sqlite');
+  let journal = await SqliteCampaignJournal.open(databasePath);
+  t.after(async () => {
+    try { await journal.close(); } catch { /* already closed */ }
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await acceptCampaignCreate(journal, { requestId: 'v9-campaign', title: 'Before World Records' });
+  await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'v9-place', expectedRevision: 1,
+    operation: { kind: 'create_place', place: { id: 'place-kept-v9', name: 'Kept V9 Place' } },
+  });
+  await journal.close();
+
+  const database = new DatabaseSync(databasePath);
+  database.exec(`
+    PRAGMA foreign_keys = OFF;
+    DROP INDEX campaign_event_changes_subject;
+    ALTER TABLE campaign_event_changes RENAME TO campaign_event_changes_v10;
+    CREATE TABLE campaign_event_changes (
+      event_id TEXT NOT NULL REFERENCES campaign_events(event_id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      subject_kind TEXT NOT NULL CHECK (subject_kind IN ('actor', 'item', 'quest', 'place', 'ability', 'learned_ability', 'relationship', 'current_scene')),
+      subject_id TEXT NOT NULL,
+      before_schema_version INTEGER,
+      before_image_json TEXT,
+      before_hash TEXT,
+      after_schema_version INTEGER,
+      after_image_json TEXT,
+      after_hash TEXT,
+      PRIMARY KEY (event_id, ordinal)
+    );
+    INSERT INTO campaign_event_changes SELECT * FROM campaign_event_changes_v10;
+    DROP TABLE campaign_event_changes_v10;
+    CREATE INDEX campaign_event_changes_subject ON campaign_event_changes(subject_kind, subject_id);
+    DROP TABLE campaign_fact_projections;
+    DROP TABLE campaign_world_object_projections;
+    ALTER TABLE campaign_scene_projections DROP COLUMN world_object_ids_json;
+    DELETE FROM schema_migrations WHERE version = 10;
+    PRAGMA foreign_keys = ON;
+  `);
+  database.close();
+
+  journal = await SqliteCampaignJournal.open(databasePath);
+  const upgraded = journal.readCampaign(created.campaignId);
+  assert.equal(upgraded.places[0]?.name, 'Kept V9 Place');
+  assert.deepEqual(upgraded.facts, []);
+  assert.deepEqual(upgraded.worldObjects, []);
+  journal.verifyOrThrow();
+  await journal.close();
+  assert.equal((await readdir(root)).some(name => name.startsWith('campaigns.sqlite.pre-migration-v10-')), true);
 });

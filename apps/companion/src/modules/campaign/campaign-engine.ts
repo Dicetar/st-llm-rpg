@@ -153,6 +153,8 @@ export class CampaignEngine {
             items: {},
             quests: {},
             places: {},
+            facts: {},
+            worldObjects: {},
             abilities: {},
             learnedAbilities: {},
             relationships: {},

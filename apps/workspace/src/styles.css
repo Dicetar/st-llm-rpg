@@ -243,7 +243,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .alias-editor legend { padding: 0 0.35rem; color: #d8aa63; }
 .alias-editor > .empty-state { margin: 0; }
 .alias-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.55rem; }
-.scene-attachments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
+.scene-attachments { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
 .scene-attachments fieldset { min-width: 0; display: grid; align-content: start; gap: 0.55rem; margin: 0; border: 1px solid #4c4032; border-radius: 0.7rem; padding: 0.75rem; }
 .scene-attachments legend { padding: 0 0.35rem; color: #d8aa63; }
 .scene-attachments label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.55rem; min-height: 44px; }
@@ -252,6 +252,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .record-card__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .record-card__heading span { min-width: 0; color: #8f8372; font-size: 0.72rem; overflow-wrap: anywhere; }
 .record-actions { display: flex; justify-content: flex-end; gap: 0.65rem; flex-wrap: wrap; }
+.linked-records { display: grid; gap: 0.75rem; margin-top: 1rem; border-top: 1px solid #4c4032; padding-top: 1rem; }
+.linked-records > .collection-heading { margin-bottom: 0; }
+.linked-records > .record-card { background: #1b1712; }
+.create-record-form--inline { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(14rem, 2fr) minmax(9rem, 0.8fr) auto; align-items: end; margin-bottom: 0; }
 .ability-learning-create { min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; gap: 0.65rem; margin: 0; border: 1px solid #4c4032; border-radius: 0.7rem; padding: 0.75rem; }
 .ability-learning-create legend { padding: 0 0.35rem; color: #d8aa63; }
 .ability-learning-create > label:first-of-type { grid-column: span 2; }
@@ -482,7 +486,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .collection-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .command-deck__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .legacy-apply-grid { grid-template-columns: 1fr; }
-  .ability-learning-create, .learned-ability-create, .learned-ability-row, .relationship-create, .relationship-row { grid-template-columns: 1fr; }
+  .ability-learning-create, .learned-ability-create, .learned-ability-row, .relationship-create, .relationship-row, .create-record-form--inline { grid-template-columns: 1fr; }
   .relationship-create__notes, .relationship-row__notes { grid-column: auto; }
   .ability-learning-create > label:first-of-type { grid-column: auto; }
 }

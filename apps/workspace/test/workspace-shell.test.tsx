@@ -15,6 +15,8 @@ import {
   RecordEditor,
   LearnedAbilitiesPanel,
   RelationshipsPanel,
+  LinkedFactsPanel,
+  PlaceWorldObjectsPanel,
   SceneEditor,
   StorySyncReviewInboxView,
   BackupPanelView,
@@ -438,15 +440,16 @@ test('Actor-local Relationships editor creates, edits, and removes directed link
   assert.match(html, /Remove/);
 });
 
-test('Scene editor exposes structural Place, Actor, and Item attachments for Context anchors', () => {
+test('Scene editor exposes structural Place, Actor, Item, and World Object attachments for Context anchors', () => {
   const html = renderToStaticMarkup(<SceneEditor
     scene={{
       id: 'scene-1', name: 'Bedroom', summary: 'A guarded meeting.', placeId: 'place-house',
-      actorIds: ['actor-lavir'], itemIds: ['item-key'],
+      actorIds: ['actor-lavir'], itemIds: ['item-key'], worldObjectIds: ['object-wardrobe'],
     }}
     actors={[{ id: 'actor-lavir', name: 'Lavir', summary: '', archived: false }]}
     items={[{ id: 'item-key', name: 'Wardrobe Key', summary: '', archived: false }]}
     places={[{ id: 'place-house', name: 'House Harcourt', summary: '', archived: false }]}
+    worldObjects={[{ id: 'object-wardrobe', name: 'Heirloom Wardrobe', summary: '', placeId: 'place-house', archived: false }]}
     busy={false}
     readOnly={false}
     onSave={async () => undefined}
@@ -454,8 +457,44 @@ test('Scene editor exposes structural Place, Actor, and Item attachments for Con
   assert.match(html, /Scene Place/);
   assert.match(html, /Present Actors/);
   assert.match(html, /Present Items/);
+  assert.match(html, /Present World Objects/);
   assert.match(html, /Lavir/);
   assert.match(html, /Wardrobe Key/);
+  assert.match(html, /Heirloom Wardrobe/);
+});
+
+test('Fact and World Object blocks keep add, edit, and remove controls beside their parent Record', () => {
+  const factsHtml = renderToStaticMarkup(<LinkedFactsPanel
+    facts={[{ id: 'fact-key', name: 'Key is missing', summary: 'Removed before dawn.', subjectId: 'object-wardrobe', visibility: 'narrator_secret', archived: false }]}
+    subjectId="object-wardrobe"
+    subjectLabel="Heirloom Wardrobe"
+    options={[{ id: 'object-wardrobe', label: 'World Object · Heirloom Wardrobe', archived: false }]}
+    busy={false}
+    readOnly={false}
+    onCreate={async () => undefined}
+    onSave={async () => undefined}
+    onArchive={async () => undefined}
+  />);
+  assert.match(factsHtml, /Facts about Heirloom Wardrobe/);
+  assert.match(factsHtml, /\+ Add Fact/);
+  assert.match(factsHtml, /Save Fact/);
+  assert.match(factsHtml, /Remove Fact/);
+
+  const objectsHtml = renderToStaticMarkup(<PlaceWorldObjectsPanel
+    worldObjects={[{ id: 'object-wardrobe', name: 'Heirloom Wardrobe', summary: 'Ancient red mahogany.', placeId: 'place-bedroom', archived: false }]}
+    placeId="place-bedroom"
+    placeLabel="Childhood Bedroom"
+    places={[{ id: 'place-bedroom', name: 'Childhood Bedroom', summary: '', archived: false }]}
+    busy={false}
+    readOnly={false}
+    onCreate={async () => undefined}
+    onSave={async () => undefined}
+    onArchive={async () => undefined}
+  />);
+  assert.match(objectsHtml, /World Objects in Childhood Bedroom/);
+  assert.match(objectsHtml, /\+ Add World Object/);
+  assert.match(objectsHtml, /Save World Object/);
+  assert.match(objectsHtml, /Remove World Object/);
 });
 
 test('Story Sync Review Inbox keeps worker setup and structured editable proposals together', () => {
@@ -506,6 +545,8 @@ test('Story Sync Review Inbox keeps worker setup and structured editable proposa
 
   assert.match(html, /Review Inbox/);
   assert.match(html, /Campaign worker model/);
+  assert.match(html, /New Fact/);
+  assert.match(html, /New World Object/);
   assert.match(html, /mistralai\/mistral-nemo-instruct-2407/);
   assert.match(html, /Lavir reveals the locked gallery/);
   assert.match(html, /Record type/);

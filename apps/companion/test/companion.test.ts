@@ -345,17 +345,29 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
   await writeFile(join(addonRoot, 'relationships_addon.json'), JSON.stringify({
     relationships: [{ id: 'lavir-trusts-mara', source: 'lavir', target: 'mara', kind: 'patron', status: 'strained', notes: 'Lavir expects proof.' }],
   }));
+  await writeFile(join(addonRoot, 'places_addon.json'), JSON.stringify({
+    places: [{ id: 'east-room', name: 'East Dressing Room', summary: 'A private room near the heir wing.' }],
+  }));
+  await writeFile(join(addonRoot, 'world_objects_addon.json'), JSON.stringify({
+    worldObjects: [{ id: 'heavy-cabinet', name: 'Heavy Cabinet', summary: 'Blocks mismatched paneling.', homePlace: 'east-room' }],
+  }));
+  await writeFile(join(addonRoot, 'facts_addon.json'), JSON.stringify({
+    facts: [{ id: 'cabinet-moved', name: 'Cabinet was moved', proposition: 'The cabinet has been moved repeatedly.', subject: { kind: 'worldObject', id: 'heavy-cabinet' } }],
+  }));
+  await writeFile(join(addonRoot, 'scene_addon.json'), JSON.stringify({
+    scene: { id: 'search-room', name: 'Search the room', place: 'east-room', presences: [{ subject: { kind: 'worldObject', id: 'heavy-cabinet' }, state: 'present' }] },
+  }));
 
   const sources = await app.inject({ method: 'POST', url: '/api/operations/addons/rescan' });
   assert.equal(sources.statusCode, 200, sources.body);
-  assert.deepEqual(sources.json().files.map((file: { name: string }) => file.name), ['abilities_addon.json', 'items_addon.json', 'people_addon.json', 'relationships_addon.json']);
+  assert.deepEqual(sources.json().files.map((file: { name: string }) => file.name), ['abilities_addon.json', 'facts_addon.json', 'items_addon.json', 'people_addon.json', 'places_addon.json', 'relationships_addon.json', 'scene_addon.json', 'world_objects_addon.json']);
 
   const firstPreview = await app.inject({
     method: 'POST', url: '/api/operations/addons/preview', payload: { campaignId },
   });
   assert.equal(firstPreview.statusCode, 200, firstPreview.body);
   assert.equal(firstPreview.json().canApply, true);
-  assert.equal(firstPreview.json().changes.filter((change: { change: string }) => change.change === 'create').length, 5);
+  assert.equal(firstPreview.json().changes.filter((change: { change: string }) => change.change === 'create').length, 9);
   assert.ok(firstPreview.json().issues.some((entry: { code: string }) => entry.code === 'addon_fields_not_imported'));
   const persistedCandidates = await app.inject({
     method: 'GET', url: `/api/operations/addons/candidates?campaignId=${encodeURIComponent(campaignId)}`,
@@ -389,7 +401,7 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
     },
   });
   assert.equal(applied.statusCode, 200, applied.body);
-  assert.equal(applied.json().changed, 5);
+  assert.equal(applied.json().changed, 9);
   assert.equal(applied.json().backup.kind, 'pre-operation');
   assert.equal(applied.json().commit.operationKind, 'apply_addon_batch');
   assert.equal(applied.json().commit.revision, 2);
@@ -404,6 +416,9 @@ test('addon API previews exact manifest diff, rejects stale files, and applies o
   assert.equal(campaign.json().relationships[0].sourceActorId, 'addon:actor:lavir');
   assert.equal(campaign.json().relationships[0].targetActorId, 'addon:actor:mara');
   assert.equal(campaign.json().relationships[0].status, 'strained');
+  assert.equal(campaign.json().worldObjects[0].placeId, 'addon:place:east-room');
+  assert.equal(campaign.json().facts[0].subjectId, 'addon:world_object:heavy-cabinet');
+  assert.deepEqual(campaign.json().currentScene.worldObjectIds, ['addon:world_object:heavy-cabinet']);
   assert.match(campaign.json().items[0].summary, /split-crown/);
   const history = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}/history` });
   assert.ok(history.json().some((entry: { operationKind: string }) => entry.operationKind === 'apply_addon_batch'));

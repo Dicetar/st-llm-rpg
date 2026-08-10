@@ -63,6 +63,14 @@ test('Campaign documents and commits validate routed record collections', () => 
     places: [{
       id: 'place-1', name: 'Old Keep', summary: 'A ruined border fortress.', archived: false,
     }],
+    facts: [{
+      id: 'fact-1', name: 'Broken succession', summary: 'The heir vanished.',
+      subjectId: 'place-1', archived: false,
+    }],
+    worldObjects: [{
+      id: 'world-object-1', name: 'Moon Gate', summary: 'A sealed stone arch.',
+      placeId: 'place-1', archived: false,
+    }],
     abilities: [{
       id: 'ability-1', name: 'Mage Hand', summary: 'Moves light objects.', category: 'spell', archived: false,
     }],
@@ -73,7 +81,10 @@ test('Campaign documents and commits validate routed record collections', () => 
       id: 'relationship-1', sourceActorId: 'actor-1', targetActorId: 'actor-2', kind: 'ally',
       status: 'active', notes: 'They trust each other.', archived: false,
     }],
-    currentScene: null,
+    currentScene: {
+      id: 'scene-1', name: 'At the gate', summary: '', placeId: 'place-1',
+      worldObjectIds: ['world-object-1'],
+    },
   };
   const commit = {
     campaignId: 'campaign-1', revision: 1, eventId: 'event-1', requestId: 'request-4',
@@ -86,6 +97,10 @@ test('Campaign documents and commits validate routed record collections', () => 
   assert.equal(isCampaignDocument({
     ...document,
     quests: [{ ...document.quests[0]!, status: 'unknown' }],
+  }), false);
+  assert.equal(isCampaignDocument({
+    ...document,
+    worldObjects: [{ ...document.worldObjects[0]!, placeId: '' }],
   }), false);
   assert.equal(isCampaignCommit({ ...commit, document: { ...document, actors: [{ id: '', name: '', summary: '', archived: false }] } }), false);
 });

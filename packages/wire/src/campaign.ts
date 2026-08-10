@@ -66,6 +66,28 @@ export const CampaignPlaceSchema = Type.Object({
 }, { additionalProperties: false });
 export type CampaignPlace = Static<typeof CampaignPlaceSchema>;
 
+export const CampaignFactSchema = Type.Object({
+  id: Identifier,
+  name: Title,
+  aliases: Type.Optional(Aliases),
+  summary: Summary,
+  visibility: Type.Optional(NarratorVisibility),
+  archived: Type.Boolean(),
+  subjectId: Type.Optional(Identifier),
+}, { additionalProperties: false });
+export type CampaignFact = Static<typeof CampaignFactSchema>;
+
+export const CampaignWorldObjectSchema = Type.Object({
+  id: Identifier,
+  name: Title,
+  aliases: Type.Optional(Aliases),
+  summary: Summary,
+  visibility: Type.Optional(NarratorVisibility),
+  archived: Type.Boolean(),
+  placeId: Type.Optional(Identifier),
+}, { additionalProperties: false });
+export type CampaignWorldObject = Static<typeof CampaignWorldObjectSchema>;
+
 export const CampaignAbilityCategorySchema = Type.Union([
   Type.Literal('spell'),
   Type.Literal('skill'),
@@ -125,6 +147,7 @@ export const CampaignSceneSchema = Type.Object({
   placeId: Type.Optional(Identifier),
   actorIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
   itemIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
+  worldObjectIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
 }, { additionalProperties: false });
 export type CampaignScene = Static<typeof CampaignSceneSchema>;
 
@@ -144,6 +167,8 @@ export const CampaignDocumentSchema = Type.Object({
   items: Type.Array(CampaignItemSchema),
   quests: Type.Array(CampaignQuestSchema),
   places: Type.Array(CampaignPlaceSchema),
+  facts: Type.Optional(Type.Array(CampaignFactSchema)),
+  worldObjects: Type.Optional(Type.Array(CampaignWorldObjectSchema)),
   abilities: Type.Optional(Type.Array(CampaignAbilitySchema)),
   learnedAbilities: Type.Optional(Type.Array(CampaignLearnedAbilitySchema)),
   relationships: Type.Optional(Type.Array(CampaignRelationshipSchema)),
@@ -189,6 +214,24 @@ const NewPlaceSchema = Type.Object({
   aliases: Type.Optional(Aliases),
   summary: Type.Optional(Summary),
   visibility: Type.Optional(NarratorVisibility),
+}, { additionalProperties: false });
+
+const NewFactSchema = Type.Object({
+  id: Type.Optional(Identifier),
+  name: Title,
+  aliases: Type.Optional(Aliases),
+  summary: Type.Optional(Summary),
+  visibility: Type.Optional(NarratorVisibility),
+  subjectId: Type.Optional(Identifier),
+}, { additionalProperties: false });
+
+const NewWorldObjectSchema = Type.Object({
+  id: Type.Optional(Identifier),
+  name: Title,
+  aliases: Type.Optional(Aliases),
+  summary: Type.Optional(Summary),
+  visibility: Type.Optional(NarratorVisibility),
+  placeId: Type.Optional(Identifier),
 }, { additionalProperties: false });
 
 const NewAbilitySchema = Type.Object({
@@ -308,6 +351,42 @@ export const CampaignOperationSchema = Type.Union([
     archived: Type.Boolean(),
   }, { additionalProperties: false }),
   Type.Object({
+    kind: Type.Literal('create_fact'),
+    fact: NewFactSchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('update_fact'),
+    factId: Identifier,
+    name: Title,
+    summary: Summary,
+    aliases: Type.Optional(Aliases),
+    visibility: Type.Optional(NarratorVisibility),
+    subjectId: Type.Optional(Type.Union([Identifier, Type.Null()])),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('set_fact_archived'),
+    factId: Identifier,
+    archived: Type.Boolean(),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('create_world_object'),
+    worldObject: NewWorldObjectSchema,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('update_world_object'),
+    worldObjectId: Identifier,
+    name: Title,
+    summary: Summary,
+    aliases: Type.Optional(Aliases),
+    visibility: Type.Optional(NarratorVisibility),
+    placeId: Type.Optional(Type.Union([Identifier, Type.Null()])),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('set_world_object_archived'),
+    worldObjectId: Identifier,
+    archived: Type.Boolean(),
+  }, { additionalProperties: false }),
+  Type.Object({
     kind: Type.Literal('create_ability'),
     ability: NewAbilitySchema,
   }, { additionalProperties: false }),
@@ -388,6 +467,7 @@ export const CampaignOperationSchema = Type.Union([
       placeId: Type.Optional(Identifier),
       actorIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
       itemIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
+      worldObjectIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
     }, { additionalProperties: false }),
   }, { additionalProperties: false }),
 ]);

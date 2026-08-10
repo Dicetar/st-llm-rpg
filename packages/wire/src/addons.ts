@@ -21,6 +21,8 @@ export const AddonRecordKindSchema = Type.Union([
   Type.Literal('item'),
   Type.Literal('quest'),
   Type.Literal('place'),
+  Type.Literal('fact'),
+  Type.Literal('world_object'),
   Type.Literal('ability'),
   Type.Literal('relationship'),
   Type.Literal('scene'),
@@ -63,8 +65,10 @@ export const AddonValueSchema = Type.Object({
     Type.Literal('active'), Type.Literal('strained'), Type.Literal('dormant'), Type.Literal('ended'), Type.Literal('other'),
   ])),
   placeId: Type.Optional(Identifier),
+  aboutId: Type.Optional(Identifier),
   actorIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
   itemIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
+  worldObjectIds: Type.Optional(Type.Array(Identifier, { maxItems: 64, uniqueItems: true })),
 }, { additionalProperties: false });
 export type AddonValue = Static<typeof AddonValueSchema>;
 

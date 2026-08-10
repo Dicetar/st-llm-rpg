@@ -1,12 +1,14 @@
 import type {
   CampaignActor,
   CampaignAbility,
+  CampaignFact,
   CampaignItem,
   CampaignLearnedAbility,
   CampaignPlace,
   CampaignQuest,
   CampaignRelationship,
   CampaignScene,
+  CampaignWorldObject,
 } from '@st-llm-rpg/wire';
 import type { DatabaseSync } from 'node:sqlite';
 import type { CampaignState, CampaignSubjectChange } from '../../modules/campaign/campaign-state.js';
@@ -63,6 +65,26 @@ type AbilityProjectionRow = {
   archived: number;
 };
 
+type FactProjectionRow = {
+  fact_id: string;
+  name: string;
+  aliases_json: string | null;
+  summary: string;
+  visibility: Exclude<CampaignFact['visibility'], undefined> | null;
+  archived: number;
+  subject_id: string | null;
+};
+
+type WorldObjectProjectionRow = {
+  world_object_id: string;
+  name: string;
+  aliases_json: string | null;
+  summary: string;
+  visibility: Exclude<CampaignWorldObject['visibility'], undefined> | null;
+  archived: number;
+  place_id: string | null;
+};
+
 type LearnedAbilityProjectionRow = {
   learned_ability_id: string;
   ability_id: string;
@@ -92,6 +114,7 @@ type SceneProjectionRow = {
   place_id: string | null;
   actor_ids_json: string | null;
   item_ids_json: string | null;
+  world_object_ids_json: string | null;
 };
 
 export function hasCurrentCampaignProjections(database: DatabaseSync): boolean {
@@ -112,6 +135,12 @@ function hasCurrentRelationshipProjections(database: DatabaseSync): boolean {
   `).get());
 }
 
+function hasCurrentWorldRecordProjections(database: DatabaseSync): boolean {
+  return Boolean(database.prepare(`
+    SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'campaign_fact_projections'
+  `).get());
+}
+
 function hasProjectionColumn(database: DatabaseSync, table: string, column: string): boolean {
   const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   return columns.some(candidate => candidate.name === column);
@@ -124,8 +153,8 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
   const hasContextColumns = hasProjectionColumn(database, 'campaign_actor_projections', 'aliases_json');
   const narratorColumns = hasContextColumns ? 'aliases_json, summary, visibility' : 'NULL AS aliases_json, summary, NULL AS visibility';
   const sceneContextColumns = hasContextColumns
-    ? 'place_id, actor_ids_json, item_ids_json'
-    : 'NULL AS place_id, NULL AS actor_ids_json, NULL AS item_ids_json';
+    ? `place_id, actor_ids_json, item_ids_json, ${hasProjectionColumn(database, 'campaign_scene_projections', 'world_object_ids_json') ? 'world_object_ids_json' : 'NULL AS world_object_ids_json'}`
+    : 'NULL AS place_id, NULL AS actor_ids_json, NULL AS item_ids_json, NULL AS world_object_ids_json';
 
   const actorRows = database.prepare(`
     SELECT actor_id, name, ${narratorColumns}, archived
@@ -157,6 +186,14 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
            status, notes, visibility, archived
     FROM campaign_relationship_projections WHERE campaign_id = ? ORDER BY relationship_id
   `).all(campaign.campaign_id) as RelationshipProjectionRow[] : [];
+  const factRows = hasCurrentWorldRecordProjections(database) ? database.prepare(`
+    SELECT fact_id, name, aliases_json, summary, visibility, archived, subject_id
+    FROM campaign_fact_projections WHERE campaign_id = ? ORDER BY fact_id
+  `).all(campaign.campaign_id) as FactProjectionRow[] : [];
+  const worldObjectRows = hasCurrentWorldRecordProjections(database) ? database.prepare(`
+    SELECT world_object_id, name, aliases_json, summary, visibility, archived, place_id
+    FROM campaign_world_object_projections WHERE campaign_id = ? ORDER BY world_object_id
+  `).all(campaign.campaign_id) as WorldObjectProjectionRow[] : [];
   const sceneRow = database.prepare(`
     SELECT scene_id, name, summary, ${sceneContextColumns}
     FROM campaign_scene_projections WHERE campaign_id = ?
@@ -205,6 +242,24 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
       ...(row.visibility === null ? {} : { visibility: row.visibility }),
       archived: Boolean(row.archived),
     } satisfies CampaignPlace])),
+    facts: Object.fromEntries(factRows.map(row => [row.fact_id, {
+      id: row.fact_id,
+      name: row.name,
+      ...(row.aliases_json === null ? {} : { aliases: parseJson<string[]>(row.aliases_json) }),
+      summary: row.summary,
+      ...(row.visibility === null ? {} : { visibility: row.visibility }),
+      archived: Boolean(row.archived),
+      ...(row.subject_id === null ? {} : { subjectId: row.subject_id }),
+    } satisfies CampaignFact])),
+    worldObjects: Object.fromEntries(worldObjectRows.map(row => [row.world_object_id, {
+      id: row.world_object_id,
+      name: row.name,
+      ...(row.aliases_json === null ? {} : { aliases: parseJson<string[]>(row.aliases_json) }),
+      summary: row.summary,
+      ...(row.visibility === null ? {} : { visibility: row.visibility }),
+      archived: Boolean(row.archived),
+      ...(row.place_id === null ? {} : { placeId: row.place_id }),
+    } satisfies CampaignWorldObject])),
     abilities: Object.fromEntries(abilityRows.map(row => [row.ability_id, {
       id: row.ability_id,
       name: row.name,
@@ -241,6 +296,7 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
       ...(sceneRow.place_id === null ? {} : { placeId: sceneRow.place_id }),
       ...(sceneRow.actor_ids_json === null ? {} : { actorIds: parseJson<string[]>(sceneRow.actor_ids_json) }),
       ...(sceneRow.item_ids_json === null ? {} : { itemIds: parseJson<string[]>(sceneRow.item_ids_json) }),
+      ...(sceneRow.world_object_ids_json === null ? {} : { worldObjectIds: parseJson<string[]>(sceneRow.world_object_ids_json) }),
     } satisfies CampaignScene : null,
   };
 }
@@ -254,6 +310,10 @@ export function replaceCurrentCampaignProjections(
   database.prepare('DELETE FROM campaign_item_projections WHERE campaign_id = ?').run(campaignId);
   database.prepare('DELETE FROM campaign_quest_projections WHERE campaign_id = ?').run(campaignId);
   database.prepare('DELETE FROM campaign_place_projections WHERE campaign_id = ?').run(campaignId);
+  if (hasCurrentWorldRecordProjections(database)) {
+    database.prepare('DELETE FROM campaign_fact_projections WHERE campaign_id = ?').run(campaignId);
+    database.prepare('DELETE FROM campaign_world_object_projections WHERE campaign_id = ?').run(campaignId);
+  }
   if (hasCurrentAbilityProjections(database)) {
     database.prepare('DELETE FROM campaign_ability_projections WHERE campaign_id = ?').run(campaignId);
     database.prepare('DELETE FROM campaign_learned_ability_projections WHERE campaign_id = ?').run(campaignId);
@@ -267,6 +327,8 @@ export function replaceCurrentCampaignProjections(
   for (const item of Object.values(state.items)) upsertItem(database, campaignId, item);
   for (const quest of Object.values(state.quests ?? {})) upsertQuest(database, campaignId, quest);
   for (const place of Object.values(state.places ?? {})) upsertPlace(database, campaignId, place);
+  for (const fact of Object.values(state.facts ?? {})) upsertFact(database, campaignId, fact);
+  for (const worldObject of Object.values(state.worldObjects ?? {})) upsertWorldObject(database, campaignId, worldObject);
   for (const ability of Object.values(state.abilities ?? {})) upsertAbility(database, campaignId, ability);
   for (const learned of Object.values(state.learnedAbilities ?? {})) upsertLearnedAbility(database, campaignId, learned);
   for (const relationship of Object.values(state.relationships ?? {})) upsertRelationship(database, campaignId, relationship);
@@ -312,6 +374,24 @@ export function applyCurrentCampaignProjectionChanges(
           .run(campaignId, change.subjectId);
       } else {
         upsertPlace(database, campaignId, change.afterImage as CampaignPlace);
+      }
+      continue;
+    }
+    if (change.subjectKind === 'fact') {
+      if (change.afterImage === null) {
+        database.prepare('DELETE FROM campaign_fact_projections WHERE campaign_id = ? AND fact_id = ?')
+          .run(campaignId, change.subjectId);
+      } else {
+        upsertFact(database, campaignId, change.afterImage as CampaignFact);
+      }
+      continue;
+    }
+    if (change.subjectKind === 'world_object') {
+      if (change.afterImage === null) {
+        database.prepare('DELETE FROM campaign_world_object_projections WHERE campaign_id = ? AND world_object_id = ?')
+          .run(campaignId, change.subjectId);
+      } else {
+        upsertWorldObject(database, campaignId, change.afterImage as CampaignWorldObject);
       }
       continue;
     }
@@ -433,6 +513,46 @@ function upsertPlace(database: DatabaseSync, campaignId: string, place: Campaign
     place.visibility ?? null, place.archived ? 1 : 0);
 }
 
+function upsertFact(database: DatabaseSync, campaignId: string, fact: CampaignFact): void {
+  database.prepare(`
+    INSERT INTO campaign_fact_projections(
+      campaign_id, fact_id, name, aliases_json, summary, visibility, archived, subject_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(campaign_id, fact_id) DO UPDATE SET
+      name = excluded.name, aliases_json = excluded.aliases_json, summary = excluded.summary,
+      visibility = excluded.visibility, archived = excluded.archived, subject_id = excluded.subject_id
+  `).run(
+    campaignId,
+    fact.id,
+    fact.name,
+    fact.aliases === undefined ? null : JSON.stringify(fact.aliases),
+    fact.summary,
+    fact.visibility ?? null,
+    fact.archived ? 1 : 0,
+    fact.subjectId ?? null,
+  );
+}
+
+function upsertWorldObject(database: DatabaseSync, campaignId: string, worldObject: CampaignWorldObject): void {
+  database.prepare(`
+    INSERT INTO campaign_world_object_projections(
+      campaign_id, world_object_id, name, aliases_json, summary, visibility, archived, place_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(campaign_id, world_object_id) DO UPDATE SET
+      name = excluded.name, aliases_json = excluded.aliases_json, summary = excluded.summary,
+      visibility = excluded.visibility, archived = excluded.archived, place_id = excluded.place_id
+  `).run(
+    campaignId,
+    worldObject.id,
+    worldObject.name,
+    worldObject.aliases === undefined ? null : JSON.stringify(worldObject.aliases),
+    worldObject.summary,
+    worldObject.visibility ?? null,
+    worldObject.archived ? 1 : 0,
+    worldObject.placeId ?? null,
+  );
+}
+
 function upsertAbility(database: DatabaseSync, campaignId: string, ability: CampaignAbility): void {
   database.prepare(`
     INSERT INTO campaign_ability_projections(
@@ -512,14 +632,15 @@ function upsertScene(database: DatabaseSync, campaignId: string, scene: Campaign
   }
   database.prepare(`
     INSERT INTO campaign_scene_projections(
-      campaign_id, scene_id, name, summary, place_id, actor_ids_json, item_ids_json
+      campaign_id, scene_id, name, summary, place_id, actor_ids_json, item_ids_json, world_object_ids_json
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(campaign_id) DO UPDATE SET
       scene_id = excluded.scene_id, name = excluded.name, summary = excluded.summary,
       place_id = excluded.place_id, actor_ids_json = excluded.actor_ids_json,
-      item_ids_json = excluded.item_ids_json
+      item_ids_json = excluded.item_ids_json, world_object_ids_json = excluded.world_object_ids_json
   `).run(campaignId, scene.id, scene.name, scene.summary, scene.placeId ?? null,
     scene.actorIds === undefined ? null : JSON.stringify(scene.actorIds),
-    scene.itemIds === undefined ? null : JSON.stringify(scene.itemIds));
+    scene.itemIds === undefined ? null : JSON.stringify(scene.itemIds),
+    scene.worldObjectIds === undefined ? null : JSON.stringify(scene.worldObjectIds));
 }

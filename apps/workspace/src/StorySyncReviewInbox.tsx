@@ -19,6 +19,10 @@ type SupportedOperationKind =
   | 'update_quest'
   | 'create_place'
   | 'update_place'
+  | 'create_fact'
+  | 'update_fact'
+  | 'create_world_object'
+  | 'update_world_object'
   | 'create_ability'
   | 'update_ability'
   | 'create_relationship'
@@ -28,7 +32,8 @@ type SupportedOperationKind =
 const ACTIVE_JOB_STATES = new Set(['queued', 'waiting-for-lane', 'running', 'parsing', 'repairing']);
 const SUPPORTED_KINDS: readonly SupportedOperationKind[] = [
   'create_actor', 'update_actor', 'create_item', 'update_item', 'create_quest',
-  'update_quest', 'create_place', 'update_place', 'set_current_scene',
+  'update_quest', 'create_place', 'update_place', 'create_fact', 'update_fact',
+  'create_world_object', 'update_world_object', 'set_current_scene',
   'create_ability', 'update_ability',
   'create_relationship', 'update_relationship',
 ];
@@ -38,6 +43,8 @@ function kindLabel(kind: string): string {
     create_actor: 'New Actor', update_actor: 'Update Actor', create_item: 'New Item',
     update_item: 'Update Item', create_quest: 'New Quest', update_quest: 'Update Quest',
     create_place: 'New Place', update_place: 'Update Place', set_current_scene: 'Current Scene',
+    create_fact: 'New Fact', update_fact: 'Update Fact',
+    create_world_object: 'New World Object', update_world_object: 'Update World Object',
     create_ability: 'New Ability', update_ability: 'Update Ability',
     create_relationship: 'New Relationship', update_relationship: 'Update Relationship',
   } as Record<string, string>)[kind] ?? kind.replaceAll('_', ' ');
@@ -49,6 +56,8 @@ function blankOperation(kind: SupportedOperationKind, campaign: CampaignDocument
   const quest = campaign.quests.find(record => !record.archived);
   const place = campaign.places.find(record => !record.archived);
   const ability = (campaign.abilities ?? []).find(record => !record.archived);
+  const fact = (campaign.facts ?? []).find(record => !record.archived);
+  const worldObject = (campaign.worldObjects ?? []).find(record => !record.archived);
   const otherActor = campaign.actors.find(record => !record.archived && record.id !== actor?.id);
   const relationship = (campaign.relationships ?? []).find(record => !record.archived);
   switch (kind) {
@@ -60,6 +69,10 @@ function blankOperation(kind: SupportedOperationKind, campaign: CampaignDocument
     case 'update_quest': return { kind, questId: quest?.id ?? '', name: quest?.name ?? '', summary: quest?.summary ?? '', status: quest?.status ?? 'active' };
     case 'create_place': return { kind, place: { name: '', summary: '' } };
     case 'update_place': return { kind, placeId: place?.id ?? '', name: place?.name ?? '', summary: place?.summary ?? '' };
+    case 'create_fact': return { kind, fact: { name: '', summary: '' } };
+    case 'update_fact': return { kind, factId: fact?.id ?? '', name: fact?.name ?? '', summary: fact?.summary ?? '', subjectId: fact?.subjectId ?? null };
+    case 'create_world_object': return { kind, worldObject: { name: '', summary: '', ...(place?.id ? { placeId: place.id } : {}) } };
+    case 'update_world_object': return { kind, worldObjectId: worldObject?.id ?? '', name: worldObject?.name ?? '', summary: worldObject?.summary ?? '', placeId: worldObject?.placeId ?? null };
     case 'create_ability': return { kind, ability: { name: '', summary: '', category: 'other' } };
     case 'update_ability': return { kind, abilityId: ability?.id ?? '', name: ability?.name ?? '', summary: ability?.summary ?? '', category: ability?.category ?? 'other' };
     case 'create_relationship': return { kind, relationship: { sourceActorId: actor?.id ?? '', targetActorId: otherActor?.id ?? '', kind: '', status: 'active', notes: '' } };
@@ -72,6 +85,7 @@ function blankOperation(kind: SupportedOperationKind, campaign: CampaignDocument
           name: campaign.currentScene?.name ?? '', summary: campaign.currentScene?.summary ?? '',
           ...(placeId ? { placeId } : {}),
           actorIds: campaign.currentScene?.actorIds ?? [], itemIds: campaign.currentScene?.itemIds ?? [],
+          worldObjectIds: campaign.currentScene?.worldObjectIds ?? [],
         },
       };
     }
@@ -111,6 +125,16 @@ function OperationEditor(props: {
   const placeOptions = props.campaign.places.filter(record => !record.archived);
   const abilityOptions = (props.campaign.abilities ?? []).filter(record => !record.archived);
   const relationshipOptions = (props.campaign.relationships ?? []).filter(record => !record.archived);
+  const factOptions = (props.campaign.facts ?? []).filter(record => !record.archived);
+  const worldObjectOptions = (props.campaign.worldObjects ?? []).filter(record => !record.archived);
+  const subjectOptions = [
+    ...actorOptions.map(record => ({ ...record, kindLabel: 'Actor' })),
+    ...itemOptions.map(record => ({ ...record, kindLabel: 'Item' })),
+    ...questOptions.map(record => ({ ...record, kindLabel: 'Quest' })),
+    ...placeOptions.map(record => ({ ...record, kindLabel: 'Place' })),
+    ...abilityOptions.map(record => ({ ...record, kindLabel: 'Ability' })),
+    ...worldObjectOptions.map(record => ({ ...record, kindLabel: 'World Object' })),
+  ];
 
   return <fieldset className="story-operation-editor">
     <legend>Campaign change</legend>
@@ -185,6 +209,26 @@ function OperationEditor(props: {
       }}><option value="" disabled>Choose Place</option>{placeOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
       <CommonFields name={operation.name} summary={operation.summary} nameLabel="Place name" summaryLabel="Place summary" disabled={props.disabled}
         onName={name => props.onChange({ ...operation, name })} onSummary={summary => props.onChange({ ...operation, summary })} />
+    </> : null}
+    {operation?.kind === 'create_fact' ? <>
+      <CommonFields name={operation.fact.name} summary={operation.fact.summary ?? ''} nameLabel="Fact name" summaryLabel="Fact statement" disabled={props.disabled}
+        onName={name => props.onChange({ ...operation, fact: { ...operation.fact, name } })}
+        onSummary={summary => props.onChange({ ...operation, fact: { ...operation.fact, summary } })} />
+      <label><span>About Record</span><select value={operation.fact.subjectId ?? ''} disabled={props.disabled} onChange={event => { const fact = { ...operation.fact }; if (event.target.value) fact.subjectId = event.target.value; else delete fact.subjectId; props.onChange({ ...operation, fact }); }}><option value="">Campaign-wide</option>{subjectOptions.map(record => <option key={record.id} value={record.id}>{record.kindLabel} · {record.name}</option>)}</select></label>
+    </> : null}
+    {operation?.kind === 'update_fact' ? <>
+      <label><span>Fact</span><select value={operation.factId} disabled={props.disabled} onChange={event => { const record = factOptions.find(candidate => candidate.id === event.target.value); props.onChange({ ...operation, factId: event.target.value, name: record?.name ?? operation.name, summary: record?.summary ?? operation.summary, subjectId: record?.subjectId ?? null }); }}><option value="" disabled>Choose Fact</option>{factOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+      <CommonFields name={operation.name} summary={operation.summary} nameLabel="Fact name" summaryLabel="Fact statement" disabled={props.disabled} onName={name => props.onChange({ ...operation, name })} onSummary={summary => props.onChange({ ...operation, summary })} />
+      <label><span>About Record</span><select value={operation.subjectId ?? ''} disabled={props.disabled} onChange={event => props.onChange({ ...operation, subjectId: event.target.value || null })}><option value="">Campaign-wide</option>{subjectOptions.map(record => <option key={record.id} value={record.id}>{record.kindLabel} · {record.name}</option>)}</select></label>
+    </> : null}
+    {operation?.kind === 'create_world_object' ? <>
+      <CommonFields name={operation.worldObject.name} summary={operation.worldObject.summary ?? ''} nameLabel="World Object name" summaryLabel="World Object description" disabled={props.disabled} onName={name => props.onChange({ ...operation, worldObject: { ...operation.worldObject, name } })} onSummary={summary => props.onChange({ ...operation, worldObject: { ...operation.worldObject, summary } })} />
+      <label><span>Place</span><select value={operation.worldObject.placeId ?? ''} disabled={props.disabled} onChange={event => { const worldObject = { ...operation.worldObject }; if (event.target.value) worldObject.placeId = event.target.value; else delete worldObject.placeId; props.onChange({ ...operation, worldObject }); }}><option value="">No Place</option>{placeOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+    </> : null}
+    {operation?.kind === 'update_world_object' ? <>
+      <label><span>World Object</span><select value={operation.worldObjectId} disabled={props.disabled} onChange={event => { const record = worldObjectOptions.find(candidate => candidate.id === event.target.value); props.onChange({ ...operation, worldObjectId: event.target.value, name: record?.name ?? operation.name, summary: record?.summary ?? operation.summary, placeId: record?.placeId ?? null }); }}><option value="" disabled>Choose World Object</option>{worldObjectOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+      <CommonFields name={operation.name} summary={operation.summary} nameLabel="World Object name" summaryLabel="World Object description" disabled={props.disabled} onName={name => props.onChange({ ...operation, name })} onSummary={summary => props.onChange({ ...operation, summary })} />
+      <label><span>Place</span><select value={operation.placeId ?? ''} disabled={props.disabled} onChange={event => props.onChange({ ...operation, placeId: event.target.value || null })}><option value="">No Place</option>{placeOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
     </> : null}
     {operation?.kind === 'create_ability' ? <>
       <CommonFields name={operation.ability.name} summary={operation.ability.summary ?? ''} nameLabel="Ability name" summaryLabel="Ability summary" disabled={props.disabled}

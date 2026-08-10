@@ -55,6 +55,10 @@ import {
   CAMPAIGN_RELATIONSHIPS_MIGRATION,
   campaignRelationshipsMigrationChecksum,
 } from '../../migrations/009-campaign-relationships.js';
+import {
+  CAMPAIGN_WORLD_RECORDS_MIGRATION,
+  campaignWorldRecordsMigrationChecksum,
+} from '../../migrations/010-campaign-world-records.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -1350,6 +1354,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       { ...STORY_SYNC_FINALIZATION_MIGRATION, checksum: storySyncFinalizationMigrationChecksum() },
       { ...CAMPAIGN_ABILITIES_MIGRATION, checksum: campaignAbilitiesMigrationChecksum() },
       { ...CAMPAIGN_RELATIONSHIPS_MIGRATION, checksum: campaignRelationshipsMigrationChecksum() },
+      { ...CAMPAIGN_WORLD_RECORDS_MIGRATION, checksum: campaignWorldRecordsMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
@@ -1923,6 +1928,8 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       ...Object.values(state.items).map(record => ({ kind: 'item', record })),
       ...Object.values(state.quests ?? {}).map(record => ({ kind: 'quest', record })),
       ...Object.values(state.places ?? {}).map(record => ({ kind: 'place', record })),
+      ...Object.values(state.facts ?? {}).map(record => ({ kind: 'fact', record })),
+      ...Object.values(state.worldObjects ?? {}).map(record => ({ kind: 'world_object', record })),
       ...Object.values(state.abilities ?? {}).map(record => ({ kind: 'ability', record })),
       ...Object.values(state.relationships ?? {}).map(relationship => {
         const source = state.actors[relationship.sourceActorId];
