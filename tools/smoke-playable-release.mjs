@@ -83,6 +83,20 @@ async function main() {
     return `Pinned SillyTavern revision ${actual} is active.`;
   });
 
+  await check('compatibility-lock', async () => {
+    const lock = JSON.parse(await readFile(join(options.root, 'compatibility.lock.json'), 'utf8'));
+    if (lock.schema !== 'st-rpg.compatibility-lock' || lock.version !== '1.0') {
+      throw new Error('Compatibility lock schema is missing or unsupported.');
+    }
+    if (lock.sillyTavern?.revision !== release.pinnedSillyTavernRevision) {
+      throw new Error('Compatibility lock and release metadata disagree on the SillyTavern pin.');
+    }
+    if (!Array.isArray(lock.bridge?.files) || lock.bridge.files.length < 4) {
+      throw new Error('Compatibility lock does not enumerate the installed bridge surface.');
+    }
+    return `Compatibility lock pins ST ${String(lock.sillyTavern.revision).slice(0, 9)}, bridge ${lock.bridge.version}, and API ${lock.companion.httpApi}.`;
+  });
+
   await check('workspace', async () => {
     const html = await readResponse(`${companionBase}/`, 'text');
     if (!html.includes('Campaign Book')) throw new Error('Campaign Book production HTML is not being served.');

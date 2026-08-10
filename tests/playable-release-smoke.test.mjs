@@ -44,6 +44,12 @@ async function writeTree(root) {
     channel: 'preview',
     pinnedSillyTavernRevision: PINNED_REVISION,
   }));
+  await writeFile(join(root, 'compatibility.lock.json'), JSON.stringify({
+    schema: 'st-rpg.compatibility-lock', version: '1.0',
+    sillyTavern: { revision: PINNED_REVISION },
+    bridge: { version: '0.3.0', files: ['index.js', 'wire.js', 'style.css', 'manifest.json'] },
+    companion: { httpApi: '1.0' },
+  }));
 }
 
 async function runSmoke(arguments_) {
@@ -118,6 +124,7 @@ test('playable preview smoke proves the installed bridge, fallback, Campaign dat
   assert.deepEqual(report.checks.map(check => [check.id, check.status]), [
     ['stack', 'pass'],
     ['pinned-sillytavern', 'pass'],
+    ['compatibility-lock', 'pass'],
     ['workspace', 'pass'],
     ['narration-status', 'pass'],
     ['backup-catalog', 'pass'],

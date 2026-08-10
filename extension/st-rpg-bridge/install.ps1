@@ -1,8 +1,12 @@
+param(
+    [string]$TargetRoot
+)
+
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $source = $PSScriptRoot
-$stRoot = Join-Path $projectRoot '.runtime\SillyTavern'
+$stRoot = if ($TargetRoot) { [IO.Path]::GetFullPath($TargetRoot) } else { Join-Path $projectRoot '.runtime\SillyTavern' }
 $target = Join-Path $stRoot 'public\scripts\extensions\third-party\st-rpg-bridge'
 
 if (-not (Test-Path (Join-Path $stRoot 'package.json'))) {

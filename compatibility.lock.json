@@ -1,0 +1,36 @@
+{
+  "schema": "st-rpg.compatibility-lock",
+  "version": "1.0",
+  "node": {
+    "preferred": "24.15.0",
+    "supported": ">=24.15.0 <25"
+  },
+  "sillyTavern": {
+    "repository": "https://github.com/SillyTavern/SillyTavern.git",
+    "revision": "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "port": 8001,
+    "stagingPort": 18001
+  },
+  "companion": {
+    "httpApi": "1.0",
+    "bridgeProtocol": "1.0",
+    "databaseSchema": {
+      "minimum": 7,
+      "maximum": 7
+    }
+  },
+  "bridge": {
+    "version": "0.3.0",
+    "files": [
+      "index.js",
+      "wire.js",
+      "style.css",
+      "manifest.json"
+    ]
+  },
+  "checks": [
+    "npm run check:runtime",
+    "node --test --test-isolation=none tests/bridge-boundary.test.mjs tests/bridge-desktop-compat.test.mjs tests/bridge-wire.test.mjs",
+    "node prototypes/st-worker-routing-spike/check-native-popup-surface.mjs"
+  ]
+}

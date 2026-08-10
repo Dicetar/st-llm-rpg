@@ -24,6 +24,32 @@ test('Wayfinder exposes identity-safe supervisor commands through one rooted Pow
   assert.match(supervisor, /x-wayfinder-run-id/);
 });
 
+test('compatibility update is staged beside active ST and preserves rollback before any switch', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const [updater, bridgeInstaller, fallbackInstaller, lockText, releaseText] = await Promise.all([
+    readFile('tools/update-sillytavern-compatibility.ps1', 'utf8'),
+    readFile('extension/st-rpg-bridge/install.ps1', 'utf8'),
+    readFile('extension/st-rpg-campaign/install.ps1', 'utf8'),
+    readFile('compatibility.lock.json', 'utf8'),
+    readFile('release.json', 'utf8'),
+  ]);
+  const lock = JSON.parse(lockText);
+  const release = JSON.parse(releaseText);
+  assert.equal(lock.schema, 'st-rpg.compatibility-lock');
+  assert.equal(lock.sillyTavern.revision, release.pinnedSillyTavernRevision);
+  assert.match(updater, /SillyTavern\.next/);
+  assert.match(updater, /SillyTavern\.previous/);
+  assert.match(updater, /api\/operations\/backups/);
+  assert.match(updater, /Test-StagedRuntime \$stageRoot/);
+  assert.match(updater, /Test-StagedRuntime \$activeRoot/);
+  assert.match(updater, /Move-PersistentState/);
+  assert.match(updater, /rolling back/i);
+  assert.match(updater, /active SillyTavern is still running/i);
+  assert.doesNotMatch(updater, /git\s+(pull|reset|stash)/i);
+  assert.match(bridgeInstaller, /TargetRoot/);
+  assert.match(fallbackInstaller, /TargetRoot/);
+});
+
 test('Wayfinder batch entrypoint preserves a PowerShell startup failure', async t => {
   const fakeBin = await mkdtemp(join(tmpdir(), 'wayfinder-powershell-'));
   await writeFile(join(fakeBin, 'powershell.cmd'), '@echo fake PowerShell failure\r\n@exit /b 23\r\n');

@@ -32,9 +32,12 @@ The visible supervisor command surface is:
 .\Wayfinder.cmd companion
 .\Wayfinder.cmd backup Optional-label
 .\Wayfinder.cmd restore [backup-id] [--confirm]
+.\Wayfinder.cmd update-compatibility
 ```
 
 Wayfinder records process creation time, executable path, command hash, PID, role, and run identity. `stop` refuses a changed identity and leaves any listener without a matching ownership record untouched. LM Studio is observed but never owned or stopped.
+
+`update-compatibility` realizes the checked-in `compatibility.lock.json`; it does not update project source. It first obtains a verified Companion backup, clones the active ST runtime into `.runtime/SillyTavern.next`, checks out the exact reviewed revision, installs dependencies and both RPG extensions, runs the locked compatibility checks, and starts that runtime on isolated port `18001`. Only a fully verified stage can replace the stopped active runtime. The old runtime remains at `.runtime/SillyTavern.previous`, and a failed post-switch smoke restores it automatically.
 
 Hidden or detached startup is deliberately refused. `-NoBrowser` only suppresses browser launch; it does not hide the server console. Silent `-StatusOnly` checks remain allowed because they never start a server.
 

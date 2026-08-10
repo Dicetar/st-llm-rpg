@@ -15,6 +15,7 @@ $statusTool = Join-Path $PSScriptRoot 'wayfinder-status.mjs'
 $stateRoot = Join-Path $projectRoot '.runtime\wayfinder'
 $companionRecordPath = Join-Path $stateRoot 'companion-process.json'
 $sillyTavernRecordPath = Join-Path $stateRoot 'sillytavern-process.json'
+$compatibilityUpdater = Join-Path $PSScriptRoot 'update-sillytavern-compatibility.ps1'
 $companionUrl = 'http://127.0.0.1:8002'
 $companionPort = 8002
 $sillyTavernPort = 8001
@@ -201,10 +202,14 @@ switch ($normalizedCommand) {
     'backup' { Invoke-Backup $CommandArguments }
     'restore' { Invoke-Restore $CommandArguments }
     'fallback' { throw 'Fallback switching is not shipped yet. The tested fallback remains installed and companion data was not changed.' }
-    'update-compatibility' { throw 'Staged compatibility update is the next operations slice. No runtime was changed.' }
+    'update-compatibility' {
+        if ($CommandArguments.Count -gt 0) { throw "Unknown update-compatibility argument: $($CommandArguments -join ' ')" }
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $compatibilityUpdater
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
     'help' {
         Write-Host 'Wayfinder.cmd [start|status|stop|companion|backup [label]|restore <backup-id> [--confirm]|fallback|update-compatibility]'
-        Write-Host 'fallback and update-compatibility currently fail safely until their staged workflows ship.'
+        Write-Host 'fallback currently fails safely until its divergence workflow ships.'
     }
     default { throw "Unknown Wayfinder command: $Command" }
 }

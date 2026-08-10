@@ -1,6 +1,6 @@
 # Wayfinder playable preview
 
-Version `0.3.0-preview.8` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
+Version `0.3.0-preview.9` is a daily-use preview of the campaign-independent companion. It is deliberately not the final cutover: the working fallback remains installed. The real pinned-SillyTavern desktop browser/chat-history narration trace passes. The product owner deferred the additional physical-phone rerun rather than blocking feature work; that rerun is not represented as passed.
 
 ## Start
 
@@ -11,7 +11,7 @@ Version `0.3.0-preview.8` is a daily-use preview of the campaign-independent com
 
 The launcher builds stale or missing production assets, refreshes the production bridge, starts only missing owned processes, waits for Campaign readiness, and refuses unknown port owners. LM Studio absence is non-blocking: editing still works, while the status panel explains why narration cannot run.
 
-Run `Wayfinder.cmd status` for a read-only stack report. `Wayfinder.cmd stop` drains only the identity-matched Companion/SillyTavern processes recorded by this supervisor; unknown port owners and LM Studio are never stopped. `Wayfinder.cmd backup [label]` creates a verified backup. `Wayfinder.cmd restore [backup-id]` previews and confirms exact recovery. Run `npm run smoke:playable` for the release check covering pinned ST, the companion, Workspace, SQLite, model profiles, the installed bridge, fallback presence, and retired prototypes.
+Run `Wayfinder.cmd status` for a read-only stack report. `Wayfinder.cmd stop` drains only the identity-matched Companion/SillyTavern processes recorded by this supervisor; unknown port owners and LM Studio are never stopped. `Wayfinder.cmd backup [label]` creates a verified backup. `Wayfinder.cmd restore [backup-id]` previews and confirms exact recovery. `Wayfinder.cmd update-compatibility` backs up Campaign truth, stages the reviewed ST pin beside the active runtime, and smoke-checks it before any switch. Run `npm run smoke:playable` for the release check covering pinned ST, the compatibility lock, companion, Workspace, SQLite, model profiles, installed bridge, fallback presence, and retired prototypes.
 
 ## Play path
 
@@ -46,6 +46,7 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - verified daily and labelled SQLite backups, deterministic retention, restore preview, safety backup, and verified activation;
 - watched JSON addon directory, manual convergence scan, restart-resumable manifest-bound diff, explicit backed-up atomic apply, and additive no-delete behavior;
 - visible start/status/stop/companion/backup/restore commands, identity-bound process ownership, graceful Companion drain, and unknown-owner refusal;
+- reviewed compatibility lock, verified pre-update backup, staged dependency/extension checks, isolated startup, preserved previous runtime, and automatic post-switch rollback;
 
 ## Recovery and fallback
 
@@ -58,8 +59,8 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 ## Preview limits
 
 - The additional physical Android production-bridge rerun was explicitly deferred; do not infer that it passed. Sanitized desktop evidence is in `docs/evidence/production-narration-desktop-2026-08-09.json`.
-- This convenience launcher is preview packaging for the active narration tracer, not acceptance of the later supervisor/update tracer. Occupied-port, partial-start, shutdown, update, and rollback failure-injection acceptance remains ahead.
+- The supervisor, backup/restore, and same-pin staged update path have live desktop evidence. A real changed-pin switch plus injected post-switch rollback remains a cutover acceptance gate.
 - New blank Campaigns cannot yet create a fresh Chat Binding from Campaign Book; use the already-linked Campaign or import an existing fallback chat.
 - Live Story Sync remains model-dependent. A conservative real-model desktop trace passed the human-review safety boundary; sanitized evidence lives in `docs/evidence/production-story-sync-desktop-2026-08-10.json`. Physical Android review remains deferred, not passed.
-- Rich addon coverage beyond Actors, Items, active/completed Quests, Places, and the simplified current Scene; staged ST updates; functional fallback/companion mode switching; and final rollback UX remain active #39/#40 work. Addon files with unsupported fields show explicit warnings.
+- Rich addon coverage beyond Actors, Items, active/completed Quests, Places, and the simplified current Scene; functional fallback/companion mode switching; and final changed-pin rollback evidence remain active #39/#40 work. Addon files with unsupported fields show explicit warnings.
 - LM Studio model loading and unloading remains manual by design.
