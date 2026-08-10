@@ -43,6 +43,9 @@ test('compatibility update is staged beside active ST and preserves rollback bef
   assert.match(updater, /Test-StagedRuntime \$stageRoot/);
   assert.match(updater, /Test-StagedRuntime \$activeRoot/);
   assert.match(updater, /listen: false/);
+  assert.match(updater, /skipContentCheck: true/);
+  assert.match(updater, /autoDownload: false/);
+  assert.match(updater, /AddSeconds\(120\)/);
   assert.match(updater, /Move-PersistentState/);
   assert.match(updater, /rolling back/i);
   assert.match(updater, /active SillyTavern is still running/i);

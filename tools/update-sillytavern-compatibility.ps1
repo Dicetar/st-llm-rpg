@@ -85,6 +85,15 @@ browserLaunch:
 whitelistMode: false
 basicAuthMode: false
 enableUserAccounts: false
+skipContentCheck: true
+enableDownloadableTokenizers: false
+performance:
+  useDiskCache: false
+extensions:
+  enabled: true
+  autoUpdate: false
+  models:
+    autoDownload: false
 ssl:
   enabled: false
 "@
@@ -117,7 +126,7 @@ function Test-StagedRuntime([string]$TargetRoot, [object]$Lock) {
     $process = Start-Process -FilePath (Get-Command node -ErrorAction Stop).Source -ArgumentList $arguments `
         -WorkingDirectory $TargetRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     try {
-        $deadline = (Get-Date).AddSeconds(45)
+        $deadline = (Get-Date).AddSeconds(120)
         $version = $null
         do {
             Start-Sleep -Milliseconds 250
