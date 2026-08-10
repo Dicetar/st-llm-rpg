@@ -1,0 +1,53 @@
+{
+  "kind": "production-story-sync-desktop-evidence",
+  "capturedAt": "2026-08-10",
+  "sanitized": true,
+  "environment": {
+    "sillyTavernVersion": "1.18.0",
+    "sillyTavernRevision": "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "sillyTavernOrigin": "http://127.0.0.1:8001",
+    "companionOrigin": "http://127.0.0.1:8002",
+    "lmStudioOrigin": "http://127.0.0.1:1234/v1",
+    "workerModel": "mistralai/mistral-nemo-instruct-2407"
+  },
+  "source": {
+    "savedChatUsed": true,
+    "messageCount": 12,
+    "firstMessageIndex": 0,
+    "lastMessageIndex": 11,
+    "rawContentRecorded": false
+  },
+  "worker": {
+    "attemptCount": 1,
+    "elapsedMs": 25948,
+    "repaired": false,
+    "proposalCount": 1,
+    "result": "ready-for-review"
+  },
+  "review": {
+    "invalidTypedOperationBlocked": true,
+    "proposalEdited": true,
+    "decision": "reject",
+    "humanFinalizationRequired": true
+  },
+  "finalization": {
+    "status": "completed",
+    "acceptedProposalCount": 0,
+    "rejectedProposalCount": 1,
+    "campaignRevisionBefore": 1,
+    "campaignRevisionAfter": 1,
+    "bindingRevisionAfter": 3,
+    "syncFacetRevisionAfter": 2,
+    "syncBoundaryAfter": 11,
+    "sourcePruned": true
+  },
+  "automatedCompanionEvidence": {
+    "acceptedProposalBatchCreatesOneCampaignEvent": true,
+    "acceptedProposalBatchAdvancesOneBindingEventAtomically": true,
+    "narrationPreemptsWorkerWithoutInferenceOverlap": true,
+    "stopResumeDiscardRecovery": true
+  },
+  "remainingAcceptance": [
+    "Physical Android Review Inbox rerun remains explicitly deferred by the product owner; it is not represented as passed."
+  ]
+}

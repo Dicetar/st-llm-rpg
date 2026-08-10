@@ -55,5 +55,6 @@ An existing fallback chat can be imported through **Import a fallback chat**. Im
 - The additional physical Android production-bridge rerun was explicitly deferred; do not infer that it passed. Sanitized desktop evidence is in `docs/evidence/production-narration-desktop-2026-08-09.json`.
 - This convenience launcher is preview packaging for the active narration tracer, not acceptance of the later supervisor/update tracer. Occupied-port, partial-start, shutdown, update, and rollback failure-injection acceptance remains ahead.
 - New blank Campaigns cannot yet create a fresh Chat Binding from Campaign Book; use the already-linked Campaign or import an existing fallback chat.
-- Live Story Sync quality remains model-dependent and needs a representative Campaign trace before #38 closes. Addon reconciliation, daily backup automation, staged ST updates, and final rollback UX belong to later tracers.
+- Live Story Sync remains model-dependent. A conservative real-model desktop trace passed the human-review safety boundary; sanitized evidence lives in `docs/evidence/production-story-sync-desktop-2026-08-10.json`. Physical Android review remains deferred, not passed.
+- Addon reconciliation, daily backup automation, staged ST updates, and final rollback UX are the active #39 work.
 - LM Studio model loading and unloading remains manual by design.
