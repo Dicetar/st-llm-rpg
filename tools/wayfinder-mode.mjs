@@ -157,8 +157,8 @@ export async function inspectRuntimeMode(root, declaredMode) {
   return { mode: document.mode, active, preserved };
 }
 
-async function fetchJson(url, init = {}) {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(60_000) });
+async function fetchJson(url, init = {}, fetchImplementation = globalThis.fetch) {
+  const response = await fetchImplementation(url, { ...init, signal: AbortSignal.timeout(60_000) });
   const body = await response.json().catch(() => null);
   if (!response.ok) {
     const message = body?.message || `${url} returned HTTP ${response.status}`;
@@ -171,7 +171,7 @@ function safeTimestamp() {
   return new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
 }
 
-async function createFallbackSafetyExport(root, companionUrl) {
+async function createFallbackSafetyExport(root, companionUrl, fetchImplementation) {
   const target = paths(root);
   const base = companionUrl.replace(/\/$/, '');
   const exportedAt = new Date().toISOString();
@@ -179,12 +179,12 @@ async function createFallbackSafetyExport(root, companionUrl) {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ label: `Before fallback mode ${exportedAt}` }),
-  });
+  }, fetchImplementation);
   if (backup?.availability !== 'available' || backup?.verification?.verified !== true) {
     throw new Error('Companion did not return a verified pre-fallback backup.');
   }
 
-  const summaries = await fetchJson(`${base}/api/campaigns`);
+  const summaries = await fetchJson(`${base}/api/campaigns`, {}, fetchImplementation);
   if (!Array.isArray(summaries)) throw new Error('Companion Campaign list was not an array.');
   const campaigns = [];
   for (const summary of summaries) {
@@ -192,9 +192,9 @@ async function createFallbackSafetyExport(root, companionUrl) {
     if (!id) throw new Error('Companion export found a Campaign without a stable ID.');
     const encoded = encodeURIComponent(id);
     const [document, history, bindings] = await Promise.all([
-      fetchJson(`${base}/api/campaigns/${encoded}`),
-      fetchJson(`${base}/api/campaigns/${encoded}/history`),
-      fetchJson(`${base}/api/campaigns/${encoded}/chat-bindings`),
+      fetchJson(`${base}/api/campaigns/${encoded}`, {}, fetchImplementation),
+      fetchJson(`${base}/api/campaigns/${encoded}/history`, {}, fetchImplementation),
+      fetchJson(`${base}/api/campaigns/${encoded}/chat-bindings`, {}, fetchImplementation),
     ]);
     if (!document?.campaign?.id || !Number.isInteger(document?.campaign?.revision) || !Array.isArray(history) || !Array.isArray(bindings)) {
       throw new Error(`Companion export returned an invalid document set for Campaign ${id}.`);
@@ -259,7 +259,11 @@ export async function enterFallbackMode(root, options = {}) {
   let safety = null;
   let safetyFailure = null;
   try {
-    safety = await createFallbackSafetyExport(root, options.companionUrl ?? 'http://127.0.0.1:8002');
+    safety = await createFallbackSafetyExport(
+      root,
+      options.companionUrl ?? 'http://127.0.0.1:8002',
+      options.fetchImplementation ?? globalThis.fetch,
+    );
   } catch (error) {
     safetyFailure = error instanceof Error ? error.message : String(error);
     if (!options.emergency) {

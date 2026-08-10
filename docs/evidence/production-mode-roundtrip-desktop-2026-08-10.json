@@ -1,0 +1,56 @@
+{
+  "kind": "production-mode-roundtrip-desktop-evidence",
+  "capturedAt": "2026-08-10",
+  "sanitized": true,
+  "projectCommit": "054e611",
+  "environment": {
+    "nodeVersion": "24.15.0",
+    "sillyTavernVersion": "1.18.0",
+    "sillyTavernRevision": "380e31e8c58d196969b6a0da74f431ba999c7e0a",
+    "sillyTavernOrigin": "http://127.0.0.1:8001",
+    "companionOrigin": "http://127.0.0.1:8002"
+  },
+  "fallbackTransition": {
+    "explicitConfirmationUsed": true,
+    "emergencyOverrideUsed": false,
+    "verifiedBackupId": "backup-b55c9ad3-2e53-49bd-9523-494a69495861",
+    "jsonExportCreated": true,
+    "jsonExportBytes": 6466,
+    "jsonExportSha256": "1e6faa73629cf88b6c3c6bed40010194ec1ecd0453b204cb8371ac8c57531fe9",
+    "campaignCount": 2,
+    "historyEntryCount": 2,
+    "bindingCount": 2,
+    "divergenceReportCreated": true,
+    "ownedCompanionDrained": true,
+    "sillyTavernRemainedReady": true,
+    "bridgeActive": false,
+    "fallbackActive": true,
+    "sqliteDeletedOrRewritten": false,
+    "legacyMetadataDeletedOrRewritten": false
+  },
+  "companionTransition": {
+    "verifiedBindingAdmissionCount": 2,
+    "automaticFallbackMergeAttempted": false,
+    "companionRestarted": true,
+    "sillyTavernRemainedReady": true,
+    "bridgeActive": true,
+    "fallbackActive": false,
+    "fallbackRuntimeCopyPreserved": true
+  },
+  "postconditions": {
+    "wayfinderMode": "companion",
+    "wayfinderStatusReady": true,
+    "playableSmokePassed": 15,
+    "nativePopupInvariantPassed": true,
+    "verifiedBackupCount": 7,
+    "campaignCount": 2,
+    "verifiedBindingCountInPlayPath": 1,
+    "narratorProfileCount": 1
+  },
+  "contentRecorded": false,
+  "remainingAcceptance": [
+    "Repeat the full cutover trace in the physical-phone client; this remains deferred and is not represented as passed.",
+    "Changes made during fallback play require explicit re-import or manual merge; this trace intentionally made no fallback Campaign mutation.",
+    "Actual changed-pin state transfer and injected post-switch rollback remain final cutover evidence."
+  ]
+}

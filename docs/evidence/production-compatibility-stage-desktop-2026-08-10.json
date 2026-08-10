@@ -41,7 +41,7 @@
   },
   "postconditions": {
     "wayfinderStatusReady": true,
-    "playableSmokePassed": 13,
+    "playableSmokePassed": 14,
     "verifiedBackupCount": 6,
     "campaignCount": 2,
     "chatBindingCount": 1,

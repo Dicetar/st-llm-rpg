@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,25 +31,6 @@ async function createRoot() {
   return root;
 }
 
-async function startFixture(routes) {
-  const server = createServer(async (request, response) => {
-    const key = `${request.method} ${request.url}`;
-    const value = routes[key];
-    if (value === undefined) { response.writeHead(404).end(); return; }
-    response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify(value));
-  });
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const address = server.address();
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())),
-  };
-}
-
 test('extension slot activates only the selected authority while preserving both reviewed sources', async t => {
   const root = await createRoot();
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -79,7 +59,7 @@ test('fallback mode creates verified backup/export/divergence evidence before di
   const binding = {
     id: 'binding-one', revision: 3, campaignAnchor: 1, markerState: 'verified',
   };
-  const fixture = await startFixture({
+  const routes = {
     'POST /api/operations/backups': {
       id: 'backup-one', fileName: 'backup-one.sqlite', availability: 'available', verification: { verified: true },
     },
@@ -87,10 +67,17 @@ test('fallback mode creates verified backup/export/divergence evidence before di
     [`GET /api/campaigns/${campaignId}`]: { campaign: { id: campaignId, revision: 4 }, actors: [], items: [], quests: [], places: [], currentScene: null },
     [`GET /api/campaigns/${campaignId}/history`]: [{ revision: 4 }],
     [`GET /api/campaigns/${campaignId}/chat-bindings`]: [binding],
-  });
-  t.after(() => fixture.close());
+  };
+  const fetchImplementation = async (url, init = {}) => {
+    const key = `${init.method ?? 'GET'} ${new URL(url).pathname}`;
+    const value = routes[key];
+    return new Response(value === undefined ? '' : JSON.stringify(value), {
+      status: value === undefined ? 404 : 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
 
-  const result = await enterFallbackMode(root, { companionUrl: fixture.baseUrl });
+  const result = await enterFallbackMode(root, { companionUrl: 'http://fixture.invalid', fetchImplementation });
   assert.equal(result.mode.mode, 'fallback');
   assert.equal(result.divergence.backupId, 'backup-one');
   assert.equal(result.divergence.campaigns[0].campaignRevision, 4);
