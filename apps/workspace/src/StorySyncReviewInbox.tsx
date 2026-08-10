@@ -4,6 +4,7 @@ import type {
   CampaignOperation,
   DecideStorySyncProposalRequest,
   StorySyncJobDocument,
+  StorySyncFinalizationReceipt,
   StorySyncProposal,
   StorySyncProposalDecision,
   WorkerModelProfile,
@@ -226,6 +227,7 @@ export type StorySyncReviewInboxViewProps = Readonly<{
   message: string;
   onSaveProfile: (modelId: string, requestedOutputTokens: number) => Promise<void>;
   onSaveProposal: (proposalId: string, request: DecideStorySyncProposalRequest) => Promise<void>;
+  onFinalizeJob: (job: StorySyncJobDocument) => Promise<void>;
   onRefresh: () => void;
 }>;
 
@@ -242,7 +244,7 @@ export function StorySyncReviewInboxView(props: StorySyncReviewInboxViewProps) {
     void props.onSaveProfile(modelId.trim(), requestedOutputTokens);
   };
   return <section className="collection-view story-review" aria-labelledby="story-review-heading">
-    <div className="collection-heading story-review__heading"><div><p className="eyebrow">Story Sync</p><h4 id="story-review-heading">Review Inbox</h4><p>Worker suggestions remain drafts until you review them. Accepting here records your decision but does not change Campaign truth yet.</p></div><button type="button" className="button-secondary" onClick={props.onRefresh} disabled={props.loading || props.busy}>Refresh</button></div>
+    <div className="collection-heading story-review__heading"><div><p className="eyebrow">Story Sync</p><h4 id="story-review-heading">Review Inbox</h4><p>Worker suggestions remain drafts until you review them. Decisions alone change nothing; <strong>Finalize review</strong> applies all accepted changes as one atomic Campaign revision and advances this chat's Sync Boundary.</p></div><button type="button" className="button-secondary" onClick={props.onRefresh} disabled={props.loading || props.busy}>Refresh</button></div>
     {props.error ? <p className="error-banner" role="alert">{props.error}</p> : null}
     {props.message ? <p className="success-banner" role="status">{props.message}</p> : null}
     <details className="worker-profile" open={!currentProfile}>
@@ -256,12 +258,22 @@ export function StorySyncReviewInboxView(props: StorySyncReviewInboxViewProps) {
     {props.loading && props.jobs.length === 0 ? <p className="empty-state">Loading Story Sync jobs…</p> : null}
     {!props.loading && props.jobs.length === 0 ? <div className="story-empty"><p className="eyebrow">Nothing waiting</p><h5>Sync from the linked chat</h5><p>In SillyTavern, open RPG Companion and choose <strong>Sync Story</strong>. The bounded new chat range will appear here as editable proposals.</p></div> : null}
     <div className="story-job-list">
-      {props.jobs.map(job => <section className={`story-job story-job--${job.status}`} key={job.id}>
+      {props.jobs.map(job => {
+        const acceptedCount = job.proposals.filter(proposal => proposal.decision === 'accept').length;
+        const reviewComplete = job.proposals.every(proposal => proposal.decision === 'accept' || proposal.decision === 'reject');
+        return <section className={`story-job story-job--${job.status}`} key={job.id}>
         <header className="story-job__heading"><div><p className="eyebrow">Messages {job.source.firstMessageIndex}–{job.source.lastMessageIndex} · {job.source.messageCount} captured</p><h5>{job.status === 'ready-for-review' ? 'Ready for review' : kindLabel(job.status)}</h5></div><span>{job.attemptCount} attempt{job.attemptCount === 1 ? '' : 's'}</span></header>
         {job.problem ? <p className="error-banner">{job.problem.message}</p> : null}
         {ACTIVE_JOB_STATES.has(job.status) ? <p className="story-job__progress" role="status">The Campaign Worker is analyzing this bounded chat range. This page updates automatically.</p> : null}
         {job.proposals.map(proposal => <ProposalCard key={proposal.id} proposal={proposal} campaign={props.campaign} busy={props.busy} onSave={props.onSaveProposal} />)}
-      </section>)}
+        {job.status === 'ready-for-review' ? <div className="story-finalize">
+          <div><strong>Finalize review</strong><span>{reviewComplete ? `${acceptedCount} accepted · ${job.proposals.length - acceptedCount} rejected` : 'Every Proposal needs Accept or Reject'}</span></div>
+          <button type="button" disabled={props.busy || !reviewComplete} onClick={() => { void props.onFinalizeJob(job); }}>
+            {acceptedCount > 0 ? `Apply ${acceptedCount} and finish` : 'Finish with no changes'}
+          </button>
+        </div> : null}
+      </section>;
+      })}
     </div>
   </section>;
 }
@@ -318,5 +330,23 @@ export function StorySyncReviewInbox(props: Readonly<{ campaign: CampaignDocumen
     } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
     finally { setBusy(false); }
   };
-  return <StorySyncReviewInboxView campaign={props.campaign} profiles={profiles} jobs={jobs} loading={loading} busy={busy} error={error} message={message} onSaveProfile={saveProfile} onSaveProposal={saveProposal} onRefresh={() => { void refresh(); }} />;
+  const finalizeJob = async (job: StorySyncJobDocument) => {
+    setBusy(true); setMessage(''); setError('');
+    try {
+      const receipt = await responseJson<StorySyncFinalizationReceipt>(`/api/story-sync/jobs/${encodeURIComponent(job.id)}/finalize`, {
+        method: 'POST',
+        body: JSON.stringify({
+          proposals: job.proposals.map(proposal => ({
+            proposalId: proposal.id,
+            expectedRevision: proposal.revision,
+            decision: proposal.decision,
+          })),
+        }),
+      });
+      await refresh(true);
+      setMessage(`${receipt.acceptedProposalIds.length} accepted change${receipt.acceptedProposalIds.length === 1 ? '' : 's'} finalized. Campaign is now revision ${receipt.campaignRevision}; this chat's Sync Boundary advanced.`);
+    } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
+    finally { setBusy(false); }
+  };
+  return <StorySyncReviewInboxView campaign={props.campaign} profiles={profiles} jobs={jobs} loading={loading} busy={busy} error={error} message={message} onSaveProfile={saveProfile} onSaveProposal={saveProposal} onFinalizeJob={finalizeJob} onRefresh={() => { void refresh(); }} />;
 }

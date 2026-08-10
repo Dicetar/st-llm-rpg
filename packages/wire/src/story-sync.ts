@@ -143,3 +143,29 @@ export const DecideStorySyncProposalRequestSchema = Type.Object({
   draft: StorySyncProposalDraftSchema,
 }, { additionalProperties: false });
 export type DecideStorySyncProposalRequest = Static<typeof DecideStorySyncProposalRequestSchema>;
+
+export const FinalizeStorySyncJobRequestSchema = Type.Object({
+  proposals: Type.Array(Type.Object({
+    proposalId: Identifier,
+    expectedRevision: Type.Integer({ minimum: 1 }),
+    decision: Type.Union([Type.Literal('accept'), Type.Literal('reject')]),
+  }, { additionalProperties: false }), { maxItems: 30 }),
+}, { additionalProperties: false });
+export type FinalizeStorySyncJobRequest = Static<typeof FinalizeStorySyncJobRequestSchema>;
+
+export const StorySyncFinalizationReceiptSchema = Type.Object({
+  schema: Type.Literal('st-rpg.story-sync-finalization-receipt'),
+  version: Type.Literal('1.0'),
+  jobId: Identifier,
+  campaignId: Identifier,
+  bindingId: Identifier,
+  campaignRevision: Type.Integer({ minimum: 1 }),
+  bindingRevision: Type.Integer({ minimum: 1 }),
+  acceptedProposalIds: Type.Array(Identifier, { maxItems: 30 }),
+  rejectedProposalIds: Type.Array(Identifier, { maxItems: 30 }),
+  campaignEventId: Type.Optional(Identifier),
+  bindingEventId: Identifier,
+  completedAt: Timestamp,
+  idempotent: Type.Boolean(),
+}, { additionalProperties: false });
+export type StorySyncFinalizationReceipt = Static<typeof StorySyncFinalizationReceiptSchema>;

@@ -239,7 +239,7 @@ export async function buildCompanion(options: BuildCompanionOptions): Promise<Fa
   if (campaignEngine) registerCampaignRoutes(app, campaignEngine);
   if (legacyImportService) registerLegacyImportRoutes(app, legacyImportService);
   if (contextService) registerContextRoutes(app, contextService);
-  if (storySyncService) registerStorySyncRoutes(app, storySyncService);
+  if (storySyncService && campaignEngine) registerStorySyncRoutes(app, storySyncService, campaignEngine);
   registerNarrationRoutes(app, narrationService);
 
   app.get('/assets/*', async (request, reply) => {

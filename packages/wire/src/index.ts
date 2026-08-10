@@ -60,6 +60,8 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('STORY_SYNC_PROPOSAL_NOT_FOUND'),
   Type.Literal('STORY_SYNC_PROPOSAL_REVISION_CONFLICT'),
   Type.Literal('STORY_SYNC_REVIEW_LOCKED'),
+  Type.Literal('STORY_SYNC_REVIEW_INCOMPLETE'),
+  Type.Literal('STORY_SYNC_FINALIZATION_STALE'),
   Type.Literal('NOT_FOUND'),
   Type.Literal('INTERNAL_ERROR'),
 ]);

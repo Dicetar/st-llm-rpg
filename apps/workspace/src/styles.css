@@ -370,6 +370,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .story-evidence li span { color: #c9bca8; line-height: 1.4; overflow-wrap: anywhere; }
 .story-validation { margin: 0; border-left: 3px solid #a9554e; padding: 0.65rem 0.8rem 0.65rem 1.8rem; background: rgba(114, 40, 34, 0.2); color: #ffd7d2; }
 .story-proposal__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.55rem; }
+.story-finalize { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.9rem; border: 1px solid #80643e; border-radius: 0.8rem; padding: 0.85rem; background: linear-gradient(135deg, rgba(75, 55, 31, 0.62), rgba(22, 18, 14, 0.82)); }
+.story-finalize > div { display: grid; gap: 0.2rem; }
+.story-finalize span { color: #c9bca8; font-size: 0.86rem; }
 
 @media (max-width: 900px) {
   .collection-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -401,6 +404,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .context-card__heading { align-items: stretch; flex-direction: column; }
   .worker-profile__form { grid-template-columns: 1fr; }
   .story-review__heading, .story-job__heading, .story-proposal__heading { align-items: stretch; flex-direction: column; }
+  .story-finalize { align-items: stretch; flex-direction: column; }
   .story-review__heading > button, .story-proposal__actions button { width: 100%; }
   .story-proposal__actions { display: grid; grid-template-columns: 1fr; }
 }

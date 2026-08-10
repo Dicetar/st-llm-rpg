@@ -16,6 +16,7 @@ import type {
   DecideStorySyncProposalRequest,
   StorySyncJobDocument,
   StorySyncJobStatus,
+  StorySyncFinalizationReceipt,
   StorySyncProposal,
   WorkerModelProfile,
 } from '@st-llm-rpg/wire';
@@ -40,6 +41,10 @@ import {
   STORY_SYNC_JOBS_MIGRATION,
   storySyncJobsMigrationChecksum,
 } from '../../migrations/006-story-sync-jobs.js';
+import {
+  STORY_SYNC_FINALIZATION_MIGRATION,
+  storySyncFinalizationMigrationChecksum,
+} from '../../migrations/007-story-sync-finalization.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -66,6 +71,8 @@ import type {
   CampaignJournalRestoreRequest,
   CampaignJournalTransaction,
   CampaignJournalTransactionCompletion,
+  CompleteStorySyncFinalization,
+  StorySyncFinalizationReview,
 } from '../../modules/campaign/campaign-journal.js';
 import {
   buildCampaignSnapshotInWorker,
@@ -206,6 +213,13 @@ type WorkerJobRow = Readonly<{
   problem_message: string | null;
   created_at: string;
   updated_at: string;
+  finalization_request_id: string | null;
+  decision_hash: string | null;
+  campaign_event_id: string | null;
+  binding_event_id: string | null;
+  completed_campaign_revision: number | null;
+  completed_binding_revision: number | null;
+  finalized_at: string | null;
 }>;
 
 type ProposalRow = Readonly<{
@@ -944,6 +958,8 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
         const transaction: CampaignJournalTransaction = {
           findReceipt: requestId => this.findReceipt(requestId),
           findHead: campaignId => this.findHead(campaignId),
+          findStorySyncFinalization: jobId => this.findStorySyncFinalization(jobId),
+          completeStorySyncFinalization: input => this.completeStorySyncFinalization(input),
           append: input => {
             if (accepted) throw new Error('A Campaign Journal transaction may append only one accepted Event.');
             this.persistAppend(input);
@@ -1135,6 +1151,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       { ...CHAT_BINDINGS_MIGRATION, checksum: chatBindingsMigrationChecksum() },
       { ...CONTEXT_PLANNING_MIGRATION, checksum: contextPlanningMigrationChecksum() },
       { ...STORY_SYNC_JOBS_MIGRATION, checksum: storySyncJobsMigrationChecksum() },
+      { ...STORY_SYNC_FINALIZATION_MIGRATION, checksum: storySyncFinalizationMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
@@ -1274,6 +1291,156 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
 
   private findBindingById(bindingId: string): ChatBindingRow | undefined {
     return this.#database.prepare('SELECT * FROM chat_bindings WHERE binding_id = ?').get(bindingId) as ChatBindingRow | undefined;
+  }
+
+  private findStorySyncFinalization(jobId: string): StorySyncFinalizationReview | undefined {
+    const row = this.#database.prepare('SELECT * FROM worker_jobs WHERE job_id = ?')
+      .get(cleanIdentifier(jobId, 'Story Sync Job ID')) as WorkerJobRow | undefined;
+    if (!row) return undefined;
+    const binding = this.findBindingById(row.binding_id);
+    if (!binding) throw new Error(`Story Sync Job ${row.job_id} lost Chat Binding ${row.binding_id}.`);
+    const source = parseJson<StoredStorySyncSource>(row.source_json);
+    const proposals = (this.#database.prepare(`
+      SELECT * FROM story_sync_proposals WHERE job_id = ? ORDER BY ordinal, proposal_id
+    `).all(row.job_id) as ProposalRow[]).map(proposalDocument);
+    return {
+      jobId: row.job_id,
+      campaignId: row.campaign_id,
+      bindingId: row.binding_id,
+      status: row.status,
+      campaignAnchor: Number(row.campaign_anchor),
+      bindingRevision: Number(row.binding_revision),
+      syncFacetRevision: Number(row.sync_facet_revision),
+      sourceFirstMessageIndex: Number(row.source_first_message_index),
+      sourceLastMessageIndex: Number(row.source_last_message_index),
+      sourceEndPrefixHash: row.source_end_prefix_hash,
+      sourceBoundary: source.boundary,
+      binding: bindingDocument(binding),
+      proposals,
+      completedReceipt: this.completedStorySyncReceipt(row, true),
+    };
+  }
+
+  private completedStorySyncReceipt(row: WorkerJobRow, idempotent: boolean): StorySyncFinalizationReceipt | null {
+    if (
+      row.status !== 'completed'
+      || !row.binding_event_id
+      || !row.completed_campaign_revision
+      || !row.completed_binding_revision
+      || !row.finalized_at
+    ) return null;
+    const proposals = (this.#database.prepare(`
+      SELECT proposal_id, decision FROM story_sync_proposals WHERE job_id = ? ORDER BY ordinal, proposal_id
+    `).all(row.job_id) as Array<{ proposal_id: string; decision: StorySyncProposal['decision'] }>);
+    return {
+      schema: 'st-rpg.story-sync-finalization-receipt',
+      version: '1.0',
+      jobId: row.job_id,
+      campaignId: row.campaign_id,
+      bindingId: row.binding_id,
+      campaignRevision: Number(row.completed_campaign_revision),
+      bindingRevision: Number(row.completed_binding_revision),
+      acceptedProposalIds: proposals.filter(proposal => proposal.decision === 'accept').map(proposal => proposal.proposal_id),
+      rejectedProposalIds: proposals.filter(proposal => proposal.decision === 'reject').map(proposal => proposal.proposal_id),
+      ...(row.campaign_event_id ? { campaignEventId: row.campaign_event_id } : {}),
+      bindingEventId: row.binding_event_id,
+      completedAt: row.finalized_at,
+      idempotent,
+    };
+  }
+
+  private completeStorySyncFinalization(input: CompleteStorySyncFinalization): StorySyncFinalizationReceipt {
+    const row = this.requireStorySyncJob(cleanIdentifier(input.jobId, 'Story Sync Job ID'));
+    const completed = this.completedStorySyncReceipt(row, true);
+    if (completed) {
+      if (row.finalization_request_id !== input.requestId || row.decision_hash !== input.decisionHash) {
+        throw new CampaignExpectedError('STORY_SYNC_FINALIZATION_STALE', 'This Story Sync review was already finalized with different decisions.');
+      }
+      return completed;
+    }
+    if (row.status !== 'ready-for-review') {
+      throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', `Story Sync Job ${row.job_id} cannot finalize from ${row.status}.`);
+    }
+    const proposals = this.#database.prepare(`
+      SELECT * FROM story_sync_proposals WHERE job_id = ? ORDER BY ordinal, proposal_id
+    `).all(row.job_id) as ProposalRow[];
+    if (proposals.length !== input.proposalRevisions.length) {
+      throw new CampaignExpectedError('STORY_SYNC_FINALIZATION_STALE', 'The Review Inbox changed before finalization. Reload it and review every Proposal again.');
+    }
+    for (let index = 0; index < proposals.length; index += 1) {
+      const stored = proposals[index]!;
+      const expected = input.proposalRevisions[index]!;
+      if (
+        stored.proposal_id !== expected.proposalId
+        || Number(stored.revision) !== expected.expectedRevision
+        || stored.decision !== expected.decision
+      ) {
+        throw new CampaignExpectedError('STORY_SYNC_FINALIZATION_STALE', 'A Proposal changed before finalization. Reload the Review Inbox; nothing was applied.');
+      }
+    }
+    const binding = this.findBindingById(row.binding_id);
+    if (!binding) throw new CampaignExpectedError('CHAT_BINDING_NOT_FOUND', `Chat Binding ${row.binding_id} was not found.`);
+    const source = parseJson<StoredStorySyncSource>(row.source_json);
+    if (
+      Number(binding.binding_revision) !== input.expectedBindingRevision
+      || Number(binding.sync_facet_revision) !== input.expectedSyncFacetRevision
+      || Number(binding.sync_through_message_index) !== source.boundary.throughMessageIndex
+      || binding.sync_prefix_hash !== source.boundary.prefixHash
+    ) {
+      throw new CampaignExpectedError('STORY_SYNC_FINALIZATION_STALE', 'The Chat Binding or Sync Boundary changed before finalization. Nothing was applied.');
+    }
+    const campaign = this.requireCampaign(row.campaign_id);
+    if (Number(campaign.current_revision) !== input.campaignRevision) {
+      throw new CampaignExpectedError('STORY_SYNC_FINALIZATION_STALE', 'Campaign authority did not reach the prepared Story Sync revision. Nothing was applied.');
+    }
+    const nextBindingRevision = input.expectedBindingRevision + 1;
+    const nextSyncFacetRevision = input.expectedSyncFacetRevision + 1;
+    const operation = {
+      kind: 'set_sync_boundary', jobId: row.job_id,
+      boundary: { throughMessageIndex: Number(row.source_last_message_index), prefixHash: row.source_end_prefix_hash },
+      campaignAnchor: input.campaignRevision,
+    };
+    const updated = this.#database.prepare(`
+      UPDATE chat_bindings
+      SET binding_revision = ?, campaign_anchor = ?, sync_facet_revision = ?,
+          sync_through_message_index = ?, sync_prefix_hash = ?, updated_at = ?
+      WHERE binding_id = ? AND binding_revision = ? AND sync_facet_revision = ?
+        AND campaign_anchor = ? AND sync_through_message_index = ? AND sync_prefix_hash = ?
+    `).run(
+      nextBindingRevision,
+      input.campaignRevision,
+      nextSyncFacetRevision,
+      row.source_last_message_index,
+      row.source_end_prefix_hash,
+      input.completedAt,
+      row.binding_id,
+      input.expectedBindingRevision,
+      input.expectedSyncFacetRevision,
+      input.expectedCampaignRevision,
+      source.boundary.throughMessageIndex,
+      source.boundary.prefixHash,
+    );
+    if (Number(updated.changes) !== 1) {
+      throw new CampaignExpectedError('STORY_SYNC_FINALIZATION_STALE', 'Chat Binding authority changed before finalization. Nothing was applied.');
+    }
+    this.#database.prepare(`
+      INSERT INTO chat_binding_events(binding_id, revision, event_id, request_id, operation_kind, operation_json, accepted_at)
+      VALUES (?, ?, ?, ?, 'set_sync_boundary', ?, ?)
+    `).run(row.binding_id, nextBindingRevision, input.bindingEventId, input.requestId, canonicalJson(operation), input.completedAt);
+    const prunedSource = { ...source, messages: [] };
+    this.#database.prepare(`
+      UPDATE worker_jobs
+      SET status = 'completed', source_json = ?, source_content_pruned = 1,
+          finalization_request_id = ?, decision_hash = ?, campaign_event_id = ?, binding_event_id = ?,
+          completed_campaign_revision = ?, completed_binding_revision = ?, finalized_at = ?,
+          problem_code = NULL, problem_message = NULL, updated_at = ?
+      WHERE job_id = ? AND status = 'ready-for-review'
+    `).run(
+      canonicalJson(prunedSource), input.requestId, input.decisionHash, input.campaignEventId ?? null,
+      input.bindingEventId, input.campaignRevision, nextBindingRevision, input.completedAt,
+      input.completedAt, row.job_id,
+    );
+    return this.completedStorySyncReceipt(this.requireStorySyncJob(row.job_id), false)!;
   }
 
   private findBindingBySource(sourceFingerprint: string): ChatBindingRow | undefined {

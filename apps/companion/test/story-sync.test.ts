@@ -146,4 +146,58 @@ test('Story Sync creates a durable editable Proposal without mutating Campaign t
   assert.equal(restored.statusCode, 200, restored.body);
   assert.equal(restored.json().status, 'ready-for-review');
   assert.equal(restored.json().proposals[0].draft.title, 'The Silver Key is now carried');
+
+  const reviewed = restored.json() as StorySyncJobDocument;
+  const incomplete = await app.inject({
+    method: 'POST', url: `/api/story-sync/jobs/${reviewed.id}/finalize`,
+    payload: { proposals: [] },
+  });
+  assert.equal(incomplete.statusCode, 409, incomplete.body);
+  assert.equal(incomplete.json().code, 'STORY_SYNC_REVIEW_INCOMPLETE');
+  const unchanged = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}` });
+  assert.equal(unchanged.json().campaign.revision, 1, 'incomplete review cannot partially mutate Campaign truth');
+
+  const decided = await app.inject({
+    method: 'PUT', url: `/api/story-sync/proposals/${reviewed.proposals[0]!.id}`,
+    payload: {
+      expectedRevision: reviewed.proposals[0]!.revision,
+      decision: 'accept',
+      draft: reviewed.proposals[0]!.draft,
+    },
+  });
+  assert.equal(decided.statusCode, 200, decided.body);
+  const accepted = decided.json() as StorySyncJobDocument;
+  const finalizePayload = {
+    proposals: accepted.proposals.map(proposal => ({
+      proposalId: proposal.id,
+      expectedRevision: proposal.revision,
+      decision: proposal.decision,
+    })),
+  };
+  const finalized = await app.inject({
+    method: 'POST', url: `/api/story-sync/jobs/${accepted.id}/finalize`, payload: finalizePayload,
+  });
+  assert.equal(finalized.statusCode, 200, finalized.body);
+  assert.equal(finalized.json().campaignRevision, 2);
+  assert.equal(finalized.json().acceptedProposalIds[0], accepted.proposals[0]!.id);
+
+  const afterCampaign = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}` });
+  assert.equal(afterCampaign.json().campaign.revision, 2);
+  assert.equal(afterCampaign.json().items[0].ownerActorId, 'actor-player');
+  const afterHistory = await app.inject({ method: 'GET', url: `/api/campaigns/${campaignId}/history` });
+  assert.equal(afterHistory.json().length, 2, 'accepted Proposals append one Campaign Event');
+  assert.equal(afterHistory.json()[0].operationKind, 'story_sync_batch');
+  const binding = await app.inject({ method: 'GET', url: `/api/chat-bindings/${bindingId}` });
+  assert.equal(binding.json().syncBoundary.throughMessageIndex, 1);
+  assert.equal(binding.json().campaignAnchor, 2);
+  const completed = await app.inject({ method: 'GET', url: `/api/story-sync/jobs/${accepted.id}` });
+  assert.equal(completed.json().status, 'completed');
+  assert.equal(completed.json().source.contentPruned, true);
+
+  const repeated = await app.inject({
+    method: 'POST', url: `/api/story-sync/jobs/${accepted.id}/finalize`, payload: finalizePayload,
+  });
+  assert.equal(repeated.statusCode, 200, repeated.body);
+  assert.equal(repeated.json().idempotent, true);
+  assert.equal(repeated.json().campaignRevision, 2);
 });

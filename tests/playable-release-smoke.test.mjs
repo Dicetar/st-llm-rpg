@@ -40,7 +40,7 @@ async function writeTree(root) {
   await mkdir(join(root, '.runtime', 'companion'), { recursive: true });
   await writeFile(join(root, '.runtime', 'companion', 'campaigns.sqlite'), 'fixture');
   await writeFile(join(root, 'release.json'), JSON.stringify({
-    version: '0.3.0-preview.3',
+    version: '0.3.0-preview.4',
     channel: 'preview',
     pinnedSillyTavernRevision: PINNED_REVISION,
   }));
@@ -103,7 +103,7 @@ test('playable preview smoke proves the installed bridge, fallback, Campaign dat
   assert.equal(result.code, 0, result.stderr);
   const report = JSON.parse(result.stdout);
   assert.equal(report.ok, true);
-  assert.equal(report.release, '0.3.0-preview.3');
+  assert.equal(report.release, '0.3.0-preview.4');
   assert.deepEqual(report.checks.map(check => [check.id, check.status]), [
     ['stack', 'pass'],
     ['pinned-sillytavern', 'pass'],

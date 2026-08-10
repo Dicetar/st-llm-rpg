@@ -1,13 +1,16 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   DecideStorySyncProposalRequestSchema,
+  FinalizeStorySyncJobRequestSchema,
   ProblemSchema,
   SaveWorkerModelProfileRequestSchema,
   StartStorySyncJobRequestSchema,
   StorySyncJobDocumentSchema,
   StorySyncJobReceiptSchema,
+  StorySyncFinalizationReceiptSchema,
   WorkerModelProfileSchema,
   type DecideStorySyncProposalRequest,
+  type FinalizeStorySyncJobRequest,
   type ProblemCode,
   type SaveWorkerModelProfileRequest,
   type StartStorySyncJobRequest,
@@ -15,14 +18,18 @@ import {
 import { makeProblem } from '../../problem.js';
 import { CampaignExpectedError } from '../campaign/campaign-error.js';
 import type { StorySyncService } from './story-sync-service.js';
+import type { CampaignEngine, Outcome } from '../campaign/campaign-engine.js';
 
 function statusFor(code: ProblemCode): number {
   if (code === 'CHAT_BINDING_NOT_FOUND' || code === 'STORY_SYNC_JOB_NOT_FOUND' || code === 'STORY_SYNC_PROPOSAL_NOT_FOUND') return 404;
+  if (code === 'CAMPAIGN_VALIDATION_FAILED') return 422;
   if (
     code === 'CAMPAIGN_REVISION_CONFLICT'
     || code === 'STORY_SYNC_ALREADY_PENDING'
     || code === 'STORY_SYNC_PROPOSAL_REVISION_CONFLICT'
     || code === 'STORY_SYNC_REVIEW_LOCKED'
+    || code === 'STORY_SYNC_REVIEW_INCOMPLETE'
+    || code === 'STORY_SYNC_FINALIZATION_STALE'
   ) return 409;
   if (code === 'STORY_SYNC_WORKER_MODEL_UNAVAILABLE') return 422;
   if (code.startsWith('STORY_SYNC_')) return 422;
@@ -48,7 +55,12 @@ async function send<T>(reply: FastifyReply, requestId: string, work: () => Promi
   }
 }
 
-export function registerStorySyncRoutes(app: FastifyInstance, service: StorySyncService): void {
+function sendOutcome<T>(reply: FastifyReply, outcome: Outcome<T>) {
+  if (outcome.ok) return reply.code(200).send(outcome.value);
+  return reply.code(statusFor(outcome.problem.code)).send(outcome.problem);
+}
+
+export function registerStorySyncRoutes(app: FastifyInstance, service: StorySyncService, campaignEngine: CampaignEngine): void {
   app.addHook('onRequest', async (request, reply) => {
     if (!request.url.startsWith('/api/story-sync')) return;
     reply.header('access-control-allow-origin', '*');
@@ -127,6 +139,29 @@ export function registerStorySyncRoutes(app: FastifyInstance, service: StorySync
     () => service.decide(
       (request.params as { proposalId: string }).proposalId,
       request.body as DecideStorySyncProposalRequest,
+    ),
+  ));
+
+  app.post('/api/story-sync/jobs/:jobId/finalize', {
+    schema: {
+      params: {
+        type: 'object', additionalProperties: false, required: ['jobId'],
+        properties: { jobId: { type: 'string', minLength: 1, maxLength: 128 } },
+      },
+      body: FinalizeStorySyncJobRequestSchema,
+      response: {
+        200: StorySyncFinalizationReceiptSchema,
+        404: ProblemSchema,
+        409: ProblemSchema,
+        422: ProblemSchema,
+        503: ProblemSchema,
+      },
+    },
+  }, async (request, reply) => sendOutcome(
+    reply,
+    await campaignEngine.finalizeStorySync(
+      (request.params as { jobId: string }).jobId,
+      request.body as FinalizeStorySyncJobRequest,
     ),
   ));
 }

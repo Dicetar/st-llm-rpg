@@ -8,8 +8,10 @@ import type {
   CampaignVerificationResult,
   CreateCampaignRequest,
   ExecuteCampaignRequest,
+  FinalizeStorySyncJobRequest,
   Problem,
   RecoveryAction,
+  StorySyncFinalizationReceipt,
 } from '@st-llm-rpg/wire';
 import type { ComponentObservation } from '@st-llm-rpg/wire';
 import { makeProblem } from '../../problem.js';
@@ -286,6 +288,143 @@ export class CampaignEngine {
 
   async verify(requestId: string): Promise<Outcome<CampaignVerificationResult>> {
     return this.capture(requestId, () => this.#journal.verify());
+  }
+
+  async finalizeStorySync(
+    jobId: string,
+    request: FinalizeStorySyncJobRequest,
+  ): Promise<Outcome<StorySyncFinalizationReceipt>> {
+    const outcome = await this.capture(`story-sync:${jobId}`, async () => this.#journal.transact(transaction => {
+      if (!transaction.findStorySyncFinalization || !transaction.completeStorySyncFinalization) {
+        throw new CampaignExpectedError('CAMPAIGN_STORE_UNAVAILABLE', 'Campaign authority does not support Story Sync finalization.');
+      }
+      const review = transaction.findStorySyncFinalization(cleanIdentifier(jobId, 'Story Sync Job ID'));
+      if (!review) throw new CampaignExpectedError('STORY_SYNC_JOB_NOT_FOUND', `Story Sync Job ${jobId} was not found.`);
+      const requested = new Map(request.proposals.map(proposal => [proposal.proposalId, proposal]));
+      if (requested.size !== request.proposals.length || requested.size !== review.proposals.length) {
+        throw new CampaignExpectedError('STORY_SYNC_REVIEW_INCOMPLETE', 'Decide every Proposal as Accept or Reject before finalizing.');
+      }
+      const proposalRevisions = review.proposals.map(proposal => {
+        const expected = requested.get(proposal.id);
+        if (
+          !expected
+          || expected.expectedRevision !== proposal.revision
+          || expected.decision !== proposal.decision
+          || !['accept', 'reject'].includes(proposal.decision)
+        ) {
+          throw new CampaignExpectedError(
+            'STORY_SYNC_FINALIZATION_STALE',
+            'The Review Inbox changed before finalization. Reload it; nothing was applied.',
+          );
+        }
+        return { proposalId: proposal.id, expectedRevision: proposal.revision, decision: proposal.decision as 'accept' | 'reject' };
+      });
+      const decisionHash = sha256({
+        jobId: review.jobId,
+        proposals: review.proposals.map(proposal => ({
+          id: proposal.id, revision: proposal.revision, decision: proposal.decision, draft: proposal.draft,
+        })),
+      });
+      const requestId = `story-sync-finalize-${decisionHash}`;
+      if (review.completedReceipt) return completeJournalTransaction({ ...review.completedReceipt, idempotent: true });
+      if (review.status !== 'ready-for-review') {
+        throw new CampaignExpectedError('STORY_SYNC_REVIEW_LOCKED', `Story Sync Job ${review.jobId} cannot finalize from ${review.status}.`);
+      }
+      const head = transaction.findHead(review.campaignId);
+      if (!head) throw new CampaignExpectedError('CAMPAIGN_NOT_FOUND', `Campaign ${review.campaignId} was not found.`);
+      if (
+        head.state.campaign.revision !== review.campaignAnchor
+        || review.binding.campaignAnchor !== review.campaignAnchor
+        || review.binding.campaignId !== review.campaignId
+      ) {
+        throw new CampaignExpectedError(
+          'STORY_SYNC_FINALIZATION_STALE',
+          'Campaign or Chat Binding authority changed after analysis. Nothing was applied.',
+        );
+      }
+      if (
+        (review.binding.syncFacetRevision ?? 1) !== review.syncFacetRevision
+        || review.binding.syncBoundary?.throughMessageIndex !== review.sourceBoundary.throughMessageIndex
+        || review.binding.syncBoundary?.prefixHash !== review.sourceBoundary.prefixHash
+      ) {
+        throw new CampaignExpectedError('STORY_SYNC_FINALIZATION_STALE', 'The Sync Boundary changed after analysis. Nothing was applied.');
+      }
+
+      const accepted = review.proposals.filter(proposal => proposal.decision === 'accept');
+      const rejected = review.proposals.filter(proposal => proposal.decision === 'reject');
+      const operations = accepted.map(proposal => {
+        if (!proposal.draft.operation) {
+          throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Accepted Proposal ${proposal.id} has no valid Campaign change.`);
+        }
+        return proposal.draft.operation;
+      });
+      let campaignRevision = head.state.campaign.revision;
+      let campaignEventId: string | undefined;
+      const completedAt = new Date().toISOString();
+      if (operations.length > 0) {
+        const beforeState = head.state;
+        const afterState = structuredClone(beforeState);
+        const changes = [];
+        const affectedIds: string[] = [];
+        for (const operation of operations) {
+          const operationBefore = structuredClone(afterState);
+          const affected = applyOperation(afterState, operation);
+          affectedIds.push(...affected);
+          changes.push(...subjectChangesForOperation(operationBefore, afterState, operation, affected));
+        }
+        campaignRevision += 1;
+        afterState.campaign = { ...afterState.campaign, revision: campaignRevision, updatedAt: completedAt };
+        campaignEventId = randomUUID();
+        const operation = { kind: 'story_sync_batch', jobId: review.jobId, operations };
+        const eventHash = subjectEventHash({
+          campaignId: review.campaignId,
+          revision: campaignRevision,
+          eventId: campaignEventId,
+          requestId,
+          operationKind: operation.kind,
+          operation,
+          acceptedAt: completedAt,
+          previousEventHash: head.headEventHash,
+          baseStateHash: null,
+          changes,
+        });
+        transaction.append({
+          kind: 'revision', requestId,
+          requestHash: sha256({ jobId: review.jobId, decisionHash }),
+          operation, changes, afterState, eventHash,
+          commit: {
+            campaignId: review.campaignId,
+            revision: campaignRevision,
+            eventId: campaignEventId,
+            requestId,
+            operationKind: operation.kind,
+            affectedIds: [...new Set(affectedIds)],
+            committedAt: completedAt,
+          },
+        });
+      }
+      const receipt = transaction.completeStorySyncFinalization({
+        jobId: review.jobId,
+        requestId,
+        decisionHash,
+        expectedCampaignRevision: review.campaignAnchor,
+        expectedBindingRevision: review.binding.revision,
+        expectedSyncFacetRevision: review.syncFacetRevision,
+        proposalRevisions,
+        acceptedProposalIds: accepted.map(proposal => proposal.id),
+        rejectedProposalIds: rejected.map(proposal => proposal.id),
+        campaignRevision,
+        ...(campaignEventId ? { campaignEventId } : {}),
+        bindingEventId: randomUUID(),
+        completedAt,
+      });
+      return completeJournalTransaction(receipt);
+    }));
+    if (outcome.ok && !outcome.value.idempotent && outcome.value.campaignEventId) {
+      const listeners = this.#revisionListeners.get(outcome.value.campaignId);
+      if (listeners) for (const listener of [...listeners]) listener(outcome.value.campaignRevision);
+    }
+    return outcome;
   }
 
   private acceptReceipt(

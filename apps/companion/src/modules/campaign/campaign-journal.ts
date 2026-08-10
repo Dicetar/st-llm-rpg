@@ -5,6 +5,9 @@ import type {
   CampaignHistoryEntry,
   CampaignSummary,
   CampaignVerificationResult,
+  ChatBindingDocument,
+  StorySyncFinalizationReceipt,
+  StorySyncProposal,
 } from '@st-llm-rpg/wire';
 import type { CampaignState, CampaignSubjectChange } from './campaign-state.js';
 
@@ -39,6 +42,43 @@ export type CampaignJournalHead = Readonly<{
   headEventHash: string;
 }>;
 
+export type StorySyncFinalizationReview = Readonly<{
+  jobId: string;
+  campaignId: string;
+  bindingId: string;
+  status: string;
+  campaignAnchor: number;
+  bindingRevision: number;
+  syncFacetRevision: number;
+  sourceFirstMessageIndex: number;
+  sourceLastMessageIndex: number;
+  sourceEndPrefixHash: string;
+  sourceBoundary: Readonly<{ throughMessageIndex: number; prefixHash: string }>;
+  binding: ChatBindingDocument;
+  proposals: readonly StorySyncProposal[];
+  completedReceipt: StorySyncFinalizationReceipt | null;
+}>;
+
+export type CompleteStorySyncFinalization = Readonly<{
+  jobId: string;
+  requestId: string;
+  decisionHash: string;
+  expectedCampaignRevision: number;
+  expectedBindingRevision: number;
+  expectedSyncFacetRevision: number;
+  proposalRevisions: readonly Readonly<{
+    proposalId: string;
+    expectedRevision: number;
+    decision: 'accept' | 'reject';
+  }>[];
+  acceptedProposalIds: readonly string[];
+  rejectedProposalIds: readonly string[];
+  campaignRevision: number;
+  campaignEventId?: string;
+  bindingEventId: string;
+  completedAt: string;
+}>;
+
 type CampaignJournalAppendBase = Readonly<{
   requestId: string;
   requestHash: string;
@@ -63,6 +103,8 @@ export interface CampaignJournalTransaction {
   findReceipt(requestId: string): CampaignJournalReceipt | undefined;
   findHead(campaignId: string): CampaignJournalHead | undefined;
   append(input: CampaignJournalAppend): void;
+  findStorySyncFinalization?(jobId: string): StorySyncFinalizationReview | undefined;
+  completeStorySyncFinalization?(input: CompleteStorySyncFinalization): StorySyncFinalizationReceipt;
 }
 
 type CampaignJournalReadValue =

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { Value } from '@sinclair/typebox/value';
 import {
   StartStorySyncJobRequestSchema,
+  FinalizeStorySyncJobRequestSchema,
+  StorySyncFinalizationReceiptSchema,
   StorySyncJobDocumentSchema,
   WorkerModelProfileSchema,
 } from '../src/index.js';
@@ -34,4 +36,19 @@ test('Story Sync wire accepts bounded source capture and exposes review state wi
     createdAt: '2026-08-10T00:00:00.000Z', updatedAt: '2026-08-10T00:00:01.000Z',
   }), true);
   assert.equal('messages' in StorySyncJobDocumentSchema.properties.source.properties, false);
+});
+
+test('Story Sync finalization pins the exact reviewed Proposal revisions and returns both authority revisions', () => {
+  assert.equal(Value.Check(FinalizeStorySyncJobRequestSchema, {
+    proposals: [{ proposalId: 'proposal-1', expectedRevision: 2, decision: 'accept' }],
+  }), true);
+  assert.equal(Value.Check(FinalizeStorySyncJobRequestSchema, {
+    proposals: [{ proposalId: 'proposal-1', expectedRevision: 2, decision: 'pending' }],
+  }), false);
+  assert.equal(Value.Check(StorySyncFinalizationReceiptSchema, {
+    schema: 'st-rpg.story-sync-finalization-receipt', version: '1.0', jobId: 'job-1',
+    campaignId: 'campaign-1', bindingId: 'binding-1', campaignRevision: 8, bindingRevision: 3,
+    acceptedProposalIds: ['proposal-1'], rejectedProposalIds: [], campaignEventId: 'event-campaign',
+    bindingEventId: 'event-binding', completedAt: '2026-08-10T12:00:00.000Z', idempotent: false,
+  }), true);
 });
