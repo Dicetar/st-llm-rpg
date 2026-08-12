@@ -32,6 +32,10 @@ export { NarrationStatusPanel } from './NarrationStatusPanel.js';
 export { StorySyncReviewInbox, StorySyncReviewInboxView } from './StorySyncReviewInbox.js';
 export { BackupPanel, BackupPanelView } from './BackupPanel.js';
 export { AddonPanel, AddonPanelView } from './AddonPanel.js';
+export { SessionHome, buildSessionBrief } from './SessionHome.js';
+export { PlayerGuide } from './PlayerGuide.js';
+export { CampaignCollectionCreator } from './CampaignCollectionCreator.js';
+export { WorkspaceProblemBanner, workspaceFailure } from './WorkspaceProblemBanner.js';
 
 type Snapshot = Readonly<{
   health: HealthDocument | null;
@@ -70,16 +74,21 @@ export function CampaignBookView(props: {
     <main className="book-shell">
       <header className="book-header">
         <div>
-          <p className="eyebrow">Local companion · Campaign Workspace</p>
+          <p className="eyebrow">Local companion · Campaign Book</p>
           <h1>Campaign Book</h1>
-          <p className="lede">Edit durable Campaign truth through routed collections while SillyTavern remains available as the independent fallback.</p>
+          <p className="lede">Keep the people, places, gear, quests, and present Scene behind your SillyTavern story organized and ready to edit.</p>
         </div>
         <button type="button" onClick={props.onRefresh} disabled={props.snapshot.loading}>
           {props.snapshot.loading ? 'Checking…' : 'Refresh status'}
         </button>
       </header>
 
-      {props.snapshot.error ? <p className="error-banner" role="alert">{props.snapshot.error}</p> : null}
+      {props.snapshot.error ? (
+        <div className="workspace-problem" role="alert">
+          <div><strong>Companion is unavailable</strong><p>{props.snapshot.error}</p><p className="workspace-problem__recovery">Start or restart the Companion, then refresh. Campaign data is not changed by this check.</p></div>
+          <div className="workspace-problem__actions"><button type="button" onClick={props.onRefresh}>Try again</button></div>
+        </div>
+      ) : null}
 
       <details className="system-status" open={statusExpanded}>
         <summary>
@@ -133,7 +142,7 @@ export default function App() {
       setSnapshot(previous => ({
         ...previous,
         loading: false,
-        error: `Status check failed: ${value instanceof Error ? value.message : String(value)}`,
+        error: 'Campaign Book could not reach the local Companion at :8002.',
       }));
     });
     return () => controller.abort();
@@ -150,7 +159,7 @@ export default function App() {
       setNarration(previous => ({
         ...previous,
         loading: false,
-        error: value instanceof Error ? value.message : String(value),
+        error: 'Campaign Book could not read narration status. Check that the Companion is running, then try again.',
       }));
     });
   }, []);

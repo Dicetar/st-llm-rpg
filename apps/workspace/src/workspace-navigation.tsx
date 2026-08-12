@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 export type CollectionKey =
+  | 'home'
   | 'actors'
   | 'items'
   | 'quests'
@@ -21,11 +22,12 @@ export type CollectionKey =
   | 'scene'
   | 'review'
   | 'context'
+  | 'guide'
   | 'history';
 
 export type RecordCollectionKey = Exclude<
   CollectionKey,
-  'relationships' | 'scene' | 'review' | 'context' | 'history'
+  'home' | 'relationships' | 'scene' | 'review' | 'context' | 'guide' | 'history'
 >;
 
 export type WorkspaceRoute = Readonly<{
@@ -37,6 +39,7 @@ export type WorkspaceRoute = Readonly<{
 }>;
 
 const COLLECTION_KEYS: readonly CollectionKey[] = [
+  'home',
   'actors',
   'items',
   'quests',
@@ -48,6 +51,7 @@ const COLLECTION_KEYS: readonly CollectionKey[] = [
   'scene',
   'review',
   'context',
+  'guide',
   'history',
 ];
 
@@ -66,7 +70,7 @@ function isCollectionKey(value: string | undefined): value is CollectionKey {
 export function parseWorkspacePath(pathname: string, search = ''): WorkspaceRoute {
   const parts = pathname.split('/').filter(Boolean).map(safeDecode);
   const campaignId = parts[0] === 'campaigns' && parts[1] ? parts[1] : null;
-  const collection = isCollectionKey(parts[2]) ? parts[2] : 'actors';
+  const collection = isCollectionKey(parts[2]) ? parts[2] : 'home';
   const recordId = campaignId && parts[3] ? parts[3] : null;
   const parameters = new URLSearchParams(search);
   const revisionValue = parameters.get('revision');
@@ -94,18 +98,20 @@ export function workspaceHref(route: WorkspaceRoute): string {
 }
 
 export function collectionLabel(collection: CollectionKey): string {
+  if (collection === 'home') return 'Session Home';
   if (collection === 'actors') return 'Actors';
   if (collection === 'items') return 'Items';
   if (collection === 'quests') return 'Quests';
   if (collection === 'places') return 'Places';
   if (collection === 'facts') return 'Facts';
-  if (collection === 'world-objects') return 'World Objects';
+  if (collection === 'world-objects') return 'Scene Features';
   if (collection === 'abilities') return 'Abilities';
   if (collection === 'relationships') return 'Relationships';
   if (collection === 'scene') return 'Current Scene';
-  if (collection === 'review') return 'Review Inbox';
-  if (collection === 'context') return 'Context Tray';
-  return 'History';
+  if (collection === 'review') return 'Story Updates';
+  if (collection === 'context') return 'Narrator Context';
+  if (collection === 'guide') return 'Player Guide';
+  return 'Change History';
 }
 
 function currentWorkspaceRoute(): WorkspaceRoute {

@@ -1,0 +1,35 @@
+{
+  "kind": "workspace-session-home-browser-evidence",
+  "capturedAt": "2026-08-13",
+  "release": "0.3.0-preview.19",
+  "sanitized": true,
+  "environment": {
+    "browser": "Google Chrome 151.0.7922.76 via Playwright 1.58.0",
+    "companionOrigin": "http://127.0.0.1:8012",
+    "authority": "isolated temporary SQLite database",
+    "productionAssets": true
+  },
+  "viewports": [
+    { "name": "desktop", "width": 1280, "height": 900, "result": "passed" },
+    { "name": "360px", "width": 360, "height": 780, "result": "passed" }
+  ],
+  "checks": {
+    "sessionHomeUsesSavedCurrentScene": true,
+    "sessionHomeUsesLatestClosedScene": true,
+    "sessionHomeShowsOutcomeAndOpenThread": true,
+    "recordLinksOpenEditor": true,
+    "detailedCreateStaysInCollection": true,
+    "dirtyNavigationCanBeCancelledWithoutLosingDraft": true,
+    "playerGuideIllustrationPresent": true,
+    "playerVisibilityCopyPresent": true,
+    "horizontalOverflow": false,
+    "consoleErrors": 0,
+    "pageErrors": 0
+  },
+  "boundaries": {
+    "modelCallMade": false,
+    "liveCampaignDataUsed": false,
+    "physicalPhoneUsed": false,
+    "physicalPhoneAcceptanceClaimed": false
+  }
+}

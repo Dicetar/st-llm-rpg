@@ -85,7 +85,7 @@ export function campaignSearchResults(
     ...(document.facts ?? []).map(record => recordResult('facts', 'Fact', record, record.subjectId ? 'Attached Fact' : 'Campaign-wide')),
     ...(document.worldObjects ?? []).map(record => recordResult(
       'world-objects',
-      'World Object',
+      'Scene Feature',
       record,
       record.placeId ? placeNames.get(record.placeId) ?? 'Unknown Place' : 'No Place',
     )),

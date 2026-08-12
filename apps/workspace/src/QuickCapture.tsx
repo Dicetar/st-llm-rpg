@@ -15,7 +15,7 @@ export function quickCaptureOperation(collection: RecordCollectionKey, name: str
 }
 
 function singularLabel(collection: RecordCollectionKey): string {
-  if (collection === 'world-objects') return 'World Object';
+  if (collection === 'world-objects') return 'Scene Feature';
   if (collection === 'abilities') return 'Ability';
   return collectionLabel(collection).replace(/s$/, '');
 }

@@ -6,6 +6,7 @@ import {
   CampaignCommandDeck,
   CampaignBookView,
   CampaignHistoryView,
+  CampaignCollectionCreator,
   ChatBindingsPanel,
   RevisionConflictBanner,
   WorkspaceRouteState,
@@ -23,6 +24,9 @@ import {
   StorySyncReviewInboxView,
   BackupPanelView,
   AddonPanelView,
+  SessionHome,
+  PlayerGuide,
+  WorkspaceProblemBanner,
   parseWorkspacePath,
 } from '../src/App.js';
 
@@ -132,8 +136,8 @@ test('Campaign Book renders the routed Campaign workspace honestly', () => {
     onRefresh={() => undefined}
   />);
   assert.match(html, /<h1>Campaign Book<\/h1>/);
-  assert.match(html, /routed collections/);
-  assert.match(html, /SillyTavern remains available as the independent fallback/);
+  assert.match(html, /people, places, gear, quests/);
+  assert.match(html, /SillyTavern story/);
   assert.match(html, /Refresh status/);
 });
 
@@ -186,7 +190,7 @@ test('workspace URLs identify Campaign, collection, record, and historical revis
     parseWorkspacePath('/campaigns/campaign-1/not-a-collection'),
     {
       campaignId: 'campaign-1',
-      collection: 'actors',
+      collection: 'home',
       recordId: null,
       revision: null,
     },
@@ -208,7 +212,7 @@ test('history exposes numbered read-only reconstruction and return to current tr
   assert.match(html, /Viewing read-only revision 1/);
   assert.match(html, /Return to current revision 2/);
   assert.match(html, /Revision 1/);
-  assert.match(html, /create_campaign/);
+  assert.match(html, /create campaign/);
 });
 
 test('stale revision conflict tells the player that no Campaign state was written', () => {
@@ -218,13 +222,108 @@ test('stale revision conflict tells the player that no Campaign state was writte
     onReload={() => undefined}
     onStay={() => undefined}
   />);
-  assert.match(html, /This tab is stale/);
+  assert.match(html, /This tab is out of date/);
   assert.match(html, /expected revision 3/);
   assert.match(html, /now at revision 4/);
   assert.match(html, /Nothing was written/);
   assert.match(html, /Your draft is still here/);
-  assert.match(html, /Keep draft and load canonical/);
+  assert.match(html, /Keep draft and load latest/);
   assert.match(html, /Stay on this draft/);
+});
+
+test('Session Home builds a deterministic recap from the loaded Campaign revision without generation', () => {
+  const html = renderToStaticMarkup(<SessionHome
+    document={{
+      campaign: {
+        id: 'campaign-1', title: 'House Harcourt', status: 'active', revision: 12,
+        createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-12T12:00:00.000Z',
+      },
+      actors: [
+        { id: 'actor-mara', name: 'Mara', summary: 'The heir.', archived: false },
+        { id: 'actor-lavir', name: 'Lavir', summary: 'The court mage.', archived: false },
+      ],
+      items: [{ id: 'item-key', name: 'Wardrobe Key', summary: 'A silver key.', archived: false }],
+      quests: [{ id: 'quest-witness', name: 'Find the witness', summary: 'Trace the missing witness.', status: 'active', archived: false }],
+      places: [{ id: 'place-bedroom', name: 'Childhood Bedroom', summary: 'Dusty and sealed.', archived: false }],
+      worldObjects: [{ id: 'object-wardrobe', name: 'Heirloom Wardrobe', summary: 'Ancient mahogany.', placeId: 'place-bedroom', archived: false }],
+      currentScene: {
+        id: 'scene-bedroom', name: 'The sealed bedroom', summary: 'Mara and Lavir inspect the room.',
+        placeId: 'place-bedroom', actorIds: ['actor-mara', 'actor-lavir'], itemIds: ['item-key'], worldObjectIds: ['object-wardrobe'],
+      },
+      sceneArchives: [{
+        id: 'scene-hall', name: 'The east hall', summary: 'The servants were questioned.',
+        outcomes: ['The key was found.'], openThreads: ['Who sealed the bedroom?'],
+        closedAt: '2026-08-12T10:00:00.000Z',
+      }],
+    }}
+    readOnly={false}
+    onNavigate={() => undefined}
+  />);
+
+  assert.match(html, /Pick up the story/);
+  assert.match(html, /revision 12/);
+  assert.match(html, /makes no model call and changes nothing/);
+  assert.match(html, /The sealed bedroom/);
+  assert.match(html, /Childhood Bedroom/);
+  assert.match(html, />Lavir<\/button>.*>Mara<\/button>/s);
+  assert.match(html, /The key was found/);
+  assert.match(html, /Who sealed the bedroom/);
+  assert.match(html, /Find the witness/);
+});
+
+test('every ordinary collection keeps quick capture and detailed creation in the same block', () => {
+  const document = {
+    campaign: {
+      id: 'campaign-1', title: 'House Harcourt', status: 'active' as const, revision: 12,
+      createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-12T12:00:00.000Z',
+    },
+    actors: [{ id: 'actor-mara', name: 'Mara', summary: 'The heir.', archived: false }],
+    items: [], quests: [], places: [], facts: [], abilities: [], worldObjects: [], currentScene: null,
+  };
+  const actors = renderToStaticMarkup(<CampaignCollectionCreator
+    collection="actors" document={document} subjects={[]} busy={false}
+    onCapture={async () => false} onCreate={async () => null} onCreated={() => undefined}
+  />);
+  const abilities = renderToStaticMarkup(<CampaignCollectionCreator
+    collection="abilities" document={document} subjects={[]} busy={false}
+    onCapture={async () => false} onCreate={async () => null} onCreated={() => undefined}
+  />);
+
+  assert.match(actors, /Quick add Actor/);
+  assert.match(actors, /Add Actor with details/);
+  assert.match(actors, /Actor name/);
+  assert.match(actors, /Create Actor with carried Item/);
+  assert.match(abilities, /Add Ability with details/);
+  assert.match(abilities, /Learn now \(optional\)/);
+  assert.match(abilities, /Definition only/);
+});
+
+test('player guide illustrates the Campaign Book to SillyTavern review loop in plain language', () => {
+  const html = renderToStaticMarkup(<PlayerGuide onNavigate={() => undefined} />);
+  assert.match(html, /Two-minute tour/);
+  assert.match(html, /Campaign Book and SillyTavern working together/);
+  assert.match(html, /Set the present moment/);
+  assert.match(html, /Choose narrator context/);
+  assert.match(html, /Nothing becomes Campaign truth until you review and apply it/);
+  assert.match(html, /Player notes/);
+  assert.match(html, /Never sent to the narrator/);
+});
+
+test('Workspace error presentation leads with recovery and keeps technical detail secondary', () => {
+  const html = renderToStaticMarkup(<WorkspaceProblemBanner
+    failure={{
+      title: 'Saved Campaigns are unavailable',
+      message: 'Campaign Book cannot reach its saved Campaign data right now.',
+      recovery: 'Keep this page open, restart the Companion if needed, then try again.',
+      technical: 'connect ECONNREFUSED 127.0.0.1:8002',
+    }}
+    onRetry={() => undefined}
+  />);
+  assert.match(html, /Saved Campaigns are unavailable/);
+  assert.match(html, /Keep this page open/);
+  assert.match(html, /Try again/);
+  assert.match(html, /Technical details/);
+  assert.ok(html.indexOf('Technical details') < html.indexOf('ECONNREFUSED'));
 });
 
 test('Quick Actions expose common Campaign actions without leaving the current Campaign', () => {
@@ -243,7 +342,7 @@ test('Quick Actions expose common Campaign actions without leaving the current C
   assert.match(html, /Add Ability/);
   assert.match(html, /Add Relationship/);
   assert.match(html, /Start Scene/);
-  assert.match(html, /Inspect History/);
+  assert.match(html, /Review Changes/);
   assert.match(html, /Revision 7/);
   assert.match(html, /\/campaigns\/campaign-1\/actors/);
   assert.match(html, /\/campaigns\/campaign-1\/history/);
@@ -320,13 +419,13 @@ test('Context Tray keeps profile, ordered pins, planning evidence, and privacy i
     onStatus={() => undefined}
     onError={() => undefined}
   />);
-  assert.match(html, /Context Tray/);
+  assert.match(html, /Narrator Context/);
   assert.match(html, /Narrator model profile/);
   assert.match(html, /Ordered manual pins/);
   assert.match(html, /Private Ledger/);
   assert.match(html, /Mage Hand/);
   assert.match(html, /Lavir → Mara: patron/);
-  assert.match(html, /Campaign Private/);
+  assert.match(html, /Player notes/);
   assert.match(html, /Safety margin/);
   assert.match(html, /Automatic Record limit/);
   assert.match(html, /Generation type/);
@@ -378,8 +477,8 @@ test('Record editor exposes repeatable aliases and Narrator Visibility beside or
   assert.match(html, /Aliases/);
   assert.match(html, /Old Fox/);
   assert.match(html, /Add alias/);
-  assert.match(html, /Narrator Visibility/);
-  assert.match(html, /Narrator Secret/);
+  assert.match(html, /Who can use this/);
+  assert.match(html, /Behind the scenes/);
   assert.doesNotMatch(html, /comma-separated/i);
 });
 
@@ -459,7 +558,7 @@ test('Scene editor exposes structural Place, Actor, Item, and World Object attac
   assert.match(html, /Scene Place/);
   assert.match(html, /Present Actors/);
   assert.match(html, /Present Items/);
-  assert.match(html, /Present World Objects/);
+  assert.match(html, /Present Scene Features/);
   assert.match(html, /Lavir/);
   assert.match(html, /Wardrobe Key/);
   assert.match(html, /Heirloom Wardrobe/);
@@ -525,10 +624,10 @@ test('Fact and World Object blocks keep add, edit, and remove controls beside th
     onSave={async () => undefined}
     onArchive={async () => undefined}
   />);
-  assert.match(objectsHtml, /World Objects in Childhood Bedroom/);
-  assert.match(objectsHtml, /\+ Add World Object/);
-  assert.match(objectsHtml, /Save World Object/);
-  assert.match(objectsHtml, /Remove World Object/);
+  assert.match(objectsHtml, /Scene Features in Childhood Bedroom/);
+  assert.match(objectsHtml, /\+ Add Scene Feature/);
+  assert.match(objectsHtml, /Save Scene Feature/);
+  assert.match(objectsHtml, /Remove Scene Feature/);
 });
 
 test('Story Sync Review Inbox keeps worker setup and structured editable proposals together', () => {
@@ -577,10 +676,10 @@ test('Story Sync Review Inbox keeps worker setup and structured editable proposa
     onRefresh={() => undefined}
   />);
 
-  assert.match(html, /Review Inbox/);
+  assert.match(html, /Suggested Story Updates/);
   assert.match(html, /Campaign worker model/);
   assert.match(html, /New Fact/);
-  assert.match(html, /New World Object/);
+  assert.match(html, /New Scene Feature/);
   assert.match(html, /mistralai\/mistral-nemo-instruct-2407/);
   assert.match(html, /Lavir reveals the locked gallery/);
   assert.match(html, /Record type/);
@@ -590,8 +689,8 @@ test('Story Sync Review Inbox keeps worker setup and structured editable proposa
   assert.match(html, /Accept/);
   assert.match(html, /Reject/);
   assert.match(html, /Defer/);
-  assert.match(html, /Finalize review/);
-  assert.match(html, /one atomic Campaign revision/);
+  assert.match(html, /Apply reviewed updates/);
+  assert.match(html, /saves all accepted changes together/);
   assert.match(html, /Discard review/);
   assert.doesNotMatch(html, /Draft JSON/);
 });
@@ -613,7 +712,7 @@ test('route state explains pending and failed navigation with an explicit retry'
   />);
   assert.match(failed, /Historical revision unavailable/);
   assert.match(failed, /Revision 4 could not be loaded/);
-  assert.match(failed, /Retry route/);
+  assert.match(failed, /Try again/);
   assert.match(failed, /role="alert"/);
 });
 

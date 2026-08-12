@@ -44,7 +44,7 @@ function kindLabel(kind: string): string {
     update_item: 'Update Item', create_quest: 'New Quest', update_quest: 'Update Quest',
     create_place: 'New Place', update_place: 'Update Place', set_current_scene: 'Current Scene',
     create_fact: 'New Fact', update_fact: 'Update Fact',
-    create_world_object: 'New World Object', update_world_object: 'Update World Object',
+    create_world_object: 'New Scene Feature', update_world_object: 'Update Scene Feature',
     create_ability: 'New Ability', update_ability: 'Update Ability',
     create_relationship: 'New Relationship', update_relationship: 'Update Relationship',
   } as Record<string, string>)[kind] ?? kind.replaceAll('_', ' ');
@@ -133,7 +133,7 @@ function OperationEditor(props: {
     ...questOptions.map(record => ({ ...record, kindLabel: 'Quest' })),
     ...placeOptions.map(record => ({ ...record, kindLabel: 'Place' })),
     ...abilityOptions.map(record => ({ ...record, kindLabel: 'Ability' })),
-    ...worldObjectOptions.map(record => ({ ...record, kindLabel: 'World Object' })),
+    ...worldObjectOptions.map(record => ({ ...record, kindLabel: 'Scene Feature' })),
   ];
 
   return <fieldset className="story-operation-editor">
@@ -222,12 +222,12 @@ function OperationEditor(props: {
       <label><span>About Record</span><select value={operation.subjectId ?? ''} disabled={props.disabled} onChange={event => props.onChange({ ...operation, subjectId: event.target.value || null })}><option value="">Campaign-wide</option>{subjectOptions.map(record => <option key={record.id} value={record.id}>{record.kindLabel} · {record.name}</option>)}</select></label>
     </> : null}
     {operation?.kind === 'create_world_object' ? <>
-      <CommonFields name={operation.worldObject.name} summary={operation.worldObject.summary ?? ''} nameLabel="World Object name" summaryLabel="World Object description" disabled={props.disabled} onName={name => props.onChange({ ...operation, worldObject: { ...operation.worldObject, name } })} onSummary={summary => props.onChange({ ...operation, worldObject: { ...operation.worldObject, summary } })} />
+      <CommonFields name={operation.worldObject.name} summary={operation.worldObject.summary ?? ''} nameLabel="Scene Feature name" summaryLabel="Scene Feature description" disabled={props.disabled} onName={name => props.onChange({ ...operation, worldObject: { ...operation.worldObject, name } })} onSummary={summary => props.onChange({ ...operation, worldObject: { ...operation.worldObject, summary } })} />
       <label><span>Place</span><select value={operation.worldObject.placeId ?? ''} disabled={props.disabled} onChange={event => { const worldObject = { ...operation.worldObject }; if (event.target.value) worldObject.placeId = event.target.value; else delete worldObject.placeId; props.onChange({ ...operation, worldObject }); }}><option value="">No Place</option>{placeOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
     </> : null}
     {operation?.kind === 'update_world_object' ? <>
-      <label><span>World Object</span><select value={operation.worldObjectId} disabled={props.disabled} onChange={event => { const record = worldObjectOptions.find(candidate => candidate.id === event.target.value); props.onChange({ ...operation, worldObjectId: event.target.value, name: record?.name ?? operation.name, summary: record?.summary ?? operation.summary, placeId: record?.placeId ?? null }); }}><option value="" disabled>Choose World Object</option>{worldObjectOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
-      <CommonFields name={operation.name} summary={operation.summary} nameLabel="World Object name" summaryLabel="World Object description" disabled={props.disabled} onName={name => props.onChange({ ...operation, name })} onSummary={summary => props.onChange({ ...operation, summary })} />
+      <label><span>Scene Feature</span><select value={operation.worldObjectId} disabled={props.disabled} onChange={event => { const record = worldObjectOptions.find(candidate => candidate.id === event.target.value); props.onChange({ ...operation, worldObjectId: event.target.value, name: record?.name ?? operation.name, summary: record?.summary ?? operation.summary, placeId: record?.placeId ?? null }); }}><option value="" disabled>Choose Scene Feature</option>{worldObjectOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+      <CommonFields name={operation.name} summary={operation.summary} nameLabel="Scene Feature name" summaryLabel="Scene Feature description" disabled={props.disabled} onName={name => props.onChange({ ...operation, name })} onSummary={summary => props.onChange({ ...operation, summary })} />
       <label><span>Place</span><select value={operation.placeId ?? ''} disabled={props.disabled} onChange={event => props.onChange({ ...operation, placeId: event.target.value || null })}><option value="">No Place</option>{placeOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
     </> : null}
     {operation?.kind === 'create_ability' ? <>
@@ -251,7 +251,7 @@ function OperationEditor(props: {
       <CommonFields name={operation.relationship.kind} summary={operation.relationship.notes ?? ''} nameLabel="Relationship kind" summaryLabel="Relationship notes" disabled={props.disabled}
         onName={relationshipKind => props.onChange({ ...operation, relationship: { ...operation.relationship, kind: relationshipKind } })}
         onSummary={notes => props.onChange({ ...operation, relationship: { ...operation.relationship, notes } })} />
-      <label><span>Status</span><select value={operation.relationship.status ?? 'active'} disabled={props.disabled} onChange={event => props.onChange({ ...operation, relationship: { ...operation.relationship, status: event.target.value as 'active' | 'strained' | 'dormant' | 'ended' | 'other' } })}><option value="active">Active</option><option value="strained">Strained</option><option value="dormant">Dormant</option><option value="ended">Ended</option><option value="other">Other</option></select></label>
+      <label><span>Status</span><select value={operation.relationship.status ?? 'active'} disabled={props.disabled} onChange={event => props.onChange({ ...operation, relationship: { ...operation.relationship, status: event.target.value as 'active' | 'strained' | 'dormant' | 'ended' | 'other' } })}><option value="active">Active</option><option value="strained">Strained</option><option value="dormant">Inactive</option><option value="ended">Ended</option><option value="other">Other</option></select></label>
     </> : null}
     {operation?.kind === 'update_relationship' ? <>
       <label><span>Relationship</span><select value={operation.relationshipId} disabled={props.disabled} onChange={event => {
@@ -262,7 +262,7 @@ function OperationEditor(props: {
       <label><span>To Actor</span><select value={operation.targetActorId} disabled={props.disabled} onChange={event => props.onChange({ ...operation, targetActorId: event.target.value })}>{actorOptions.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
       <CommonFields name={operation.relationshipKind} summary={operation.notes} nameLabel="Relationship kind" summaryLabel="Relationship notes" disabled={props.disabled}
         onName={relationshipKind => props.onChange({ ...operation, relationshipKind })} onSummary={notes => props.onChange({ ...operation, notes })} />
-      <label><span>Status</span><select value={operation.status} disabled={props.disabled} onChange={event => props.onChange({ ...operation, status: event.target.value as 'active' | 'strained' | 'dormant' | 'ended' | 'other' })}><option value="active">Active</option><option value="strained">Strained</option><option value="dormant">Dormant</option><option value="ended">Ended</option><option value="other">Other</option></select></label>
+      <label><span>Status</span><select value={operation.status} disabled={props.disabled} onChange={event => props.onChange({ ...operation, status: event.target.value as 'active' | 'strained' | 'dormant' | 'ended' | 'other' })}><option value="active">Active</option><option value="strained">Strained</option><option value="dormant">Inactive</option><option value="ended">Ended</option><option value="other">Other</option></select></label>
     </> : null}
     {operation?.kind === 'set_current_scene' ? <>
       <CommonFields name={operation.scene.name} summary={operation.scene.summary ?? ''} nameLabel="Scene name" summaryLabel="Scene summary" disabled={props.disabled}
@@ -298,7 +298,7 @@ function ProposalCard(props: {
       <div><p className="eyebrow">{props.proposal.confidence} confidence · proposal {props.proposal.ordinal + 1}</p><h5>{draft.title}</h5></div>
       <span>{props.proposal.decision}</span>
     </header>
-    <label><span>Proposal title</span><input value={draft.title} disabled={disabled} onChange={event => setDraft(current => ({ ...current, title: event.target.value }))} /></label>
+    <label><span>Suggestion title</span><input value={draft.title} disabled={disabled} onChange={event => setDraft(current => ({ ...current, title: event.target.value }))} /></label>
     <OperationEditor operation={draft.operation} campaign={props.campaign} disabled={disabled} onChange={operation => setDraft(current => ({ ...current, operation }))} />
     <label><span>Review note</span><textarea rows={3} value={draft.note} disabled={disabled} onChange={event => setDraft(current => ({ ...current, note: event.target.value }))} /></label>
     {props.proposal.sourceLinks.length ? <details className="story-evidence"><summary>Evidence from {props.proposal.sourceLinks.length} chat message{props.proposal.sourceLinks.length === 1 ? '' : 's'}</summary><ol>{props.proposal.sourceLinks.map(link => <li key={link.messageIndex}><strong>#{link.messageIndex}</strong><span>{link.excerpt}</span></li>)}</ol></details> : null}
@@ -340,7 +340,7 @@ export function StorySyncReviewInboxView(props: StorySyncReviewInboxViewProps) {
     void props.onSaveProfile(modelId.trim(), requestedOutputTokens);
   };
   return <section className="collection-view story-review" aria-labelledby="story-review-heading">
-    <div className="collection-heading story-review__heading"><div><p className="eyebrow">Story Sync</p><h4 id="story-review-heading">Review Inbox</h4><p>Worker suggestions remain drafts until you review them. Decisions alone change nothing; <strong>Finalize review</strong> applies all accepted changes as one atomic Campaign revision and advances this chat's Sync Boundary.</p></div><button type="button" className="button-secondary" onClick={props.onRefresh} disabled={props.loading || props.busy}>Refresh</button></div>
+    <div className="collection-heading story-review__heading"><div><p className="eyebrow">Story Sync</p><h4 id="story-review-heading">Suggested Story Updates</h4><p>Suggestions remain drafts until you review them. Decisions alone change nothing; <strong>Apply reviewed updates</strong> saves all accepted changes together and remembers where this chat was checked.</p></div><button type="button" className="button-secondary" onClick={props.onRefresh} disabled={props.loading || props.busy}>Refresh</button></div>
     {props.error ? <p className="error-banner" role="alert">{props.error}</p> : null}
     {props.message ? <p className="success-banner" role="status">{props.message}</p> : null}
     <details className="worker-profile" open={!currentProfile}>
@@ -365,7 +365,7 @@ export function StorySyncReviewInboxView(props: StorySyncReviewInboxViewProps) {
         {['cancelled', 'interrupted', 'failed'].includes(job.status) ? <div className="story-job__controls"><button type="button" disabled={props.busy} onClick={() => { void props.onJobAction(job, 'resume'); }}>{job.status === 'failed' ? 'Retry analysis' : 'Resume analysis'}</button></div> : null}
         {job.proposals.map(proposal => <ProposalCard key={proposal.id} proposal={proposal} campaign={props.campaign} busy={props.busy} onSave={props.onSaveProposal} />)}
         {job.status === 'ready-for-review' ? <div className="story-finalize">
-          <div><strong>Finalize review</strong><span>{reviewComplete ? `${acceptedCount} accepted · ${job.proposals.length - acceptedCount} rejected` : 'Every Proposal needs Accept or Reject'}</span></div>
+          <div><strong>Apply reviewed updates</strong><span>{reviewComplete ? `${acceptedCount} accepted · ${job.proposals.length - acceptedCount} rejected` : 'Every suggestion needs Accept or Reject'}</span></div>
           <button type="button" disabled={props.busy || !reviewComplete} onClick={() => { void props.onFinalizeJob(job); }}>
             {acceptedCount > 0 ? `Apply ${acceptedCount} and finish` : 'Finish with no changes'}
           </button>
@@ -425,7 +425,7 @@ export function StorySyncReviewInbox(props: Readonly<{ campaign: CampaignDocumen
     try {
       const updated = await responseJson<StorySyncJobDocument>(`/api/story-sync/proposals/${encodeURIComponent(proposalId)}`, { method: 'PUT', body: JSON.stringify(request) });
       setJobs(current => current.map(job => job.id === updated.id ? updated : job));
-      setMessage(request.decision === 'pending' ? 'Proposal edit saved.' : `Proposal marked ${request.decision}. Campaign truth is unchanged.`);
+      setMessage(request.decision === 'pending' ? 'Suggestion edit saved.' : `Suggestion marked ${request.decision}. The Campaign is unchanged.`);
     } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
     finally { setBusy(false); }
   };
@@ -443,7 +443,7 @@ export function StorySyncReviewInbox(props: Readonly<{ campaign: CampaignDocumen
         }),
       });
       await refresh(true);
-      setMessage(`${receipt.acceptedProposalIds.length} accepted change${receipt.acceptedProposalIds.length === 1 ? '' : 's'} finalized. Campaign is now revision ${receipt.campaignRevision}; this chat's Sync Boundary advanced.`);
+      setMessage(`${receipt.acceptedProposalIds.length} accepted change${receipt.acceptedProposalIds.length === 1 ? '' : 's'} applied. Campaign is now revision ${receipt.campaignRevision}; Campaign Book will start the next check after this chat point.`);
     } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
     finally { setBusy(false); }
   };

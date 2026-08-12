@@ -8,7 +8,6 @@ import {
 import {
   isCampaignInvalidation,
   type CampaignAbility,
-  type CampaignAbilityCategory,
   type CampaignActor,
   type CampaignCommit,
   type CampaignDocument,
@@ -19,7 +18,6 @@ import {
   type CampaignOperation,
   type CampaignPlace,
   type CampaignQuest,
-  type CampaignQuestStatus,
   type CampaignRelationship,
   type CampaignRelationshipStatus,
   type CampaignScene,
@@ -27,16 +25,14 @@ import {
   type CampaignSummary,
   type CampaignWorldObject,
   type NarratorVisibility,
-  type Problem,
 } from '@st-llm-rpg/wire';
 import type { ChatBindingDocument } from '@st-llm-rpg/wire';
 import LegacyImportPanel, { ChatBindingsPanel } from './LegacyImportPanel.js';
 import { ContextTray } from './ContextTray.js';
-import { createUuid } from './browser-uuid.js';
 import { StorySyncReviewInbox } from './StorySyncReviewInbox.js';
 import { CampaignRecordIndex, RecordRouteHeader } from './CampaignRecordIndex.js';
 import { CampaignSearch } from './CampaignSearch.js';
-import { QuickCapture } from './QuickCapture.js';
+import { CampaignCollectionCreator } from './CampaignCollectionCreator.js';
 import {
   collectionLabel,
   type CollectionKey,
@@ -47,16 +43,65 @@ import {
   useWorkspaceNavigation,
   workspaceHref,
 } from './workspace-navigation.js';
+import {
+  ApiProblem,
+  conflictFrom,
+  fetchJson,
+  newRequestId,
+  type RevisionConflict,
+} from './workspace-api.js';
+import {
+  WorkspaceProblemBanner,
+  workspaceFailure,
+  type WorkspaceFailure,
+} from './WorkspaceProblemBanner.js';
+import { SessionHome } from './SessionHome.js';
+import { PlayerGuide } from './PlayerGuide.js';
+import {
+  CampaignCommandDeck,
+  CampaignHistoryView,
+  CollectionNavigation,
+  RevisionConflictBanner,
+  syncLabel,
+  WorkspaceRouteState,
+  type WorkspaceSyncState,
+} from './CampaignWorkspaceShell.js';
+import {
+  LinkedFactsPanel,
+  PlaceWorldObjectsPanel,
+  RecordEditor,
+  WorldRecordEditor,
+  type SubjectOption,
+} from './CampaignRecordEditors.js';
+import {
+  LearnedAbilitiesPanel,
+  RelationshipsPanel,
+  optionalUses,
+  usesFields,
+} from './CampaignActorPanels.js';
+import {
+  AdvanceScenePanel,
+  SceneArchiveList,
+  SceneEditor,
+} from './CampaignScenePanels.js';
 
 export { parseWorkspacePath } from './workspace-navigation.js';
+export {
+  CampaignCommandDeck,
+  CampaignHistoryView,
+  RevisionConflictBanner,
+  WorkspaceRouteState,
+} from './CampaignWorkspaceShell.js';
+export {
+  LinkedFactsPanel,
+  PlaceWorldObjectsPanel,
+  RecordEditor,
+  WorldRecordEditor,
+} from './CampaignRecordEditors.js';
+export { LearnedAbilitiesPanel, RelationshipsPanel } from './CampaignActorPanels.js';
+export { AdvanceScenePanel, SceneArchiveList, SceneEditor } from './CampaignScenePanels.js';
 
-type RevisionConflict = Readonly<{
-  campaignId: string;
-  expectedRevision: number;
-  actualRevision: number | null;
-}>;
-
-type SyncState = 'idle' | 'live' | 'reconnecting' | 'update-ready';
+type SyncState = WorkspaceSyncState;
 type RouteLoadState =
   | Readonly<{ phase: 'idle' }>
   | Readonly<{ phase: 'loading'; title: string }>
@@ -65,1217 +110,6 @@ type CanonicalUpdate = Readonly<{
   document: CampaignDocument;
   history: CampaignHistoryEntry[];
 }>;
-type EditorDraft = Readonly<{
-  name: string;
-  summary: string;
-  aliases: readonly string[];
-  visibility: NarratorVisibility;
-  ownerActorId: string;
-  status: CampaignQuestStatus;
-  category: CampaignAbilityCategory;
-}>;
-
-class ApiProblem extends Error {
-  readonly problem: Problem | null;
-
-  constructor(message: string, problem: Problem | null) {
-    super(message);
-    this.name = 'ApiProblem';
-    this.problem = problem;
-  }
-}
-
-async function fetchJson<T>(path: string, signal?: AbortSignal, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  headers.set('accept', 'application/json');
-  if (init.body !== undefined) headers.set('content-type', 'application/json');
-  const response = await fetch(path, {
-    ...init,
-    ...(signal === undefined ? {} : { signal }),
-    headers,
-  });
-  const body = await response.json().catch(() => null) as T | Problem | null;
-  if (!response.ok) {
-    const problem = body && typeof body === 'object' && 'schema' in body && body.schema === 'st-rpg.problem'
-      ? body as Problem
-      : null;
-    throw new ApiProblem(problem?.message ?? `${path} returned HTTP ${response.status}`, problem);
-  }
-  return body as T;
-}
-
-function newRequestId(): string {
-  return createUuid();
-}
-
-function conflictFrom(problem: Problem | null, campaignId: string, expectedRevision: number): RevisionConflict | null {
-  if (problem?.code !== 'CAMPAIGN_REVISION_CONFLICT') return null;
-  const details = problem.details && typeof problem.details === 'object'
-    ? problem.details as Record<string, unknown>
-    : null;
-  const actual = details && typeof details.actualRevision === 'number' ? details.actualRevision : null;
-  return { campaignId, expectedRevision, actualRevision: actual };
-}
-
-function syncLabel(state: SyncState): string {
-  if (state === 'live') return 'Live updates';
-  if (state === 'reconnecting') return 'Reconnecting';
-  if (state === 'update-ready') return 'Update available';
-  return 'Not connected';
-}
-
-function sameDraft(left: EditorDraft, right: EditorDraft): boolean {
-  return left.name.trim() === right.name
-    && left.summary.trim() === right.summary
-    && left.aliases.map(value => value.trim()).join('\u0000') === right.aliases.map(value => value.trim()).join('\u0000')
-    && left.visibility === right.visibility
-    && left.ownerActorId === right.ownerActorId
-    && left.status === right.status
-    && left.category === right.category;
-}
-
-export function RevisionConflictBanner(props: {
-  conflict: RevisionConflict;
-  busy: boolean;
-  onReload: () => void;
-  onStay: () => void;
-}) {
-  const actual = props.conflict.actualRevision === null
-    ? 'a newer revision'
-    : `revision ${props.conflict.actualRevision}`;
-  return (
-    <div className="conflict-banner" role="alert">
-      <div>
-        <strong>This tab is stale.</strong>
-        <p>Your edit expected revision {props.conflict.expectedRevision}, but the Campaign is now at {actual}. Nothing was written. Your draft is still here.</p>
-      </div>
-      <div className="conflict-actions">
-        <button type="button" onClick={props.onReload} disabled={props.busy}>Keep draft and load canonical</button>
-        <button type="button" className="button-secondary" onClick={props.onStay} disabled={props.busy}>Stay on this draft</button>
-      </div>
-    </div>
-  );
-}
-
-export function CampaignHistoryView(props: {
-  entries: readonly CampaignHistoryEntry[];
-  currentRevision: number;
-  viewingRevision: number | null;
-  busy: boolean;
-  expanded?: boolean;
-  onOpenRevision: (revision: number) => void;
-  onReturnCurrent: () => void;
-}) {
-  return (
-    <details className="history-panel" open={props.expanded || props.viewingRevision !== null}>
-      <summary>Immutable history ({props.entries.length})</summary>
-      {props.viewingRevision !== null ? (
-        <div className="historical-banner" role="status">
-          <span>Viewing read-only revision {props.viewingRevision}.</span>
-          <button type="button" onClick={props.onReturnCurrent} disabled={props.busy}>Return to current revision {props.currentRevision}</button>
-        </div>
-      ) : null}
-      <ol className="history-list">
-        {props.entries.map(entry => (
-          <li key={entry.eventId}>
-            <button
-              type="button"
-              className={props.viewingRevision === entry.revision ? 'history-entry history-entry--active' : 'history-entry'}
-              onClick={() => props.onOpenRevision(entry.revision)}
-              disabled={props.busy}
-            >
-              <strong>Revision {entry.revision}</strong>
-              <span>{entry.operationKind}</span>
-            </button>
-          </li>
-        ))}
-      </ol>
-    </details>
-  );
-}
-
-export function CampaignCommandDeck(props: {
-  campaignId: string;
-  revision: number;
-  hasCurrentScene: boolean;
-  busy: boolean;
-  readOnly: boolean;
-  onNavigate: (collection: CollectionKey) => void;
-}) {
-  const actions: ReadonlyArray<Readonly<{
-    collection: CollectionKey;
-    label: string;
-    description: string;
-    mutationEntry: boolean;
-  }>> = [
-    { collection: 'actors', label: 'Add Actor', description: 'Create a persistent character.', mutationEntry: true },
-    { collection: 'items', label: 'Add Item', description: 'Create or attach an object.', mutationEntry: true },
-    { collection: 'abilities', label: 'Add Ability', description: 'Create a spell, skill, feat, or other capability.', mutationEntry: true },
-    { collection: 'relationships', label: 'Add Relationship', description: 'Connect two Actors with explicit directed state.', mutationEntry: true },
-    { collection: 'facts', label: 'Add Fact', description: 'Record a durable truth, optionally about another Record.', mutationEntry: true },
-    { collection: 'world-objects', label: 'Add World Object', description: 'Create a persistent feature attached to a Place.', mutationEntry: true },
-    {
-      collection: 'scene',
-      label: props.hasCurrentScene ? 'Open / Advance Scene' : 'Start Scene',
-      description: props.hasCurrentScene ? 'Edit now or close it into immutable Past Scenes.' : 'Establish the present moment.',
-      mutationEntry: false,
-    },
-    { collection: 'history', label: 'Inspect History', description: 'Open immutable revisions.', mutationEntry: false },
-  ];
-
-  return (
-    <section className="command-deck" aria-labelledby="command-deck-heading">
-      <div className="command-deck__heading">
-        <div>
-          <p className="eyebrow">Next move</p>
-          <h4 id="command-deck-heading">Quick Actions</h4>
-        </div>
-        <span>Revision {props.revision}</span>
-      </div>
-      <div className="command-deck__actions">
-        {actions.map(action => {
-          const disabled = props.busy || (props.readOnly && action.mutationEntry);
-          const route: WorkspaceRoute = {
-            campaignId: props.campaignId,
-            collection: action.collection,
-            recordId: null,
-            revision: props.readOnly ? props.revision : null,
-          };
-          return (
-            <a
-              key={action.collection}
-              href={workspaceHref(route)}
-              className={disabled ? 'command-card command-card--disabled' : 'command-card'}
-              aria-disabled={disabled || undefined}
-              onClick={event => {
-                event.preventDefault();
-                if (!disabled) props.onNavigate(action.collection);
-              }}
-            >
-              <strong>{action.label}</strong>
-              <span>{action.description}</span>
-            </a>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-export function WorkspaceRouteState(props: {
-  phase: 'loading' | 'error';
-  title: string;
-  message?: string;
-  onRetry?: () => void;
-}) {
-  const loading = props.phase === 'loading';
-  return (
-    <section
-      className={`route-state route-state--${props.phase}`}
-      aria-busy={loading}
-      aria-live="polite"
-      role={loading ? 'status' : 'alert'}
-    >
-      <p className="eyebrow">{loading ? 'Opening route' : 'Route unavailable'}</p>
-      <h3>{props.title}</h3>
-      <p>{props.message ?? 'Reading canonical Campaign truth from the companion.'}</p>
-      {!loading && props.onRetry ? (
-        <button type="button" onClick={props.onRetry}>Retry route</button>
-      ) : null}
-    </section>
-  );
-}
-
-function CollectionNavigation(props: {
-  route: WorkspaceRoute;
-  document: CampaignDocument;
-  bindings: readonly ChatBindingDocument[];
-  onNavigate: (route: WorkspaceRoute) => void;
-}) {
-  const entries: ReadonlyArray<Readonly<{ key: CollectionKey; label: string; count?: number }>> = [
-    { key: 'actors', label: 'Actors', count: props.document.actors.filter(record => !record.archived).length },
-    { key: 'items', label: 'Items', count: props.document.items.filter(record => !record.archived).length },
-    { key: 'quests', label: 'Quests', count: props.document.quests.filter(record => !record.archived).length },
-    { key: 'places', label: 'Places', count: props.document.places.filter(record => !record.archived).length },
-    { key: 'facts', label: 'Facts', count: (props.document.facts ?? []).filter(record => !record.archived).length },
-    { key: 'world-objects', label: 'World Objects', count: (props.document.worldObjects ?? []).filter(record => !record.archived).length },
-    { key: 'abilities', label: 'Abilities', count: (props.document.abilities ?? []).filter(record => !record.archived).length },
-    { key: 'relationships', label: 'Relationships', count: (props.document.relationships ?? []).filter(record => !record.archived).length },
-    { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
-    { key: 'review', label: 'Review Inbox' },
-    { key: 'context', label: 'Context Tray', count: props.bindings.reduce((total, binding) => total + (binding.pins?.length ?? 0), 0) },
-    { key: 'history', label: 'History' },
-  ];
-  return (
-    <nav className="collection-nav" aria-label="Campaign collections">
-      {entries.map(entry => {
-        const next: WorkspaceRoute = {
-          campaignId: props.route.campaignId,
-          collection: entry.key,
-          recordId: null,
-          revision: props.route.revision,
-        };
-        return (
-          <a
-            href={workspaceHref(next)}
-            key={entry.key}
-            className={props.route.collection === entry.key ? 'collection-tab collection-tab--active' : 'collection-tab'}
-            aria-current={props.route.collection === entry.key ? 'page' : undefined}
-            onClick={event => {
-              event.preventDefault();
-              props.onNavigate(next);
-            }}
-          >
-            <span>{entry.label}</span>
-            {entry.count === undefined ? null : <strong>{entry.count}</strong>}
-          </a>
-        );
-      })}
-    </nav>
-  );
-}
-
-type RecordEditorProps =
-  | Readonly<{
-      kind: 'actor';
-      record: CampaignActor;
-      actors: readonly CampaignActor[];
-      busy: boolean;
-      readOnly: boolean;
-      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility) => Promise<void>;
-      onArchive: (id: string, archived: boolean) => Promise<void>;
-    }>
-  | Readonly<{
-      kind: 'item';
-      record: CampaignItem;
-      actors: readonly CampaignActor[];
-      busy: boolean;
-      readOnly: boolean;
-      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility, ownerActorId: string | null) => Promise<void>;
-      onArchive: (id: string, archived: boolean) => Promise<void>;
-    }>
-  | Readonly<{
-      kind: 'quest';
-      record: CampaignQuest;
-      actors: readonly CampaignActor[];
-      busy: boolean;
-      readOnly: boolean;
-      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility, status: CampaignQuestStatus) => Promise<void>;
-      onArchive: (id: string, archived: boolean) => Promise<void>;
-    }>
-  | Readonly<{
-      kind: 'place';
-      record: CampaignPlace;
-      actors: readonly CampaignActor[];
-      busy: boolean;
-      readOnly: boolean;
-      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility) => Promise<void>;
-      onArchive: (id: string, archived: boolean) => Promise<void>;
-    }>
-  | Readonly<{
-      kind: 'ability';
-      record: CampaignAbility;
-      actors: readonly CampaignActor[];
-      busy: boolean;
-      readOnly: boolean;
-      onSave: (id: string, name: string, summary: string, aliases: readonly string[], visibility: NarratorVisibility, category: CampaignAbilityCategory) => Promise<void>;
-      onArchive: (id: string, archived: boolean) => Promise<void>;
-    }>;
-
-function canonicalDraft(props: RecordEditorProps): EditorDraft {
-  return {
-    name: props.record.name,
-    summary: props.record.summary,
-    aliases: props.record.aliases ?? [],
-    visibility: props.record.visibility ?? 'known',
-    ownerActorId: props.kind === 'item' ? props.record.ownerActorId ?? '' : '',
-    status: props.kind === 'quest' ? props.record.status : 'active',
-    category: props.kind === 'ability' ? props.record.category : 'other',
-  };
-}
-
-function editorLabel(kind: RecordEditorProps['kind']): string {
-  if (kind === 'actor') return 'Actor';
-  if (kind === 'item') return 'Item';
-  if (kind === 'quest') return 'Quest';
-  if (kind === 'ability') return 'Ability';
-  return 'Place';
-}
-
-export function RecordEditor(props: RecordEditorProps) {
-  const initial = canonicalDraft(props);
-  const [draft, setDraft] = useState<EditorDraft>(initial);
-  const [baseline, setBaseline] = useState<EditorDraft>(initial);
-  const ownerActorId = props.kind === 'item' ? props.record.ownerActorId ?? '' : '';
-  const questStatus = props.kind === 'quest' ? props.record.status : 'active';
-  const abilityCategory = props.kind === 'ability' ? props.record.category : 'other';
-  const aliasesKey = (props.record.aliases ?? []).join('\u0000');
-  const visibility = props.record.visibility ?? 'known';
-  const dirty = !sameDraft(draft, baseline);
-  useWorkspaceDirtyDraft(`record:${props.kind}:${props.record.id}`, dirty && !props.readOnly);
-
-  useEffect(() => {
-    const next = canonicalDraft(props);
-    const wasDirty = !sameDraft(draft, baseline);
-    setBaseline(next);
-    if (!wasDirty) setDraft(next);
-  }, [props.kind, props.record.id, props.record.name, props.record.summary, props.record.archived, aliasesKey, visibility, ownerActorId, questStatus, abilityCategory]);
-
-  const label = editorLabel(props.kind);
-  return (
-    <form className={props.record.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
-      event.preventDefault();
-      const aliases = draft.aliases.map(value => value.trim()).filter(Boolean);
-      if (props.kind === 'actor' || props.kind === 'place') {
-        void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility);
-      } else if (props.kind === 'item') {
-        void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility, draft.ownerActorId || null);
-      } else if (props.kind === 'quest') {
-        void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility, draft.status);
-      } else {
-        void props.onSave(props.record.id, draft.name, draft.summary, aliases, draft.visibility, draft.category);
-      }
-    }}>
-      <div className="record-card__heading">
-        <strong>{props.record.archived ? `Archived ${label}` : label}</strong>
-        <span>{props.record.id}</span>
-      </div>
-      <label>
-        <span>Name</span>
-        <input
-          value={draft.name}
-          onChange={event => setDraft(previous => ({ ...previous, name: event.target.value }))}
-          disabled={props.busy || props.readOnly}
-        />
-      </label>
-      <fieldset className="alias-editor">
-        <legend>Aliases</legend>
-        {draft.aliases.length === 0 ? <p className="empty-state">No alternate names.</p> : null}
-        {draft.aliases.map((alias, index) => (
-          <div className="alias-row" key={`${index}-${alias}`}>
-            <label>
-              <span>Alias {index + 1}</span>
-              <input
-                value={alias}
-                onChange={event => setDraft(previous => ({
-                  ...previous,
-                  aliases: previous.aliases.map((value, candidate) => candidate === index ? event.target.value : value),
-                }))}
-                disabled={props.busy || props.readOnly}
-              />
-            </label>
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={() => setDraft(previous => ({ ...previous, aliases: previous.aliases.filter((_value, candidate) => candidate !== index) }))}
-              disabled={props.busy || props.readOnly}
-              aria-label={`Remove alias ${index + 1}`}
-            >Remove</button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="button-secondary"
-          onClick={() => setDraft(previous => ({ ...previous, aliases: [...previous.aliases, ''] }))}
-          disabled={props.busy || props.readOnly || draft.aliases.length >= 32}
-        >+ Add alias</button>
-      </fieldset>
-      <label>
-        <span>Narrator Visibility</span>
-        <select
-          value={draft.visibility}
-          onChange={event => setDraft(previous => ({ ...previous, visibility: event.target.value as NarratorVisibility }))}
-          disabled={props.busy || props.readOnly}
-        >
-          <option value="known">Known · may be used and revealed</option>
-          <option value="narrator_secret">Narrator Secret · use silently</option>
-          <option value="campaign_private">Campaign Private · never sent</option>
-        </select>
-      </label>
-      <label>
-        <span>Summary</span>
-        <textarea
-          rows={6}
-          value={draft.summary}
-          onChange={event => setDraft(previous => ({ ...previous, summary: event.target.value }))}
-          disabled={props.busy || props.readOnly}
-        />
-      </label>
-      {props.kind === 'item' ? (
-        <label>
-          <span>Attached Actor</span>
-          <select
-            value={draft.ownerActorId}
-            onChange={event => setDraft(previous => ({ ...previous, ownerActorId: event.target.value }))}
-            disabled={props.busy || props.readOnly}
-          >
-            <option value="">Unattached</option>
-            {props.actors.map(actor => (
-              <option key={actor.id} value={actor.id} disabled={actor.archived && actor.id !== props.record.ownerActorId}>
-                {actor.name}{actor.archived ? ' · archived' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      {props.kind === 'quest' ? (
-        <label>
-          <span>Status</span>
-          <select
-            value={draft.status}
-            onChange={event => setDraft(previous => ({
-              ...previous,
-              status: event.target.value as CampaignQuestStatus,
-            }))}
-            disabled={props.busy || props.readOnly}
-          >
-            <option value="active">Active</option>
-            <option value="completed">Completed</option>
-          </select>
-        </label>
-      ) : null}
-      {props.kind === 'ability' ? (
-        <label>
-          <span>Category</span>
-          <select
-            value={draft.category}
-            onChange={event => setDraft(previous => ({ ...previous, category: event.target.value as CampaignAbilityCategory }))}
-            disabled={props.busy || props.readOnly}
-          >
-            <option value="spell">Spell</option>
-            <option value="skill">Skill</option>
-            <option value="feat">Feat</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-      ) : null}
-      <div className="record-actions">
-        <button type="submit" disabled={props.busy || props.readOnly || !draft.name.trim() || !dirty}>
-          Save {label}
-        </button>
-        <button
-          type="button"
-          className="button-secondary"
-          disabled={props.busy || props.readOnly}
-          onClick={() => { void props.onArchive(props.record.id, !props.record.archived); }}
-        >
-          {props.record.archived ? `Restore ${label}` : `Archive ${label}`}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-type SubjectOption = Readonly<{ id: string; label: string; archived: boolean }>;
-type WorldRecordDraft = Readonly<{
-  name: string;
-  summary: string;
-  aliases: readonly string[];
-  visibility: NarratorVisibility;
-  relationId: string;
-}>;
-
-function sameWorldRecordDraft(left: WorldRecordDraft, right: WorldRecordDraft): boolean {
-  return left.name.trim() === right.name.trim()
-    && left.summary.trim() === right.summary.trim()
-    && left.aliases.map(value => value.trim()).join('\u0000') === right.aliases.map(value => value.trim()).join('\u0000')
-    && left.visibility === right.visibility
-    && left.relationId === right.relationId;
-}
-
-export function WorldRecordEditor(props: Readonly<{
-  kind: 'fact' | 'world-object';
-  record: CampaignFact | CampaignWorldObject;
-  options: readonly SubjectOption[];
-  busy: boolean;
-  readOnly: boolean;
-  onSave: (id: string, draft: WorldRecordDraft) => Promise<void>;
-  onArchive: (id: string, archived: boolean) => Promise<void>;
-}>) {
-  const relationId = props.kind === 'fact'
-    ? (props.record as CampaignFact).subjectId ?? ''
-    : (props.record as CampaignWorldObject).placeId ?? '';
-  const initial: WorldRecordDraft = {
-    name: props.record.name,
-    summary: props.record.summary,
-    aliases: props.record.aliases ?? [],
-    visibility: props.record.visibility ?? 'known',
-    relationId,
-  };
-  const [draft, setDraft] = useState(initial);
-  const [baseline, setBaseline] = useState(initial);
-  const aliasesKey = (props.record.aliases ?? []).join('\u0000');
-  useEffect(() => {
-    const next: WorldRecordDraft = {
-      name: props.record.name,
-      summary: props.record.summary,
-      aliases: props.record.aliases ?? [],
-      visibility: props.record.visibility ?? 'known',
-      relationId,
-    };
-    const dirty = !sameWorldRecordDraft(draft, baseline);
-    setBaseline(next);
-    if (!dirty) setDraft(next);
-  }, [props.kind, props.record.id, props.record.name, props.record.summary, aliasesKey, props.record.visibility, props.record.archived, relationId]);
-  const dirty = !sameWorldRecordDraft(draft, baseline);
-  useWorkspaceDirtyDraft(`record:${props.kind}:${props.record.id}`, dirty && !props.readOnly);
-  const label = props.kind === 'fact' ? 'Fact' : 'World Object';
-  const relationLabel = props.kind === 'fact' ? 'About Record' : 'Place';
-  return (
-    <form className={props.record.archived ? 'record-card record-card--archived' : 'record-card'} onSubmit={event => {
-      event.preventDefault();
-      void props.onSave(props.record.id, {
-        ...draft,
-        aliases: draft.aliases.map(value => value.trim()).filter(Boolean),
-      });
-    }}>
-      <div className="record-card__heading"><strong>{props.record.archived ? `Removed ${label}` : label}</strong><span>{props.record.id}</span></div>
-      <label><span>Name</span><input value={draft.name} onChange={event => setDraft(value => ({ ...value, name: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} /></label>
-      <label><span>{relationLabel}</span><select value={draft.relationId} onChange={event => setDraft(value => ({ ...value, relationId: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived}><option value="">{props.kind === 'fact' ? 'Campaign-wide' : 'No attached Place'}</option>{props.options.map(option => <option key={option.id} value={option.id} disabled={option.archived && option.id !== relationId}>{option.label}{option.archived ? ' · archived' : ''}</option>)}</select></label>
-      <fieldset className="alias-editor"><legend>Aliases</legend>
-        {draft.aliases.map((alias, index) => <div className="alias-row" key={`${index}-${alias}`}><label><span>Alias {index + 1}</span><input value={alias} onChange={event => setDraft(value => ({ ...value, aliases: value.aliases.map((entry, candidate) => candidate === index ? event.target.value : entry) }))} disabled={props.busy || props.readOnly || props.record.archived} /></label><button type="button" className="button-secondary" onClick={() => setDraft(value => ({ ...value, aliases: value.aliases.filter((_entry, candidate) => candidate !== index) }))} disabled={props.busy || props.readOnly || props.record.archived}>Remove</button></div>)}
-        <button type="button" className="button-secondary" onClick={() => setDraft(value => ({ ...value, aliases: [...value.aliases, ''] }))} disabled={props.busy || props.readOnly || props.record.archived || draft.aliases.length >= 32}>+ Add alias</button>
-      </fieldset>
-      <label><span>Narrator Visibility</span><select value={draft.visibility} onChange={event => setDraft(value => ({ ...value, visibility: event.target.value as NarratorVisibility }))} disabled={props.busy || props.readOnly || props.record.archived}><option value="known">Known · may be used and revealed</option><option value="narrator_secret">Narrator Secret · use silently</option><option value="campaign_private">Campaign Private · never sent</option></select></label>
-      <label><span>{props.kind === 'fact' ? 'Statement' : 'Description'}</span><textarea rows={5} value={draft.summary} onChange={event => setDraft(value => ({ ...value, summary: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} /></label>
-      <div className="record-actions">
-        {!props.record.archived ? <button type="submit" disabled={props.busy || props.readOnly || !draft.name.trim() || !dirty}>Save {label}</button> : null}
-        <button type="button" className="button-secondary" disabled={props.busy || props.readOnly} onClick={() => { void props.onArchive(props.record.id, !props.record.archived); }}>{props.record.archived ? `Restore ${label}` : `Remove ${label}`}</button>
-      </div>
-    </form>
-  );
-}
-
-export function LinkedFactsPanel(props: Readonly<{
-  facts: readonly CampaignFact[];
-  subjectId: string;
-  subjectLabel: string;
-  options: readonly SubjectOption[];
-  busy: boolean;
-  readOnly: boolean;
-  onCreate: (name: string, summary: string, visibility: NarratorVisibility) => Promise<void>;
-  onSave: (id: string, draft: WorldRecordDraft) => Promise<void>;
-  onArchive: (id: string, archived: boolean) => Promise<void>;
-}>) {
-  const [name, setName] = useState('');
-  const [summary, setSummary] = useState('');
-  const [visibility, setVisibility] = useState<NarratorVisibility>('known');
-  const linked = props.facts.filter(fact => fact.subjectId === props.subjectId);
-  useWorkspaceDirtyDraft(
-    `create:fact:${props.subjectId}`,
-    !props.readOnly && Boolean(name.trim() || summary.trim() || visibility !== 'known'),
-  );
-  return <section className="linked-records"><div className="collection-heading"><div><h4>Facts about {props.subjectLabel}</h4><p>Add and edit durable truths here, without leaving this Record.</p></div></div>
-    {!props.readOnly ? <form className="create-record-form create-record-form--inline" onSubmit={event => { event.preventDefault(); void props.onCreate(name, summary, visibility).then(() => { setName(''); setSummary(''); setVisibility('known'); }); }}><label><span>Fact name</span><input value={name} onChange={event => setName(event.target.value)} disabled={props.busy} /></label><label><span>Statement</span><textarea rows={2} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy} /></label><label><span>Visibility</span><select value={visibility} onChange={event => setVisibility(event.target.value as NarratorVisibility)} disabled={props.busy}><option value="known">Known</option><option value="narrator_secret">Narrator Secret</option><option value="campaign_private">Campaign Private</option></select></label><button type="submit" disabled={props.busy || !name.trim()}>+ Add Fact</button></form> : null}
-    {linked.length === 0 ? <p className="empty-state">No attached Facts yet.</p> : linked.map(fact => <WorldRecordEditor key={fact.id} kind="fact" record={fact} options={props.options} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
-  </section>;
-}
-
-export function PlaceWorldObjectsPanel(props: Readonly<{
-  worldObjects: readonly CampaignWorldObject[];
-  placeId: string;
-  placeLabel: string;
-  places: readonly CampaignPlace[];
-  busy: boolean;
-  readOnly: boolean;
-  onCreate: (name: string, summary: string) => Promise<void>;
-  onSave: (id: string, draft: WorldRecordDraft) => Promise<void>;
-  onArchive: (id: string, archived: boolean) => Promise<void>;
-}>) {
-  const [name, setName] = useState('');
-  const [summary, setSummary] = useState('');
-  const linked = props.worldObjects.filter(record => record.placeId === props.placeId);
-  const options = props.places.map(record => ({ id: record.id, label: record.name, archived: record.archived }));
-  useWorkspaceDirtyDraft(
-    `create:world-object:${props.placeId}`,
-    !props.readOnly && Boolean(name.trim() || summary.trim()),
-  );
-  return <section className="linked-records"><div className="collection-heading"><div><h4>World Objects in {props.placeLabel}</h4><p>Persistent non-portable features. Add and edit them beside their Place.</p></div></div>
-    {!props.readOnly ? <form className="create-record-form create-record-form--inline" onSubmit={event => { event.preventDefault(); void props.onCreate(name, summary).then(() => { setName(''); setSummary(''); }); }}><label><span>World Object name</span><input value={name} onChange={event => setName(event.target.value)} disabled={props.busy} /></label><label><span>Description</span><textarea rows={2} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy} /></label><button type="submit" disabled={props.busy || !name.trim()}>+ Add World Object</button></form> : null}
-    {linked.length === 0 ? <p className="empty-state">No World Objects attached yet.</p> : linked.map(record => <WorldRecordEditor key={record.id} kind="world-object" record={record} options={options} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
-  </section>;
-}
-
-type LearnedDraft = Readonly<{
-  prepared: boolean;
-  enabled: boolean;
-  usesRemaining: string;
-  usesMaximum: string;
-}>;
-
-function learnedDraft(record: CampaignLearnedAbility): LearnedDraft {
-  return {
-    prepared: record.prepared,
-    enabled: record.enabled,
-    usesRemaining: record.usesRemaining === undefined ? '' : String(record.usesRemaining),
-    usesMaximum: record.usesMaximum === undefined ? '' : String(record.usesMaximum),
-  };
-}
-
-function sameLearnedDraft(left: LearnedDraft, right: LearnedDraft): boolean {
-  return left.prepared === right.prepared
-    && left.enabled === right.enabled
-    && left.usesRemaining.trim() === right.usesRemaining
-    && left.usesMaximum.trim() === right.usesMaximum;
-}
-
-function optionalUses(value: string): number | undefined {
-  return value.trim() ? Number(value) : undefined;
-}
-
-function usesFields(usesRemaining: string, usesMaximum: string): Readonly<{
-  usesRemaining?: number;
-  usesMaximum?: number;
-}> {
-  const remaining = optionalUses(usesRemaining);
-  const maximum = optionalUses(usesMaximum);
-  return {
-    ...(remaining === undefined ? {} : { usesRemaining: remaining }),
-    ...(maximum === undefined ? {} : { usesMaximum: maximum }),
-  };
-}
-
-function validUses(draft: LearnedDraft): boolean {
-  const remaining = optionalUses(draft.usesRemaining);
-  const maximum = optionalUses(draft.usesMaximum);
-  return (remaining === undefined || (Number.isInteger(remaining) && remaining >= 0))
-    && (maximum === undefined || (Number.isInteger(maximum) && maximum >= 0))
-    && (remaining === undefined || maximum === undefined || remaining <= maximum);
-}
-
-function LearnedAbilityRow(props: {
-  record: CampaignLearnedAbility;
-  actor: CampaignActor | undefined;
-  busy: boolean;
-  readOnly: boolean;
-  onSave: (id: string, draft: LearnedDraft) => Promise<void>;
-  onArchive: (id: string, archived: boolean) => Promise<void>;
-}) {
-  const initial = learnedDraft(props.record);
-  const [draft, setDraft] = useState(initial);
-  const [baseline, setBaseline] = useState(initial);
-  useEffect(() => {
-    const next = learnedDraft(props.record);
-    const dirty = !sameLearnedDraft(draft, baseline);
-    setBaseline(next);
-    if (!dirty) setDraft(next);
-  }, [props.record.id, props.record.prepared, props.record.enabled, props.record.usesRemaining, props.record.usesMaximum, props.record.archived]);
-  const dirty = !sameLearnedDraft(draft, baseline);
-  useWorkspaceDirtyDraft(`learned-ability:${props.record.id}`, dirty && !props.readOnly);
-  return (
-    <form className={props.record.archived ? 'learned-ability-row learned-ability-row--archived' : 'learned-ability-row'} onSubmit={event => {
-      event.preventDefault();
-      void props.onSave(props.record.id, draft);
-    }}>
-      <div className="learned-ability-row__actor">
-        <strong>{props.actor?.name ?? props.record.actorId}</strong>
-        <small>{props.record.archived ? 'Archived learning' : props.record.id}</small>
-      </div>
-      <label className="check-row"><input type="checkbox" checked={draft.prepared} onChange={event => setDraft(value => ({ ...value, prepared: event.target.checked }))} disabled={props.busy || props.readOnly || props.record.archived} /><span>Prepared</span></label>
-      <label className="check-row"><input type="checkbox" checked={draft.enabled} onChange={event => setDraft(value => ({ ...value, enabled: event.target.checked }))} disabled={props.busy || props.readOnly || props.record.archived} /><span>Enabled</span></label>
-      <label><span>Uses left</span><input type="number" min="0" step="1" value={draft.usesRemaining} onChange={event => setDraft(value => ({ ...value, usesRemaining: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} placeholder="Unlimited" /></label>
-      <label><span>Maximum</span><input type="number" min="0" step="1" value={draft.usesMaximum} onChange={event => setDraft(value => ({ ...value, usesMaximum: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} placeholder="Untracked" /></label>
-      <div className="record-actions">
-        {!props.record.archived ? <button type="submit" disabled={props.busy || props.readOnly || !dirty || !validUses(draft)}>Save state</button> : null}
-        <button type="button" className="button-secondary" disabled={props.busy || props.readOnly} onClick={() => { void props.onArchive(props.record.id, !props.record.archived); }}>{props.record.archived ? 'Restore' : 'Remove'}</button>
-      </div>
-      {!validUses(draft) ? <p className="field-error">Uses must be whole non-negative numbers; remaining cannot exceed maximum.</p> : null}
-    </form>
-  );
-}
-
-export function LearnedAbilitiesPanel(props: {
-  ability: CampaignAbility;
-  learned: readonly CampaignLearnedAbility[];
-  actors: readonly CampaignActor[];
-  busy: boolean;
-  readOnly: boolean;
-  onCreate: (actorId: string, draft: LearnedDraft) => Promise<void>;
-  onSave: (id: string, draft: LearnedDraft) => Promise<void>;
-  onArchive: (id: string, archived: boolean) => Promise<void>;
-}) {
-  const [actorId, setActorId] = useState('');
-  const [draft, setDraft] = useState<LearnedDraft>({ prepared: false, enabled: true, usesRemaining: '', usesMaximum: '' });
-  const linkedActorIds = new Set(props.learned.filter(record => !record.archived).map(record => record.actorId));
-  const availableActors = props.actors.filter(actor => !actor.archived && !linkedActorIds.has(actor.id));
-  const linkedKey = [...linkedActorIds].sort().join('\u0000');
-  useWorkspaceDirtyDraft(
-    `create:learned-ability:${props.ability.id}`,
-    !props.readOnly && Boolean(actorId || draft.prepared || !draft.enabled || draft.usesRemaining.trim() || draft.usesMaximum.trim()),
-  );
-  useEffect(() => {
-    if (actorId && linkedActorIds.has(actorId)) {
-      setActorId('');
-      setDraft({ prepared: false, enabled: true, usesRemaining: '', usesMaximum: '' });
-    }
-  }, [actorId, linkedKey]);
-  return (
-    <section className="learned-abilities-panel" aria-labelledby="learned-abilities-heading">
-      <div className="collection-heading">
-        <div><h4 id="learned-abilities-heading">Known by Actors</h4><p>Add and edit who knows this Ability here. Removing archives the link.</p></div>
-      </div>
-      {!props.readOnly && !props.ability.archived ? (
-        <form className="learned-ability-create" onSubmit={event => {
-          event.preventDefault();
-          if (!actorId || !validUses(draft)) return;
-          void props.onCreate(actorId, draft);
-        }}>
-          <label><span>Actor</span><select value={actorId} onChange={event => setActorId(event.target.value)} disabled={props.busy}><option value="">Choose Actor</option>{availableActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
-          <label className="check-row"><input type="checkbox" checked={draft.prepared} onChange={event => setDraft(value => ({ ...value, prepared: event.target.checked }))} disabled={props.busy} /><span>Prepared</span></label>
-          <label className="check-row"><input type="checkbox" checked={draft.enabled} onChange={event => setDraft(value => ({ ...value, enabled: event.target.checked }))} disabled={props.busy} /><span>Enabled</span></label>
-          <label><span>Uses left</span><input type="number" min="0" step="1" value={draft.usesRemaining} onChange={event => setDraft(value => ({ ...value, usesRemaining: event.target.value }))} disabled={props.busy} placeholder="Unlimited" /></label>
-          <label><span>Maximum</span><input type="number" min="0" step="1" value={draft.usesMaximum} onChange={event => setDraft(value => ({ ...value, usesMaximum: event.target.value }))} disabled={props.busy} placeholder="Untracked" /></label>
-          <button type="submit" disabled={props.busy || !actorId || !validUses(draft)}>+ Add Actor</button>
-        </form>
-      ) : null}
-      {availableActors.length === 0 && props.learned.length === 0 ? <p className="empty-state">Create an Actor first, then add them here.</p> : null}
-      <div className="learned-ability-list">
-        {props.learned.map(record => <LearnedAbilityRow key={record.id} record={record} actor={props.actors.find(actor => actor.id === record.actorId)} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
-      </div>
-    </section>
-  );
-}
-
-type RelationshipDraft = Readonly<{
-  sourceActorId: string;
-  targetActorId: string;
-  relationshipKind: string;
-  status: CampaignRelationshipStatus;
-  notes: string;
-  visibility: NarratorVisibility;
-}>;
-
-function relationshipDraft(record: CampaignRelationship): RelationshipDraft {
-  return {
-    sourceActorId: record.sourceActorId,
-    targetActorId: record.targetActorId,
-    relationshipKind: record.kind,
-    status: record.status,
-    notes: record.notes,
-    visibility: record.visibility ?? 'known',
-  };
-}
-
-function sameRelationshipDraft(left: RelationshipDraft, right: RelationshipDraft): boolean {
-  return left.sourceActorId === right.sourceActorId
-    && left.targetActorId === right.targetActorId
-    && left.relationshipKind.trim() === right.relationshipKind
-    && left.status === right.status
-    && left.notes.trim() === right.notes
-    && left.visibility === right.visibility;
-}
-
-function RelationshipStatusOptions() {
-  return <><option value="active">Active</option><option value="strained">Strained</option><option value="dormant">Dormant</option><option value="ended">Ended</option><option value="other">Other</option></>;
-}
-
-function RelationshipRow(props: {
-  record: CampaignRelationship;
-  actors: readonly CampaignActor[];
-  busy: boolean;
-  readOnly: boolean;
-  onSave: (id: string, draft: RelationshipDraft) => Promise<void>;
-  onArchive: (id: string, archived: boolean) => Promise<void>;
-}) {
-  const initial = relationshipDraft(props.record);
-  const [draft, setDraft] = useState(initial);
-  const [baseline, setBaseline] = useState(initial);
-  useEffect(() => {
-    const next = relationshipDraft(props.record);
-    const dirty = !sameRelationshipDraft(draft, baseline);
-    setBaseline(next);
-    if (!dirty) setDraft(next);
-  }, [props.record.id, props.record.sourceActorId, props.record.targetActorId, props.record.kind, props.record.status, props.record.notes, props.record.visibility, props.record.archived]);
-  const dirty = !sameRelationshipDraft(draft, baseline);
-  useWorkspaceDirtyDraft(`relationship:${props.record.id}`, dirty && !props.readOnly);
-  const selectableActors = props.actors.filter(actor => !actor.archived || actor.id === draft.sourceActorId || actor.id === draft.targetActorId);
-  return (
-    <form className={props.record.archived ? 'relationship-row relationship-row--archived' : 'relationship-row'} onSubmit={event => {
-      event.preventDefault();
-      void props.onSave(props.record.id, draft);
-    }}>
-      <div className="relationship-row__identity"><strong>{props.record.kind}</strong><small>{props.record.archived ? 'Archived relationship' : props.record.id}</small></div>
-      <label><span>From</span><select aria-label="Relationship source" value={draft.sourceActorId} onChange={event => setDraft(value => ({ ...value, sourceActorId: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived}>{selectableActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
-      <label><span>To</span><select aria-label="Relationship target" value={draft.targetActorId} onChange={event => setDraft(value => ({ ...value, targetActorId: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived}>{selectableActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
-      <label><span>Kind</span><input value={draft.relationshipKind} onChange={event => setDraft(value => ({ ...value, relationshipKind: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} placeholder="ally, rival, employer…" /></label>
-      <label><span>Status</span><select value={draft.status} onChange={event => setDraft(value => ({ ...value, status: event.target.value as CampaignRelationshipStatus }))} disabled={props.busy || props.readOnly || props.record.archived}><RelationshipStatusOptions /></select></label>
-      <label><span>Visibility</span><select value={draft.visibility} onChange={event => setDraft(value => ({ ...value, visibility: event.target.value as NarratorVisibility }))} disabled={props.busy || props.readOnly || props.record.archived}><option value="known">Known</option><option value="narrator_secret">Narrator secret</option><option value="campaign_private">Campaign private</option></select></label>
-      <label className="relationship-row__notes"><span>Notes</span><textarea rows={2} value={draft.notes} onChange={event => setDraft(value => ({ ...value, notes: event.target.value }))} disabled={props.busy || props.readOnly || props.record.archived} /></label>
-      <div className="record-actions">
-        {!props.record.archived ? <button type="submit" disabled={props.busy || props.readOnly || !dirty || !draft.relationshipKind.trim() || draft.sourceActorId === draft.targetActorId}>Save Relationship</button> : null}
-        <button type="button" className="button-secondary" disabled={props.busy || props.readOnly} onClick={() => { void props.onArchive(props.record.id, !props.record.archived); }}>{props.record.archived ? 'Restore' : 'Remove'}</button>
-      </div>
-    </form>
-  );
-}
-
-export function RelationshipsPanel(props: {
-  relationships: readonly CampaignRelationship[];
-  actors: readonly CampaignActor[];
-  focusActorId?: string;
-  busy: boolean;
-  readOnly: boolean;
-  onCreate: (draft: RelationshipDraft) => Promise<void>;
-  onSave: (id: string, draft: RelationshipDraft) => Promise<void>;
-  onArchive: (id: string, archived: boolean) => Promise<void>;
-}) {
-  const activeActors = props.actors.filter(actor => !actor.archived);
-  const defaultSource = props.focusActorId ?? activeActors[0]?.id ?? '';
-  const [direction, setDirection] = useState<'outgoing' | 'incoming'>('outgoing');
-  const [sourceActorId, setSourceActorId] = useState(defaultSource);
-  const [targetActorId, setTargetActorId] = useState('');
-  const [relationshipKind, setRelationshipKind] = useState('');
-  const [status, setStatus] = useState<CampaignRelationshipStatus>('active');
-  const [notes, setNotes] = useState('');
-  const [visibility, setVisibility] = useState<NarratorVisibility>('known');
-  const pendingCreate = useRef<RelationshipDraft | null>(null);
-  const relationshipKey = props.relationships.map(record => `${record.id}:${record.archived}`).join('\u0000');
-  useWorkspaceDirtyDraft(
-    `create:relationship:${props.focusActorId ?? 'all'}`,
-    !props.readOnly && Boolean(
-      targetActorId
-      || relationshipKind.trim()
-      || notes.trim()
-      || status !== 'active'
-      || visibility !== 'known'
-      || (!props.focusActorId && sourceActorId !== defaultSource),
-    ),
-  );
-  useEffect(() => {
-    const pending = pendingCreate.current;
-    if (!pending || !props.relationships.some(record => !record.archived
-      && record.sourceActorId === pending.sourceActorId
-      && record.targetActorId === pending.targetActorId
-      && record.kind === pending.relationshipKind)) return;
-    pendingCreate.current = null;
-    setTargetActorId('');
-    setRelationshipKind('');
-    setStatus('active');
-    setNotes('');
-    setVisibility('known');
-  }, [relationshipKey]);
-  useEffect(() => {
-    if (props.focusActorId) setSourceActorId(props.focusActorId);
-  }, [props.focusActorId]);
-  const visible = props.focusActorId
-    ? props.relationships.filter(record => record.sourceActorId === props.focusActorId || record.targetActorId === props.focusActorId)
-    : props.relationships;
-  const selectedSource = props.focusActorId
-    ? direction === 'outgoing' ? props.focusActorId : targetActorId
-    : sourceActorId;
-  const selectedTarget = props.focusActorId
-    ? direction === 'outgoing' ? targetActorId : props.focusActorId
-    : targetActorId;
-  const headingId = `relationships-heading-${props.focusActorId ?? 'all'}`;
-  return (
-    <section className="relationships-panel" aria-labelledby={headingId}>
-      <div className="collection-heading"><div><h4 id={headingId}>Relationships</h4><p>Directed Actor links with explicit status and editable notes. Removing archives the link.</p></div></div>
-      {!props.readOnly ? (
-        <form className="relationship-create" onSubmit={event => {
-          event.preventDefault();
-          if (!selectedSource || !selectedTarget || selectedSource === selectedTarget || !relationshipKind.trim()) return;
-          const draft = { sourceActorId: selectedSource, targetActorId: selectedTarget, relationshipKind, status, notes, visibility };
-          pendingCreate.current = draft;
-          void props.onCreate(draft);
-        }}>
-          {props.focusActorId ? <label><span>Direction</span><select value={direction} onChange={event => setDirection(event.target.value as 'outgoing' | 'incoming')} disabled={props.busy}><option value="outgoing">This Actor → other</option><option value="incoming">Other → this Actor</option></select></label> : <label><span>From</span><select aria-label="New relationship source" value={sourceActorId} onChange={event => setSourceActorId(event.target.value)} disabled={props.busy}><option value="">Choose Actor</option>{activeActors.map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>}
-          <label><span>{props.focusActorId ? 'Other Actor' : 'To'}</span><select aria-label="New relationship target" value={targetActorId} onChange={event => setTargetActorId(event.target.value)} disabled={props.busy}><option value="">Choose Actor</option>{activeActors.filter(actor => actor.id !== props.focusActorId).map(actor => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
-          <label><span>Kind</span><input value={relationshipKind} onChange={event => setRelationshipKind(event.target.value)} disabled={props.busy} placeholder="ally, rival, employer…" /></label>
-          <label><span>Status</span><select value={status} onChange={event => setStatus(event.target.value as CampaignRelationshipStatus)} disabled={props.busy}><RelationshipStatusOptions /></select></label>
-          <label><span>Visibility</span><select value={visibility} onChange={event => setVisibility(event.target.value as NarratorVisibility)} disabled={props.busy}><option value="known">Known</option><option value="narrator_secret">Narrator secret</option><option value="campaign_private">Campaign private</option></select></label>
-          <label className="relationship-create__notes"><span>Notes</span><textarea rows={2} value={notes} onChange={event => setNotes(event.target.value)} disabled={props.busy} placeholder="What this link means now" /></label>
-          <button type="submit" disabled={props.busy || !selectedSource || !selectedTarget || selectedSource === selectedTarget || !relationshipKind.trim()}>+ Add Relationship</button>
-        </form>
-      ) : null}
-      {activeActors.length < 2 && visible.length === 0 ? <p className="empty-state">Create at least two Actors to add a Relationship.</p> : null}
-      <div className="relationship-list">
-        {visible.map(record => <RelationshipRow key={record.id} record={record} actors={props.actors} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
-      </div>
-    </section>
-  );
-}
-
-type SceneDraft = Readonly<{
-  name: string;
-  summary: string;
-  placeId: string;
-  actorIds: readonly string[];
-  itemIds: readonly string[];
-  worldObjectIds: readonly string[];
-}>;
-
-function sceneDraft(scene: CampaignScene | null): SceneDraft {
-  return {
-    name: scene?.name ?? '',
-    summary: scene?.summary ?? '',
-    placeId: scene?.placeId ?? '',
-    actorIds: scene?.actorIds ?? [],
-    itemIds: scene?.itemIds ?? [],
-    worldObjectIds: scene?.worldObjectIds ?? [],
-  };
-}
-
-function sameSceneDraft(left: SceneDraft, right: SceneDraft): boolean {
-  return left.name.trim() === right.name.trim()
-    && left.summary.trim() === right.summary.trim()
-    && left.placeId === right.placeId
-    && left.actorIds.join('\u0000') === right.actorIds.join('\u0000')
-    && left.itemIds.join('\u0000') === right.itemIds.join('\u0000')
-    && left.worldObjectIds.join('\u0000') === right.worldObjectIds.join('\u0000');
-}
-
-export function SceneEditor(props: {
-  scene: CampaignScene | null;
-  actors: readonly CampaignActor[];
-  items: readonly CampaignItem[];
-  places: readonly CampaignPlace[];
-  worldObjects: readonly CampaignWorldObject[];
-  busy: boolean;
-  readOnly: boolean;
-  onSave: (name: string, summary: string, placeId: string | null, actorIds: readonly string[], itemIds: readonly string[], worldObjectIds: readonly string[]) => Promise<void>;
-}) {
-  const canonical = sceneDraft(props.scene);
-  const [draft, setDraft] = useState(canonical);
-  const [baseline, setBaseline] = useState(canonical);
-  const dirty = !sameSceneDraft(draft, baseline);
-  const actorIdsKey = (props.scene?.actorIds ?? []).join('\u0000');
-  const itemIdsKey = (props.scene?.itemIds ?? []).join('\u0000');
-  const worldObjectIdsKey = (props.scene?.worldObjectIds ?? []).join('\u0000');
-  useWorkspaceDirtyDraft(`scene:${props.scene?.id ?? 'new'}`, dirty && !props.readOnly);
-
-  useEffect(() => {
-    const next = sceneDraft(props.scene);
-    const wasDirty = !sameSceneDraft(draft, baseline);
-    setBaseline(next);
-    if (!wasDirty) setDraft(next);
-  }, [props.scene?.id, props.scene?.name, props.scene?.summary, props.scene?.placeId, actorIdsKey, itemIdsKey, worldObjectIdsKey]);
-
-  const toggle = (field: 'actorIds' | 'itemIds' | 'worldObjectIds', id: string) => setDraft(previous => ({
-    ...previous,
-    [field]: previous[field].includes(id)
-      ? previous[field].filter(candidate => candidate !== id)
-      : [...previous[field], id],
-  }));
-
-  return (
-    <form className="record-card" onSubmit={event => {
-      event.preventDefault();
-      void props.onSave(draft.name, draft.summary, draft.placeId || null, draft.actorIds, draft.itemIds, draft.worldObjectIds);
-    }}>
-      <div className="record-card__heading">
-        <strong>{props.scene ? 'Current Scene' : 'Start Current Scene'}</strong>
-        {props.scene ? <span>{props.scene.id}</span> : null}
-      </div>
-      <label>
-        <span>Name</span>
-        <input
-          value={draft.name}
-          onChange={event => setDraft(previous => ({ ...previous, name: event.target.value }))}
-          disabled={props.busy || props.readOnly}
-        />
-      </label>
-      <label>
-        <span>Scene Place</span>
-        <select value={draft.placeId} onChange={event => setDraft(previous => ({ ...previous, placeId: event.target.value }))} disabled={props.busy || props.readOnly}>
-          <option value="">No attached Place</option>
-          {props.places.map(place => <option key={place.id} value={place.id} disabled={place.archived && place.id !== props.scene?.placeId}>{place.name}{place.archived ? ' · archived' : ''}</option>)}
-        </select>
-      </label>
-      <div className="scene-attachments">
-        <fieldset>
-          <legend>Present Actors</legend>
-          {props.actors.length === 0 ? <p className="empty-state">No Actors available.</p> : props.actors.map(actor => (
-            <label key={actor.id}>
-              <input type="checkbox" checked={draft.actorIds.includes(actor.id)} onChange={() => toggle('actorIds', actor.id)} disabled={props.busy || props.readOnly || (actor.archived && !draft.actorIds.includes(actor.id))} />
-              <span>{actor.name}{actor.archived ? ' · archived' : ''}</span>
-            </label>
-          ))}
-        </fieldset>
-        <fieldset>
-          <legend>Present Items</legend>
-          {props.items.length === 0 ? <p className="empty-state">No Items available.</p> : props.items.map(item => (
-            <label key={item.id}>
-              <input type="checkbox" checked={draft.itemIds.includes(item.id)} onChange={() => toggle('itemIds', item.id)} disabled={props.busy || props.readOnly || (item.archived && !draft.itemIds.includes(item.id))} />
-              <span>{item.name}{item.archived ? ' · archived' : ''}</span>
-            </label>
-          ))}
-        </fieldset>
-        <fieldset>
-          <legend>Present World Objects</legend>
-          {props.worldObjects.length === 0 ? <p className="empty-state">No World Objects available.</p> : props.worldObjects.map(record => (
-            <label key={record.id}>
-              <input type="checkbox" checked={draft.worldObjectIds.includes(record.id)} onChange={() => toggle('worldObjectIds', record.id)} disabled={props.busy || props.readOnly || (record.archived && !draft.worldObjectIds.includes(record.id))} />
-              <span>{record.name}{record.archived ? ' · archived' : ''}</span>
-            </label>
-          ))}
-        </fieldset>
-      </div>
-      <label>
-        <span>Summary</span>
-        <textarea
-          rows={8}
-          value={draft.summary}
-          onChange={event => setDraft(previous => ({ ...previous, summary: event.target.value }))}
-          disabled={props.busy || props.readOnly}
-        />
-      </label>
-      <div className="record-actions">
-        <button type="submit" disabled={props.busy || props.readOnly || !draft.name.trim() || !dirty}>
-          {props.scene ? 'Save Scene' : 'Start Scene'}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-type AdvanceSceneDraft = Readonly<{
-  closingSummary: string;
-  outcomes: readonly string[];
-  openThreads: readonly string[];
-  nextName: string;
-  nextSummary: string;
-  nextPlaceId: string;
-  actorIds: readonly string[];
-  itemIds: readonly string[];
-  worldObjectIds: readonly string[];
-}>;
-
-function advanceSceneDraft(scene: CampaignScene): AdvanceSceneDraft {
-  return {
-    closingSummary: scene.summary,
-    outcomes: [''],
-    openThreads: [''],
-    nextName: '',
-    nextSummary: '',
-    nextPlaceId: scene.placeId ?? '',
-    actorIds: scene.actorIds ?? [],
-    itemIds: scene.itemIds ?? [],
-    worldObjectIds: scene.worldObjectIds ?? [],
-  };
-}
-
-function sameAdvanceSceneDraft(left: AdvanceSceneDraft, right: AdvanceSceneDraft): boolean {
-  return left.closingSummary.trim() === right.closingSummary.trim()
-    && left.outcomes.map(value => value.trim()).join('\u0000') === right.outcomes.map(value => value.trim()).join('\u0000')
-    && left.openThreads.map(value => value.trim()).join('\u0000') === right.openThreads.map(value => value.trim()).join('\u0000')
-    && left.nextName.trim() === right.nextName.trim()
-    && left.nextSummary.trim() === right.nextSummary.trim()
-    && left.nextPlaceId === right.nextPlaceId
-    && left.actorIds.join('\u0000') === right.actorIds.join('\u0000')
-    && left.itemIds.join('\u0000') === right.itemIds.join('\u0000')
-    && left.worldObjectIds.join('\u0000') === right.worldObjectIds.join('\u0000');
-}
-
-function SceneNoteRows(props: {
-  label: string;
-  values: readonly string[];
-  busy: boolean;
-  onChange: (values: readonly string[]) => void;
-}) {
-  return (
-    <fieldset className="scene-note-rows">
-      <legend>{props.label}</legend>
-      {props.values.map((value, index) => (
-        <div className="scene-note-row" key={index}>
-          <label><span>{props.label.slice(0, -1)} {index + 1}</span><input value={value} maxLength={1000} onChange={event => props.onChange(props.values.map((entry, candidate) => candidate === index ? event.target.value : entry))} disabled={props.busy} /></label>
-          <button type="button" className="button-secondary" onClick={() => props.onChange(props.values.filter((_entry, candidate) => candidate !== index))} disabled={props.busy}>Remove</button>
-        </div>
-      ))}
-      <button type="button" className="button-secondary" onClick={() => props.onChange([...props.values, ''])} disabled={props.busy || props.values.length >= 64}>+ Add {props.label.slice(0, -1).toLowerCase()}</button>
-    </fieldset>
-  );
-}
-
-export function AdvanceScenePanel(props: {
-  scene: CampaignScene;
-  actors: readonly CampaignActor[];
-  items: readonly CampaignItem[];
-  places: readonly CampaignPlace[];
-  worldObjects: readonly CampaignWorldObject[];
-  busy: boolean;
-  onAdvance: (draft: AdvanceSceneDraft) => Promise<void>;
-}) {
-  const availableDraft = () => {
-    const next = advanceSceneDraft(props.scene);
-    const activeActorIds = new Set(props.actors.filter(record => !record.archived).map(record => record.id));
-    const activeItemIds = new Set(props.items.filter(record => !record.archived).map(record => record.id));
-    const activeWorldObjectIds = new Set(props.worldObjects.filter(record => !record.archived).map(record => record.id));
-    const activePlaceIds = new Set(props.places.filter(record => !record.archived).map(record => record.id));
-    return {
-      ...next,
-      nextPlaceId: activePlaceIds.has(next.nextPlaceId) ? next.nextPlaceId : '',
-      actorIds: next.actorIds.filter(id => activeActorIds.has(id)),
-      itemIds: next.itemIds.filter(id => activeItemIds.has(id)),
-      worldObjectIds: next.worldObjectIds.filter(id => activeWorldObjectIds.has(id)),
-    };
-  };
-  const [draft, setDraft] = useState(availableDraft);
-  const baseline = availableDraft();
-  useWorkspaceDirtyDraft(`advance-scene:${props.scene.id}`, !sameAdvanceSceneDraft(draft, baseline));
-  useEffect(() => setDraft(availableDraft()), [props.scene.id]);
-  const toggle = (field: 'actorIds' | 'itemIds' | 'worldObjectIds', id: string) => setDraft(previous => ({
-    ...previous,
-    [field]: previous[field].includes(id)
-      ? previous[field].filter(candidate => candidate !== id)
-      : [...previous[field], id],
-  }));
-  return (
-    <details className="advance-scene-panel">
-      <summary><strong>Advance Scene</strong><span>Archive “{props.scene.name}” and open the next scene</span></summary>
-      <form onSubmit={event => {
-        event.preventDefault();
-        void props.onAdvance({
-          ...draft,
-          outcomes: draft.outcomes.map(value => value.trim()).filter(Boolean),
-          openThreads: draft.openThreads.map(value => value.trim()).filter(Boolean),
-        });
-      }}>
-        <p className="form-note">One accepted mutation closes the current Scene into immutable history and opens the editable next Scene. Nothing is generated automatically; archived attachments are not carried forward.</p>
-        <label><span>Closing summary</span><textarea rows={4} value={draft.closingSummary} onChange={event => setDraft(previous => ({ ...previous, closingSummary: event.target.value }))} disabled={props.busy} /></label>
-        <div className="advance-scene-notes">
-          <SceneNoteRows label="Outcomes" values={draft.outcomes} busy={props.busy} onChange={outcomes => setDraft(previous => ({ ...previous, outcomes }))} />
-          <SceneNoteRows label="Open threads" values={draft.openThreads} busy={props.busy} onChange={openThreads => setDraft(previous => ({ ...previous, openThreads }))} />
-        </div>
-        <div className="advance-scene-next">
-          <div className="collection-heading"><div><h5>Next Scene</h5><p>Start from carried attachments, then change anything that should not continue.</p></div></div>
-          <label><span>Name</span><input value={draft.nextName} onChange={event => setDraft(previous => ({ ...previous, nextName: event.target.value }))} disabled={props.busy} placeholder="What happens next?" /></label>
-          <label><span>Place</span><select value={draft.nextPlaceId} onChange={event => setDraft(previous => ({ ...previous, nextPlaceId: event.target.value }))} disabled={props.busy}><option value="">No attached Place</option>{props.places.filter(record => !record.archived || record.id === draft.nextPlaceId).map(record => <option key={record.id} value={record.id}>{record.name}{record.archived ? ' · archived' : ''}</option>)}</select></label>
-          <label><span>Opening situation</span><textarea rows={4} value={draft.nextSummary} onChange={event => setDraft(previous => ({ ...previous, nextSummary: event.target.value }))} disabled={props.busy} /></label>
-          <div className="scene-attachments">
-            <fieldset><legend>Carry Actors</legend>{props.actors.filter(record => !record.archived || draft.actorIds.includes(record.id)).map(record => <label key={record.id}><input type="checkbox" checked={draft.actorIds.includes(record.id)} onChange={() => toggle('actorIds', record.id)} disabled={props.busy || record.archived} /><span>{record.name}</span></label>)}</fieldset>
-            <fieldset><legend>Carry Items</legend>{props.items.filter(record => !record.archived || draft.itemIds.includes(record.id)).map(record => <label key={record.id}><input type="checkbox" checked={draft.itemIds.includes(record.id)} onChange={() => toggle('itemIds', record.id)} disabled={props.busy || record.archived} /><span>{record.name}</span></label>)}</fieldset>
-            <fieldset><legend>Carry World Objects</legend>{props.worldObjects.filter(record => !record.archived || draft.worldObjectIds.includes(record.id)).map(record => <label key={record.id}><input type="checkbox" checked={draft.worldObjectIds.includes(record.id)} onChange={() => toggle('worldObjectIds', record.id)} disabled={props.busy || record.archived} /><span>{record.name}</span></label>)}</fieldset>
-          </div>
-        </div>
-        <div className="sticky-action-bar"><button type="submit" disabled={props.busy || !draft.nextName.trim()}>Close current and open next</button></div>
-      </form>
-    </details>
-  );
-}
-
-export function SceneArchiveList(props: { archives: readonly CampaignSceneArchive[]; places: readonly CampaignPlace[] }) {
-  return (
-    <details className="scene-archive-list">
-      <summary><strong>Past Scenes</strong><span>{props.archives.length} immutable</span></summary>
-      {props.archives.length === 0 ? <p className="empty-state">No Scene has been closed yet.</p> : (
-        <ol>
-          {props.archives.map(archive => (
-            <li key={archive.id}>
-              <article className="scene-archive-card">
-                <div className="record-card__heading"><strong>{archive.name}</strong><span>{new Date(archive.closedAt).toLocaleString()}</span></div>
-                {archive.placeId ? <p className="record-meta">{props.places.find(place => place.id === archive.placeId)?.name ?? archive.placeId}</p> : null}
-                <p>{archive.summary || 'No closing summary.'}</p>
-                {archive.outcomes.length ? <div><strong>Outcomes</strong><ul>{archive.outcomes.map(value => <li key={value}>{value}</li>)}</ul></div> : null}
-                {archive.openThreads.length ? <div><strong>Open threads</strong><ul>{archive.openThreads.map(value => <li key={value}>{value}</li>)}</ul></div> : null}
-              </article>
-            </li>
-          ))}
-        </ol>
-      )}
-    </details>
-  );
-}
-
 function subjectOptions(document: CampaignDocument): SubjectOption[] {
   const groups: ReadonlyArray<readonly [string, readonly Readonly<{ id: string; name: string; archived: boolean }>[]]> = [
     ['Actor', document.actors],
@@ -1283,7 +117,7 @@ function subjectOptions(document: CampaignDocument): SubjectOption[] {
     ['Quest', document.quests],
     ['Place', document.places],
     ['Ability', document.abilities ?? []],
-    ['World Object', document.worldObjects ?? []],
+    ['Scene Feature', document.worldObjects ?? []],
   ];
   return groups.flatMap(([kind, records]) => records.map(record => ({
     id: record.id,
@@ -1306,39 +140,11 @@ function CampaignWorkspaceContent() {
     : { phase: 'idle' });
   const [routeRetry, setRouteRetry] = useState(0);
   const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<WorkspaceFailure | null>(null);
   const [conflict, setConflict] = useState<RevisionConflict | null>(null);
   const [bindings, setBindings] = useState<readonly ChatBindingDocument[]>([]);
 
   const [campaignTitle, setCampaignTitle] = useState('');
-  const [actorName, setActorName] = useState('');
-  const [actorSummary, setActorSummary] = useState('');
-  const [itemName, setItemName] = useState('');
-  const [itemSummary, setItemSummary] = useState('');
-  const [itemOwnerActorId, setItemOwnerActorId] = useState('');
-  const [questName, setQuestName] = useState('');
-  const [questSummary, setQuestSummary] = useState('');
-  const [questStatus, setQuestStatus] = useState<CampaignQuestStatus>('active');
-  const [placeName, setPlaceName] = useState('');
-  const [placeSummary, setPlaceSummary] = useState('');
-  const [factName, setFactName] = useState('');
-  const [factSummary, setFactSummary] = useState('');
-  const [factSubjectId, setFactSubjectId] = useState('');
-  const [worldObjectName, setWorldObjectName] = useState('');
-  const [worldObjectSummary, setWorldObjectSummary] = useState('');
-  const [worldObjectPlaceId, setWorldObjectPlaceId] = useState('');
-  const [abilityName, setAbilityName] = useState('');
-  const [abilitySummary, setAbilitySummary] = useState('');
-  const [abilityCategory, setAbilityCategory] = useState<CampaignAbilityCategory>('spell');
-  const [abilityActorId, setAbilityActorId] = useState('');
-  const [abilityPrepared, setAbilityPrepared] = useState(false);
-  const [abilityEnabled, setAbilityEnabled] = useState(true);
-  const [abilityUsesRemaining, setAbilityUsesRemaining] = useState('');
-  const [abilityUsesMaximum, setAbilityUsesMaximum] = useState('');
-  const [joinedActorName, setJoinedActorName] = useState('');
-  const [joinedActorSummary, setJoinedActorSummary] = useState('');
-  const [joinedItemName, setJoinedItemName] = useState('');
-  const [joinedItemSummary, setJoinedItemSummary] = useState('');
 
   const selectedRevisionRef = useRef(0);
   const readOnly = route.revision !== null;
@@ -1386,7 +192,7 @@ function CampaignWorkspaceContent() {
   }, [fetchCampaignSnapshot, route.revision]);
 
   useEffect(() => {
-    loadCampaigns().catch(value => setError(value instanceof Error ? value.message : String(value)));
+    loadCampaigns().catch(value => setError(workspaceFailure(value)));
   }, [loadCampaigns]);
 
   useEffect(() => {
@@ -1401,7 +207,7 @@ function CampaignWorkspaceContent() {
     ).then(next => {
       if (!cancelled) setBindings(next);
     }).catch(value => {
-      if (!cancelled) setError(value instanceof Error ? value.message : String(value));
+      if (!cancelled) setError(workspaceFailure(value));
     });
     return () => { cancelled = true; };
   }, [route.campaignId]);
@@ -1429,11 +235,14 @@ function CampaignWorkspaceContent() {
       setConflict(null);
       if (route.revision === null) setRouteLoad({ phase: 'idle' });
     }).catch(value => {
-      if (!cancelled) setRouteLoad({
-        phase: 'error',
-        title: 'Campaign route unavailable',
-        message: value instanceof Error ? value.message : String(value),
-      });
+      if (!cancelled) {
+        const failure = workspaceFailure(value);
+        setRouteLoad({
+          phase: 'error',
+          title: failure.title,
+          message: `${failure.message} ${failure.recovery}`,
+        });
+      }
     });
     return () => { cancelled = true; };
   }, [fetchCampaignSnapshot, route.campaignId, route.revision, routeRetry, selected?.campaign.id]);
@@ -1456,11 +265,14 @@ function CampaignWorkspaceContent() {
         setRouteLoad({ phase: 'idle' });
       }
     }).catch(value => {
-      if (!cancelled) setRouteLoad({
-        phase: 'error',
-        title: 'Historical revision unavailable',
-        message: value instanceof Error ? value.message : String(value),
-      });
+      if (!cancelled) {
+        const failure = workspaceFailure(value);
+        setRouteLoad({
+          phase: 'error',
+          title: failure.title,
+          message: `${failure.message} ${failure.recovery}`,
+        });
+      }
     });
     return () => { cancelled = true; };
   }, [route.campaignId, route.revision, routeRetry, selected?.campaign.id]);
@@ -1522,14 +334,14 @@ function CampaignWorkspaceContent() {
 
   async function run(work: () => Promise<void>): Promise<void> {
     setBusy(true);
-    setError('');
+    setError(null);
     setMessage('');
     try {
       await work();
     } catch (value) {
       const isRevisionConflict = value instanceof ApiProblem
         && value.problem?.code === 'CAMPAIGN_REVISION_CONFLICT';
-      if (!isRevisionConflict) setError(value instanceof Error ? value.message : String(value));
+      if (!isRevisionConflict) setError(workspaceFailure(value));
     } finally {
       setBusy(false);
     }
@@ -1543,8 +355,8 @@ function CampaignWorkspaceContent() {
     setConflict(null);
     setPendingCanonical(null);
     setSyncState('live');
-    setError('');
-    setMessage(`Loaded canonical revision ${pendingCanonical.document.campaign.revision}.`);
+    setError(null);
+    setMessage(`Loaded saved revision ${pendingCanonical.document.campaign.revision}.`);
     if (route.revision === null) setHistorical(null);
   }
 
@@ -1573,7 +385,7 @@ function CampaignWorkspaceContent() {
       setPendingCanonical(null);
       setConflict(null);
       await loadCampaigns();
-      navigate({ campaignId: commit.campaignId, collection: 'actors', recordId: null, revision: null });
+      navigate({ campaignId: commit.campaignId, collection: 'home', recordId: null, revision: null });
       setMessage(`Campaign persisted at revision ${commit.revision}.`);
     });
   }
@@ -1610,151 +422,6 @@ function CampaignWorkspaceContent() {
     }
   }
 
-  async function createActor(event: FormEvent) {
-    event.preventDefault();
-    await run(async () => {
-      const commit = await executeOperation({ kind: 'create_actor', actor: { name: actorName, summary: actorSummary } });
-      setActorName('');
-      setActorSummary('');
-      navigateCollection('actors', commit.affectedIds[0] ?? null);
-    });
-  }
-
-  async function createItem(event: FormEvent) {
-    event.preventDefault();
-    await run(async () => {
-      const commit = await executeOperation({
-        kind: 'create_item',
-        item: {
-          name: itemName,
-          summary: itemSummary,
-          ...(itemOwnerActorId ? { ownerActorId: itemOwnerActorId } : {}),
-        },
-      });
-      setItemName('');
-      setItemSummary('');
-      setItemOwnerActorId('');
-      navigateCollection('items', commit.affectedIds[0] ?? null);
-    });
-  }
-
-  async function createQuest(event: FormEvent) {
-    event.preventDefault();
-    await run(async () => {
-      const commit = await executeOperation({
-        kind: 'create_quest',
-        quest: { name: questName, summary: questSummary, status: questStatus },
-      });
-      setQuestName('');
-      setQuestSummary('');
-      setQuestStatus('active');
-      navigateCollection('quests', commit.affectedIds[0] ?? null);
-    });
-  }
-
-  async function createPlace(event: FormEvent) {
-    event.preventDefault();
-    await run(async () => {
-      const commit = await executeOperation({
-        kind: 'create_place',
-        place: { name: placeName, summary: placeSummary },
-      });
-      setPlaceName('');
-      setPlaceSummary('');
-      navigateCollection('places', commit.affectedIds[0] ?? null);
-    });
-  }
-
-  async function createAbility(event: FormEvent) {
-    event.preventDefault();
-    const usesDraft: LearnedDraft = {
-      prepared: abilityPrepared,
-      enabled: abilityEnabled,
-      usesRemaining: abilityUsesRemaining,
-      usesMaximum: abilityUsesMaximum,
-    };
-    if (!validUses(usesDraft)) return;
-    await run(async () => {
-      const definition = { name: abilityName, summary: abilitySummary, category: abilityCategory };
-      const remaining = optionalUses(abilityUsesRemaining);
-      const maximum = optionalUses(abilityUsesMaximum);
-      const commit = abilityActorId
-        ? await executeOperation({
-          kind: 'create_ability_with_learning',
-          ability: definition,
-          learnedAbility: {
-            actorId: abilityActorId,
-            prepared: abilityPrepared,
-            enabled: abilityEnabled,
-            ...(remaining === undefined ? {} : { usesRemaining: remaining }),
-            ...(maximum === undefined ? {} : { usesMaximum: maximum }),
-          },
-        })
-        : await executeOperation({ kind: 'create_ability', ability: definition });
-      setAbilityName('');
-      setAbilitySummary('');
-      setAbilityCategory('spell');
-      setAbilityActorId('');
-      setAbilityPrepared(false);
-      setAbilityEnabled(true);
-      setAbilityUsesRemaining('');
-      setAbilityUsesMaximum('');
-      navigateCollection('abilities', commit.affectedIds[0] ?? null);
-    });
-  }
-
-  async function createFact(event: FormEvent) {
-    event.preventDefault();
-    await run(async () => {
-      const commit = await executeOperation({
-        kind: 'create_fact',
-        fact: {
-          name: factName,
-          summary: factSummary,
-          ...(factSubjectId ? { subjectId: factSubjectId } : {}),
-        },
-      });
-      setFactName('');
-      setFactSummary('');
-      setFactSubjectId('');
-      navigateCollection('facts', commit.affectedIds[0] ?? null);
-    });
-  }
-
-  async function createWorldObject(event: FormEvent) {
-    event.preventDefault();
-    await run(async () => {
-      const commit = await executeOperation({
-        kind: 'create_world_object',
-        worldObject: {
-          name: worldObjectName,
-          summary: worldObjectSummary,
-          ...(worldObjectPlaceId ? { placeId: worldObjectPlaceId } : {}),
-        },
-      });
-      setWorldObjectName('');
-      setWorldObjectSummary('');
-      setWorldObjectPlaceId('');
-      navigateCollection('world-objects', commit.affectedIds[0] ?? null);
-    });
-  }
-
-  async function createJoinedActorItem(event: FormEvent) {
-    event.preventDefault();
-    await run(async () => {
-      const commit = await executeOperation({
-        kind: 'create_actor_with_item',
-        actor: { name: joinedActorName, summary: joinedActorSummary },
-        item: { name: joinedItemName, summary: joinedItemSummary },
-      });
-      setJoinedActorName('');
-      setJoinedActorSummary('');
-      setJoinedItemName('');
-      setJoinedItemSummary('');
-      navigateCollection('items', commit.affectedIds[1] ?? null);
-    });
-  }
-
   const recordId = route.recordId;
   const actor = route.collection === 'actors' && recordId
     ? displayed?.actors.find(record => record.id === recordId) ?? null
@@ -1778,9 +445,8 @@ function CampaignWorkspaceContent() {
     ? (displayed?.worldObjects ?? []).find(record => record.id === recordId) ?? null
     : null;
   const availableSubjects = displayed ? subjectOptions(displayed) : [];
-  const activeActors = displayed?.actors.filter(record => !record.archived) ?? [];
   const retryRoute = () => {
-    setError('');
+    setError(null);
     setRouteRetry(value => value + 1);
   };
   const waitingForDisplayedRoute = Boolean(
@@ -1794,7 +460,7 @@ function CampaignWorkspaceContent() {
 
   async function openImportedCampaign(campaignId: string, binding: ChatBindingDocument) {
     await Promise.all([loadCampaigns(), openCampaign(campaignId), loadBindings(campaignId)]);
-    navigate({ campaignId, collection: 'actors', recordId: null, revision: null });
+    navigate({ campaignId, collection: 'home', recordId: null, revision: null });
     setMessage(binding.markerState === 'verified'
       ? 'Imported Campaign opened. The SillyTavern Chat Binding marker was verified.'
       : 'Imported Campaign opened. Its Chat Binding is blocked until the marker can be verified.');
@@ -1807,6 +473,14 @@ function CampaignWorkspaceContent() {
       saved = true;
     });
     return saved;
+  }
+
+  async function createDetailed(operation: CampaignOperation): Promise<CampaignCommit | null> {
+    let commit: CampaignCommit | null = null;
+    await run(async () => {
+      commit = await executeOperation(operation);
+    });
+    return commit;
   }
 
   async function retryBindingMarker(bindingId: string) {
@@ -1827,8 +501,8 @@ function CampaignWorkspaceContent() {
     <section className="authority-panel" aria-labelledby="campaign-authority">
       <div className="section-heading">
         <div>
-          <h2 id="campaign-authority">Campaign Workspace</h2>
-          <p>Routed Actors, Items, Abilities, Relationships, Quests, Facts, Places, World Objects, Scene, and immutable history backed by one SQLite authority.</p>
+          <h2 id="campaign-authority">Campaign Library</h2>
+          <p>Your cast, gear, abilities, relationships, quests, places, facts, scene features, current Scene, and accepted change history.</p>
         </div>
         {displayed ? (
           <div className="workspace-state">
@@ -1846,10 +520,10 @@ function CampaignWorkspaceContent() {
       {pendingCanonical && selected ? (
         <div className="canonical-update-banner" role="status">
           <div>
-            <strong>Canonical revision {pendingCanonical.document.campaign.revision} is ready.</strong>
-            <p>The companion refetched current truth after another view committed. Your visible draft was left untouched.</p>
+            <strong>Saved revision {pendingCanonical.document.campaign.revision} is ready.</strong>
+            <p>Another tab or device saved a change. Your visible draft was left untouched.</p>
           </div>
-          <button type="button" onClick={acceptCanonicalUpdate} disabled={busy}>Review canonical update</button>
+          <button type="button" onClick={acceptCanonicalUpdate} disabled={busy}>Load latest Campaign</button>
         </div>
       ) : null}
       {conflict && selected ? (
@@ -1865,12 +539,12 @@ function CampaignWorkspaceContent() {
           }}
           onStay={() => {
             setConflict(null);
-            setError('');
-            setMessage('Draft kept. Load canonical Campaign truth before trying to save it again.');
+            setError(null);
+            setMessage('Draft kept. Load the latest saved Campaign before trying to save it again.');
           }}
         />
       ) : null}
-      {error ? <p className="error-banner" role="alert">{error}</p> : null}
+      {error ? <WorkspaceProblemBanner failure={error} onDismiss={() => setError(null)} /> : null}
       {message ? <p className="success-banner" role="status">{message}</p> : null}
 
       <div className="authority-layout">
@@ -1878,7 +552,7 @@ function CampaignWorkspaceContent() {
           <form className="stack-form" onSubmit={createCampaign}>
             <label>
               <span>New Campaign title</span>
-              <input value={campaignTitle} onChange={event => setCampaignTitle(event.target.value)} disabled={busy} />
+              <input id="new-campaign-title" value={campaignTitle} onChange={event => setCampaignTitle(event.target.value)} disabled={busy} />
             </label>
             <button type="submit" disabled={busy || !campaignTitle.trim()}>Create Campaign</button>
           </form>
@@ -1887,7 +561,7 @@ function CampaignWorkspaceContent() {
             {campaigns.map(campaign => {
               const next: WorkspaceRoute = {
                 campaignId: campaign.id,
-                collection: 'actors',
+                collection: 'home',
                 recordId: null,
                 revision: null,
               };
@@ -1906,7 +580,7 @@ function CampaignWorkspaceContent() {
                 </a>
               );
             })}
-            {campaigns.length === 0 ? <p className="empty-state">No companion Campaigns yet.</p> : null}
+            {campaigns.length === 0 ? <div className="empty-state empty-state--action"><p>No Campaigns yet.</p><button type="button" className="button-secondary" onClick={() => document.getElementById('new-campaign-title')?.focus()}>Name your first Campaign</button></div> : null}
           </div>
         </aside>
 
@@ -1924,7 +598,7 @@ function CampaignWorkspaceContent() {
             <>
               <div className="campaign-title-row">
                 <div>
-                  <p className="eyebrow">{readOnly ? 'Immutable reconstruction' : 'SQLite authority'}</p>
+                  <p className="eyebrow">{readOnly ? 'Earlier read-only version' : 'Saved Campaign'}</p>
                   <h3>{displayed.campaign.title}</h3>
                 </div>
                 <button type="button" onClick={() => { void run(() => openCampaign(selected.campaign.id)); }} disabled={busy}>
@@ -1965,6 +639,14 @@ function CampaignWorkspaceContent() {
 
               {readOnly ? (
                 <p className="historical-note">Historical revision {route.revision} is read-only. Collection and record routes remain available for inspection.</p>
+              ) : null}
+
+              {route.collection === 'home' ? (
+                <SessionHome document={displayed} readOnly={readOnly} onNavigate={navigateCollection} />
+              ) : null}
+
+              {route.collection === 'guide' ? (
+                <PlayerGuide onNavigate={collection => navigateCollection(collection)} />
               ) : null}
 
               {route.collection === 'actors' ? (
@@ -2022,33 +704,7 @@ function CampaignWorkspaceContent() {
                     </>
                   ) : (
                     <>
-                      {!readOnly ? (
-                        <>
-                          <QuickCapture collection="actors" busy={busy} onCapture={quickCapture}>
-                          <form className="create-record-form" onSubmit={createActor}>
-                            <label><span>Actor name</span><input value={actorName} onChange={event => setActorName(event.target.value)} disabled={busy} /></label>
-                            <label><span>Summary</span><textarea rows={3} value={actorSummary} onChange={event => setActorSummary(event.target.value)} disabled={busy} /></label>
-                            <button type="submit" disabled={busy || !actorName.trim()}>Create Actor</button>
-                          </form>
-                          <details className="joined-create-panel">
-                            <summary>Create Actor with attached Item</summary>
-                            <form className="joined-create-form" onSubmit={createJoinedActorItem}>
-                              <fieldset>
-                                <legend>Actor</legend>
-                                <label><span>Name</span><input value={joinedActorName} onChange={event => setJoinedActorName(event.target.value)} disabled={busy} /></label>
-                                <label><span>Summary</span><textarea rows={3} value={joinedActorSummary} onChange={event => setJoinedActorSummary(event.target.value)} disabled={busy} /></label>
-                              </fieldset>
-                              <fieldset>
-                                <legend>Attached Item</legend>
-                                <label><span>Name</span><input value={joinedItemName} onChange={event => setJoinedItemName(event.target.value)} disabled={busy} /></label>
-                                <label><span>Summary</span><textarea rows={3} value={joinedItemSummary} onChange={event => setJoinedItemSummary(event.target.value)} disabled={busy} /></label>
-                              </fieldset>
-                              <button type="submit" disabled={busy || !joinedActorName.trim() || !joinedItemName.trim()}>Create both in one revision</button>
-                            </form>
-                          </details>
-                          </QuickCapture>
-                        </>
-                      ) : null}
+                      {!readOnly ? <CampaignCollectionCreator collection="actors" document={displayed} subjects={availableSubjects} busy={busy} onCapture={quickCapture} onCreate={createDetailed} onCreated={(collection, id) => navigateCollection(collection, id)} /> : null}
                       <CampaignRecordIndex collection="actors" records={displayed.actors} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
@@ -2080,24 +736,7 @@ function CampaignWorkspaceContent() {
                     </>
                   ) : (
                     <>
-                      {!readOnly ? (
-                        <>
-                          <QuickCapture collection="items" busy={busy} onCapture={quickCapture}>
-                          <form className="create-record-form" onSubmit={createItem}>
-                            <label><span>Item name</span><input value={itemName} onChange={event => setItemName(event.target.value)} disabled={busy} /></label>
-                            <label><span>Summary</span><textarea rows={3} value={itemSummary} onChange={event => setItemSummary(event.target.value)} disabled={busy} /></label>
-                            <label>
-                              <span>Carried by</span>
-                              <select value={itemOwnerActorId} onChange={event => setItemOwnerActorId(event.target.value)} disabled={busy}>
-                                <option value="">Unattached</option>
-                                {activeActors.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}
-                              </select>
-                            </label>
-                            <button type="submit" disabled={busy || !itemName.trim()}>Create Item with details</button>
-                          </form>
-                          </QuickCapture>
-                        </>
-                      ) : null}
+                      {!readOnly ? <CampaignCollectionCreator collection="items" document={displayed} subjects={availableSubjects} busy={busy} onCapture={quickCapture} onCreate={createDetailed} onCreated={(collection, id) => navigateCollection(collection, id)} /> : null}
                       <CampaignRecordIndex collection="items" records={displayed.items} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
@@ -2129,24 +768,7 @@ function CampaignWorkspaceContent() {
                     </>
                   ) : (
                     <>
-                      {!readOnly ? (
-                        <>
-                          <QuickCapture collection="quests" busy={busy} onCapture={quickCapture}>
-                          <form className="create-record-form" onSubmit={createQuest}>
-                            <label><span>Quest name</span><input value={questName} onChange={event => setQuestName(event.target.value)} disabled={busy} /></label>
-                            <label><span>Summary</span><textarea rows={3} value={questSummary} onChange={event => setQuestSummary(event.target.value)} disabled={busy} /></label>
-                            <label>
-                              <span>Status</span>
-                              <select value={questStatus} onChange={event => setQuestStatus(event.target.value as CampaignQuestStatus)} disabled={busy}>
-                                <option value="active">Active</option>
-                                <option value="completed">Completed</option>
-                              </select>
-                            </label>
-                            <button type="submit" disabled={busy || !questName.trim()}>Create Quest with details</button>
-                          </form>
-                          </QuickCapture>
-                        </>
-                      ) : null}
+                      {!readOnly ? <CampaignCollectionCreator collection="quests" document={displayed} subjects={availableSubjects} busy={busy} onCapture={quickCapture} onCreate={createDetailed} onCreated={(collection, id) => navigateCollection(collection, id)} /> : null}
                       <CampaignRecordIndex collection="quests" records={displayed.quests} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
@@ -2196,17 +818,7 @@ function CampaignWorkspaceContent() {
                     </>
                   ) : (
                     <>
-                      {!readOnly ? (
-                        <>
-                          <QuickCapture collection="places" busy={busy} onCapture={quickCapture}>
-                          <form className="create-record-form" onSubmit={createPlace}>
-                            <label><span>Place name</span><input value={placeName} onChange={event => setPlaceName(event.target.value)} disabled={busy} /></label>
-                            <label><span>Summary</span><textarea rows={4} value={placeSummary} onChange={event => setPlaceSummary(event.target.value)} disabled={busy} /></label>
-                            <button type="submit" disabled={busy || !placeName.trim()}>Create Place with details</button>
-                          </form>
-                          </QuickCapture>
-                        </>
-                      ) : null}
+                      {!readOnly ? <CampaignCollectionCreator collection="places" document={displayed} subjects={availableSubjects} busy={busy} onCapture={quickCapture} onCreate={createDetailed} onCreated={(collection, id) => navigateCollection(collection, id)} /> : null}
                       <CampaignRecordIndex collection="places" records={displayed.places} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
@@ -2222,16 +834,7 @@ function CampaignWorkspaceContent() {
                       onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))} />
                       : <p className="error-banner">Fact {recordId} does not exist in this revision.</p>}
                   </>) : (<>
-                    {!readOnly ? <>
-                      <QuickCapture collection="facts" busy={busy} onCapture={quickCapture}>
-                      <form className="create-record-form" onSubmit={createFact}>
-                        <label><span>Fact name</span><input value={factName} onChange={event => setFactName(event.target.value)} disabled={busy} /></label>
-                        <label><span>Statement</span><textarea rows={3} value={factSummary} onChange={event => setFactSummary(event.target.value)} disabled={busy} /></label>
-                        <label><span>About Record</span><select value={factSubjectId} onChange={event => setFactSubjectId(event.target.value)} disabled={busy}><option value="">Campaign-wide</option>{availableSubjects.filter(option => !option.archived).map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
-                        <button type="submit" disabled={busy || !factName.trim()}>Create Fact with details</button>
-                      </form>
-                      </QuickCapture>
-                    </> : null}
+                    {!readOnly ? <CampaignCollectionCreator collection="facts" document={displayed} subjects={availableSubjects} busy={busy} onCapture={quickCapture} onCreate={createDetailed} onCreated={(collection, id) => navigateCollection(collection, id)} /> : null}
                     <CampaignRecordIndex collection="facts" records={displayed.facts ?? []} document={displayed} route={route} onNavigate={navigate} />
                   </>)}
                 </section>
@@ -2239,7 +842,7 @@ function CampaignWorkspaceContent() {
 
               {route.collection === 'world-objects' ? (
                 <section className="collection-view" aria-labelledby="world-objects-heading">
-                  <div className="collection-heading"><div><h4 id="world-objects-heading">World Objects</h4><p>Persistent non-portable objects and features, with optional Place attachment.</p></div></div>
+                  <div className="collection-heading"><div><h4 id="world-objects-heading">Scene Features</h4><p>Persistent, non-portable parts of the world, optionally attached to a Place.</p></div></div>
                   {recordId ? (<><RecordRouteHeader route={route} onNavigate={navigate} />
                     {worldObject ? <>
                       <WorldRecordEditor key={worldObject.id} kind="world-object" record={worldObject} options={displayed.places.map(record => ({ id: record.id, label: record.name, archived: record.archived }))} busy={busy} readOnly={readOnly}
@@ -2249,18 +852,9 @@ function CampaignWorkspaceContent() {
                         onCreate={(name, summary, visibility) => run(() => executeOperation({ kind: 'create_fact', fact: { name, summary, visibility, subjectId: worldObject.id } }).then(() => undefined))}
                         onSave={(factId, draft) => run(() => executeOperation({ kind: 'update_fact', factId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, subjectId: draft.relationId || null }).then(() => undefined))}
                         onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))} />
-                    </> : <p className="error-banner">World Object {recordId} does not exist in this revision.</p>}
+                    </> : <p className="error-banner">Scene Feature {recordId} does not exist in this revision.</p>}
                   </>) : (<>
-                    {!readOnly ? <>
-                      <QuickCapture collection="world-objects" busy={busy} onCapture={quickCapture}>
-                      <form className="create-record-form" onSubmit={createWorldObject}>
-                        <label><span>World Object name</span><input value={worldObjectName} onChange={event => setWorldObjectName(event.target.value)} disabled={busy} /></label>
-                        <label><span>Description</span><textarea rows={3} value={worldObjectSummary} onChange={event => setWorldObjectSummary(event.target.value)} disabled={busy} /></label>
-                        <label><span>Place</span><select value={worldObjectPlaceId} onChange={event => setWorldObjectPlaceId(event.target.value)} disabled={busy}><option value="">No attached Place</option>{displayed.places.filter(record => !record.archived).map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
-                        <button type="submit" disabled={busy || !worldObjectName.trim()}>Create World Object with details</button>
-                      </form>
-                      </QuickCapture>
-                    </> : null}
+                    {!readOnly ? <CampaignCollectionCreator collection="world-objects" document={displayed} subjects={availableSubjects} busy={busy} onCapture={quickCapture} onCreate={createDetailed} onCreated={(collection, id) => navigateCollection(collection, id)} /> : null}
                     <CampaignRecordIndex collection="world-objects" records={displayed.worldObjects ?? []} document={displayed} route={route} onNavigate={navigate} />
                   </>)}
                 </section>
@@ -2319,28 +913,7 @@ function CampaignWorkspaceContent() {
                     </>
                   ) : (
                     <>
-                      {!readOnly ? (
-                        <>
-                          <QuickCapture collection="abilities" busy={busy} onCapture={quickCapture}>
-                          <form className="create-record-form ability-create-form" onSubmit={createAbility}>
-                            <label><span>Ability name</span><input value={abilityName} onChange={event => setAbilityName(event.target.value)} disabled={busy} /></label>
-                            <label><span>Summary</span><textarea rows={3} value={abilitySummary} onChange={event => setAbilitySummary(event.target.value)} disabled={busy} /></label>
-                            <label><span>Category</span><select value={abilityCategory} onChange={event => setAbilityCategory(event.target.value as CampaignAbilityCategory)} disabled={busy}><option value="spell">Spell</option><option value="skill">Skill</option><option value="feat">Feat</option><option value="other">Other</option></select></label>
-                            <fieldset className="ability-learning-create">
-                              <legend>Learn now (optional)</legend>
-                              <label><span>Actor</span><select value={abilityActorId} onChange={event => setAbilityActorId(event.target.value)} disabled={busy}><option value="">Definition only</option>{activeActors.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
-                              {abilityActorId ? <>
-                                <label className="check-row"><input type="checkbox" checked={abilityPrepared} onChange={event => setAbilityPrepared(event.target.checked)} disabled={busy} /><span>Prepared</span></label>
-                                <label className="check-row"><input type="checkbox" checked={abilityEnabled} onChange={event => setAbilityEnabled(event.target.checked)} disabled={busy} /><span>Enabled</span></label>
-                                <label><span>Uses left</span><input type="number" min="0" step="1" value={abilityUsesRemaining} onChange={event => setAbilityUsesRemaining(event.target.value)} disabled={busy} placeholder="Unlimited" /></label>
-                                <label><span>Maximum</span><input type="number" min="0" step="1" value={abilityUsesMaximum} onChange={event => setAbilityUsesMaximum(event.target.value)} disabled={busy} placeholder="Untracked" /></label>
-                              </> : null}
-                            </fieldset>
-                            <button type="submit" disabled={busy || !abilityName.trim() || !validUses({ prepared: abilityPrepared, enabled: abilityEnabled, usesRemaining: abilityUsesRemaining, usesMaximum: abilityUsesMaximum })}>Create Ability{abilityActorId ? ' and learn it' : ' with details'}</button>
-                          </form>
-                          </QuickCapture>
-                        </>
-                      ) : null}
+                      {!readOnly ? <CampaignCollectionCreator collection="abilities" document={displayed} subjects={availableSubjects} busy={busy} onCapture={quickCapture} onCreate={createDetailed} onCreated={(collection, id) => navigateCollection(collection, id)} /> : null}
                       <CampaignRecordIndex collection="abilities" records={displayed.abilities ?? []} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
@@ -2370,7 +943,7 @@ function CampaignWorkspaceContent() {
 
               {route.collection === 'scene' ? (
                 <section className="collection-view" aria-labelledby="scene-heading">
-                  <div className="collection-heading"><div><h4 id="scene-heading">Current Scene</h4><p>One canonical record for the Campaign’s present moment.</p></div></div>
+                  <div className="collection-heading"><div><h4 id="scene-heading">Current Scene</h4><p>The Campaign’s present place, cast, important objects, and situation.</p></div></div>
                   <SceneEditor
                     key={displayed.currentScene?.id ?? 'new-scene'}
                     scene={displayed.currentScene}
@@ -2428,13 +1001,13 @@ function CampaignWorkspaceContent() {
                   readOnly={readOnly}
                   onBindingChanged={binding => setBindings(current => current.map(candidate => candidate.id === binding.id ? binding : candidate))}
                   onStatus={setMessage}
-                  onError={setError}
+                  onError={value => setError(workspaceFailure(value))}
                 />
               ) : null}
 
               {route.collection === 'review' ? (
                 readOnly
-                  ? <p className="historical-note">Story Sync proposals belong to the current Campaign and are unavailable inside an immutable historical reconstruction.</p>
+                  ? <p className="historical-note">Suggested story updates belong to the current Campaign and are unavailable while viewing an earlier version.</p>
                   : <StorySyncReviewInbox campaign={displayed} />
               ) : null}
 
@@ -2454,7 +1027,7 @@ function CampaignWorkspaceContent() {
               ) : null}
             </>
           ) : (
-            <p className="empty-state">Create or open a Campaign to begin editing durable Campaign truth.</p>
+            <div className="empty-state empty-state--action"><p>Create or open a Campaign to start.</p><button type="button" className="button-secondary" onClick={() => document.getElementById('new-campaign-title')?.focus()}>Create a Campaign</button></div>
           )}
         </div>
       </div>

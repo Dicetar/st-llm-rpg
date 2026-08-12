@@ -30,7 +30,7 @@ function subjectLabel(document: CampaignDocument, subjectId: string): string {
     ['Quest', document.quests],
     ['Place', document.places],
     ['Ability', document.abilities ?? []],
-    ['World Object', document.worldObjects ?? []],
+    ['Scene Feature', document.worldObjects ?? []],
   ];
   for (const [kind, records] of groups) {
     const record = records.find(candidate => candidate.id === subjectId);
@@ -125,7 +125,14 @@ export function CampaignRecordIndex(props: Readonly<{
   return (
     <>
       {active.length > 0 ? renderRecords(active, activeLimit, () => setActiveLimit(value => value + RECORD_PAGE_SIZE)) : (
-        <p className="empty-state">No active {collectionLabel(props.collection).toLowerCase()} yet.</p>
+        <div className="empty-state empty-state--action">
+          <p>No active {collectionLabel(props.collection).toLowerCase()} yet.</p>
+          {props.route.revision === null ? (
+            <button type="button" className="button-secondary" onClick={() => {
+              document.getElementById(`quick-capture-${props.collection}`)?.focus();
+            }}>Add the first one</button>
+          ) : <span>Return to the current Campaign to add one.</span>}
+        </div>
       )}
       {archived.length > 0 ? (
         <details className="archive-panel">

@@ -46,9 +46,9 @@ type ContextRecordChoice = Readonly<{
 }>;
 
 function visibilityLabel(value: NarratorVisibility): string {
-  if (value === 'narrator_secret') return 'Narrator Secret';
-  if (value === 'campaign_private') return 'Campaign Private';
-  return 'Known';
+  if (value === 'narrator_secret') return 'Behind the scenes';
+  if (value === 'campaign_private') return 'Player notes';
+  return 'Story knowledge';
 }
 
 function bindingLabel(binding: ChatBindingDocument): string {
@@ -274,7 +274,7 @@ export function ContextTray(props: {
     <section className="context-tray" aria-labelledby="context-tray-heading">
       <div className="collection-heading">
         <div>
-          <h4 id="context-tray-heading">Context Tray</h4>
+          <h4 id="context-tray-heading">Narrator Context</h4>
           <p>Inspect exactly what Campaign truth a linked narration would receive before any model call.</p>
         </div>
       </div>
@@ -284,8 +284,8 @@ export function ContextTray(props: {
       ) : (
         <div className="context-tray__grid">
           <section className="context-card" aria-labelledby="context-authority-heading">
-            <p className="eyebrow">Pinned authority</p>
-            <h5 id="context-authority-heading">Chat Binding</h5>
+            <p className="eyebrow">Linked chat</p>
+            <h5 id="context-authority-heading">SillyTavern chat</h5>
             <label>
               <span>Linked chat</span>
               <select value={selectedBinding?.id ?? ''} onChange={event => setBindingId(event.target.value)} disabled={controlsBusy}>
@@ -446,7 +446,7 @@ export function ContextTray(props: {
             <summary>Rendered Known block</summary>
             <pre>{plan.blocks.known}</pre>
           </details>
-          {plan.blocks.secret ? <p className="context-secret-note">Narrator Secret material is isolated in a separate model-only block. Its contents are not repeated in this diagnostic.</p> : null}
+          {plan.blocks.secret ? <p className="context-secret-note">Behind-the-scenes material is isolated in a separate narrator-only block. Its contents are not repeated here.</p> : null}
         </section>
       ) : null}
     </section>
