@@ -227,7 +227,7 @@ test('stale revision conflict tells the player that no Campaign state was writte
   assert.match(html, /Stay on this draft/);
 });
 
-test('Command Deck exposes the common Campaign actions without leaving the current Campaign', () => {
+test('Quick Actions expose common Campaign actions without leaving the current Campaign', () => {
   const html = renderToStaticMarkup(<CampaignCommandDeck
     campaignId="campaign-1"
     revision={7}
@@ -237,7 +237,7 @@ test('Command Deck exposes the common Campaign actions without leaving the curre
     onNavigate={() => undefined}
   />);
 
-  assert.match(html, /Command Deck/);
+  assert.match(html, /Quick Actions/);
   assert.match(html, /Add Actor/);
   assert.match(html, /Add Item/);
   assert.match(html, /Add Ability/);

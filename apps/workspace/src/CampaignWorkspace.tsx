@@ -34,15 +34,21 @@ import LegacyImportPanel, { ChatBindingsPanel } from './LegacyImportPanel.js';
 import { ContextTray } from './ContextTray.js';
 import { createUuid } from './browser-uuid.js';
 import { StorySyncReviewInbox } from './StorySyncReviewInbox.js';
+import { CampaignRecordIndex, RecordRouteHeader } from './CampaignRecordIndex.js';
+import { CampaignSearch } from './CampaignSearch.js';
+import { QuickCapture } from './QuickCapture.js';
+import {
+  collectionLabel,
+  type CollectionKey,
+  parseWorkspacePath,
+  type WorkspaceRoute,
+  WorkspaceNavigationProvider,
+  useWorkspaceDirtyDraft,
+  useWorkspaceNavigation,
+  workspaceHref,
+} from './workspace-navigation.js';
 
-export type CollectionKey = 'actors' | 'items' | 'quests' | 'places' | 'facts' | 'world-objects' | 'abilities' | 'relationships' | 'scene' | 'review' | 'context' | 'history';
-
-type WorkspaceRoute = Readonly<{
-  campaignId: string | null;
-  collection: CollectionKey;
-  recordId: string | null;
-  revision: number | null;
-}>;
+export { parseWorkspacePath } from './workspace-navigation.js';
 
 type RevisionConflict = Readonly<{
   campaignId: string;
@@ -69,28 +75,6 @@ type EditorDraft = Readonly<{
   category: CampaignAbilityCategory;
 }>;
 
-type CommonRecord = Readonly<{
-  id: string;
-  name: string;
-  summary: string;
-  archived: boolean;
-}>;
-
-const COLLECTION_KEYS: readonly CollectionKey[] = [
-  'actors',
-  'items',
-  'quests',
-  'places',
-  'facts',
-  'world-objects',
-  'abilities',
-  'relationships',
-  'scene',
-  'review',
-  'context',
-  'history',
-];
-
 class ApiProblem extends Error {
   readonly problem: Problem | null;
 
@@ -99,66 +83,6 @@ class ApiProblem extends Error {
     this.name = 'ApiProblem';
     this.problem = problem;
   }
-}
-
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function isCollectionKey(value: string | undefined): value is CollectionKey {
-  return value !== undefined && COLLECTION_KEYS.includes(value as CollectionKey);
-}
-
-export function parseWorkspacePath(pathname: string, search = ''): WorkspaceRoute {
-  const parts = pathname.split('/').filter(Boolean).map(safeDecode);
-  const campaignId = parts[0] === 'campaigns' && parts[1] ? parts[1] : null;
-  const collection = isCollectionKey(parts[2]) ? parts[2] : 'actors';
-  const recordId = campaignId && parts[3] ? parts[3] : null;
-  const revisionValue = new URLSearchParams(search).get('revision');
-  const parsedRevision = revisionValue === null ? null : Number(revisionValue);
-  const revision = parsedRevision !== null && Number.isInteger(parsedRevision) && parsedRevision >= 1
-    ? parsedRevision
-    : null;
-  return { campaignId, collection, recordId, revision };
-}
-
-function workspaceHref(route: WorkspaceRoute): string {
-  if (!route.campaignId) return '/';
-  const parts = [
-    'campaigns',
-    encodeURIComponent(route.campaignId),
-    route.collection,
-    ...(route.recordId ? [encodeURIComponent(route.recordId)] : []),
-  ];
-  const query = route.revision === null ? '' : `?revision=${route.revision}`;
-  return `/${parts.join('/')}${query}`;
-}
-
-function currentWorkspaceRoute(): WorkspaceRoute {
-  return parseWorkspacePath(window.location.pathname, window.location.search);
-}
-
-function useWorkspaceRoute(): readonly [WorkspaceRoute, (route: WorkspaceRoute, replace?: boolean) => void] {
-  const [route, setRoute] = useState<WorkspaceRoute>(currentWorkspaceRoute);
-
-  useEffect(() => {
-    const onPopState = () => setRoute(currentWorkspaceRoute());
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, []);
-
-  const navigate = useCallback((next: WorkspaceRoute, replace = false) => {
-    const href = workspaceHref(next);
-    if (replace) window.history.replaceState(null, '', href);
-    else window.history.pushState(null, '', href);
-    setRoute(next);
-  }, []);
-
-  return [route, navigate] as const;
 }
 
 async function fetchJson<T>(path: string, signal?: AbortSignal, init: RequestInit = {}): Promise<T> {
@@ -208,20 +132,6 @@ function sameDraft(left: EditorDraft, right: EditorDraft): boolean {
     && left.ownerActorId === right.ownerActorId
     && left.status === right.status
     && left.category === right.category;
-}
-
-function collectionLabel(collection: CollectionKey): string {
-  if (collection === 'actors') return 'Actors';
-  if (collection === 'items') return 'Items';
-  if (collection === 'quests') return 'Quests';
-  if (collection === 'places') return 'Places';
-  if (collection === 'facts') return 'Facts';
-  if (collection === 'world-objects') return 'World Objects';
-  if (collection === 'abilities') return 'Abilities';
-  if (collection === 'relationships') return 'Relationships';
-  if (collection === 'scene') return 'Current Scene';
-  if (collection === 'context') return 'Context Tray';
-  return 'History';
 }
 
 export function RevisionConflictBanner(props: {
@@ -318,7 +228,7 @@ export function CampaignCommandDeck(props: {
       <div className="command-deck__heading">
         <div>
           <p className="eyebrow">Next move</p>
-          <h4 id="command-deck-heading">Command Deck</h4>
+          <h4 id="command-deck-heading">Quick Actions</h4>
         </div>
         <span>Revision {props.revision}</span>
       </div>
@@ -502,6 +412,7 @@ export function RecordEditor(props: RecordEditorProps) {
   const aliasesKey = (props.record.aliases ?? []).join('\u0000');
   const visibility = props.record.visibility ?? 'known';
   const dirty = !sameDraft(draft, baseline);
+  useWorkspaceDirtyDraft(`record:${props.kind}:${props.record.id}`, dirty && !props.readOnly);
 
   useEffect(() => {
     const next = canonicalDraft(props);
@@ -707,6 +618,7 @@ export function WorldRecordEditor(props: Readonly<{
     if (!dirty) setDraft(next);
   }, [props.kind, props.record.id, props.record.name, props.record.summary, aliasesKey, props.record.visibility, props.record.archived, relationId]);
   const dirty = !sameWorldRecordDraft(draft, baseline);
+  useWorkspaceDirtyDraft(`record:${props.kind}:${props.record.id}`, dirty && !props.readOnly);
   const label = props.kind === 'fact' ? 'Fact' : 'World Object';
   const relationLabel = props.kind === 'fact' ? 'About Record' : 'Place';
   return (
@@ -749,6 +661,10 @@ export function LinkedFactsPanel(props: Readonly<{
   const [summary, setSummary] = useState('');
   const [visibility, setVisibility] = useState<NarratorVisibility>('known');
   const linked = props.facts.filter(fact => fact.subjectId === props.subjectId);
+  useWorkspaceDirtyDraft(
+    `create:fact:${props.subjectId}`,
+    !props.readOnly && Boolean(name.trim() || summary.trim() || visibility !== 'known'),
+  );
   return <section className="linked-records"><div className="collection-heading"><div><h4>Facts about {props.subjectLabel}</h4><p>Add and edit durable truths here, without leaving this Record.</p></div></div>
     {!props.readOnly ? <form className="create-record-form create-record-form--inline" onSubmit={event => { event.preventDefault(); void props.onCreate(name, summary, visibility).then(() => { setName(''); setSummary(''); setVisibility('known'); }); }}><label><span>Fact name</span><input value={name} onChange={event => setName(event.target.value)} disabled={props.busy} /></label><label><span>Statement</span><textarea rows={2} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy} /></label><label><span>Visibility</span><select value={visibility} onChange={event => setVisibility(event.target.value as NarratorVisibility)} disabled={props.busy}><option value="known">Known</option><option value="narrator_secret">Narrator Secret</option><option value="campaign_private">Campaign Private</option></select></label><button type="submit" disabled={props.busy || !name.trim()}>+ Add Fact</button></form> : null}
     {linked.length === 0 ? <p className="empty-state">No attached Facts yet.</p> : linked.map(fact => <WorldRecordEditor key={fact.id} kind="fact" record={fact} options={props.options} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
@@ -770,6 +686,10 @@ export function PlaceWorldObjectsPanel(props: Readonly<{
   const [summary, setSummary] = useState('');
   const linked = props.worldObjects.filter(record => record.placeId === props.placeId);
   const options = props.places.map(record => ({ id: record.id, label: record.name, archived: record.archived }));
+  useWorkspaceDirtyDraft(
+    `create:world-object:${props.placeId}`,
+    !props.readOnly && Boolean(name.trim() || summary.trim()),
+  );
   return <section className="linked-records"><div className="collection-heading"><div><h4>World Objects in {props.placeLabel}</h4><p>Persistent non-portable features. Add and edit them beside their Place.</p></div></div>
     {!props.readOnly ? <form className="create-record-form create-record-form--inline" onSubmit={event => { event.preventDefault(); void props.onCreate(name, summary).then(() => { setName(''); setSummary(''); }); }}><label><span>World Object name</span><input value={name} onChange={event => setName(event.target.value)} disabled={props.busy} /></label><label><span>Description</span><textarea rows={2} value={summary} onChange={event => setSummary(event.target.value)} disabled={props.busy} /></label><button type="submit" disabled={props.busy || !name.trim()}>+ Add World Object</button></form> : null}
     {linked.length === 0 ? <p className="empty-state">No World Objects attached yet.</p> : linked.map(record => <WorldRecordEditor key={record.id} kind="world-object" record={record} options={options} busy={props.busy} readOnly={props.readOnly} onSave={props.onSave} onArchive={props.onArchive} />)}
@@ -841,6 +761,7 @@ function LearnedAbilityRow(props: {
     if (!dirty) setDraft(next);
   }, [props.record.id, props.record.prepared, props.record.enabled, props.record.usesRemaining, props.record.usesMaximum, props.record.archived]);
   const dirty = !sameLearnedDraft(draft, baseline);
+  useWorkspaceDirtyDraft(`learned-ability:${props.record.id}`, dirty && !props.readOnly);
   return (
     <form className={props.record.archived ? 'learned-ability-row learned-ability-row--archived' : 'learned-ability-row'} onSubmit={event => {
       event.preventDefault();
@@ -878,6 +799,10 @@ export function LearnedAbilitiesPanel(props: {
   const linkedActorIds = new Set(props.learned.filter(record => !record.archived).map(record => record.actorId));
   const availableActors = props.actors.filter(actor => !actor.archived && !linkedActorIds.has(actor.id));
   const linkedKey = [...linkedActorIds].sort().join('\u0000');
+  useWorkspaceDirtyDraft(
+    `create:learned-ability:${props.ability.id}`,
+    !props.readOnly && Boolean(actorId || draft.prepared || !draft.enabled || draft.usesRemaining.trim() || draft.usesMaximum.trim()),
+  );
   useEffect(() => {
     if (actorId && linkedActorIds.has(actorId)) {
       setActorId('');
@@ -962,6 +887,7 @@ function RelationshipRow(props: {
     if (!dirty) setDraft(next);
   }, [props.record.id, props.record.sourceActorId, props.record.targetActorId, props.record.kind, props.record.status, props.record.notes, props.record.visibility, props.record.archived]);
   const dirty = !sameRelationshipDraft(draft, baseline);
+  useWorkspaceDirtyDraft(`relationship:${props.record.id}`, dirty && !props.readOnly);
   const selectableActors = props.actors.filter(actor => !actor.archived || actor.id === draft.sourceActorId || actor.id === draft.targetActorId);
   return (
     <form className={props.record.archived ? 'relationship-row relationship-row--archived' : 'relationship-row'} onSubmit={event => {
@@ -1004,6 +930,17 @@ export function RelationshipsPanel(props: {
   const [visibility, setVisibility] = useState<NarratorVisibility>('known');
   const pendingCreate = useRef<RelationshipDraft | null>(null);
   const relationshipKey = props.relationships.map(record => `${record.id}:${record.archived}`).join('\u0000');
+  useWorkspaceDirtyDraft(
+    `create:relationship:${props.focusActorId ?? 'all'}`,
+    !props.readOnly && Boolean(
+      targetActorId
+      || relationshipKind.trim()
+      || notes.trim()
+      || status !== 'active'
+      || visibility !== 'known'
+      || (!props.focusActorId && sourceActorId !== defaultSource),
+    ),
+  );
   useEffect(() => {
     const pending = pendingCreate.current;
     if (!pending || !props.relationships.some(record => !record.archived
@@ -1104,6 +1041,7 @@ export function SceneEditor(props: {
   const actorIdsKey = (props.scene?.actorIds ?? []).join('\u0000');
   const itemIdsKey = (props.scene?.itemIds ?? []).join('\u0000');
   const worldObjectIdsKey = (props.scene?.worldObjectIds ?? []).join('\u0000');
+  useWorkspaceDirtyDraft(`scene:${props.scene?.id ?? 'new'}`, dirty && !props.readOnly);
 
   useEffect(() => {
     const next = sceneDraft(props.scene);
@@ -1216,6 +1154,18 @@ function advanceSceneDraft(scene: CampaignScene): AdvanceSceneDraft {
   };
 }
 
+function sameAdvanceSceneDraft(left: AdvanceSceneDraft, right: AdvanceSceneDraft): boolean {
+  return left.closingSummary.trim() === right.closingSummary.trim()
+    && left.outcomes.map(value => value.trim()).join('\u0000') === right.outcomes.map(value => value.trim()).join('\u0000')
+    && left.openThreads.map(value => value.trim()).join('\u0000') === right.openThreads.map(value => value.trim()).join('\u0000')
+    && left.nextName.trim() === right.nextName.trim()
+    && left.nextSummary.trim() === right.nextSummary.trim()
+    && left.nextPlaceId === right.nextPlaceId
+    && left.actorIds.join('\u0000') === right.actorIds.join('\u0000')
+    && left.itemIds.join('\u0000') === right.itemIds.join('\u0000')
+    && left.worldObjectIds.join('\u0000') === right.worldObjectIds.join('\u0000');
+}
+
 function SceneNoteRows(props: {
   label: string;
   values: readonly string[];
@@ -1260,6 +1210,8 @@ export function AdvanceScenePanel(props: {
     };
   };
   const [draft, setDraft] = useState(availableDraft);
+  const baseline = availableDraft();
+  useWorkspaceDirtyDraft(`advance-scene:${props.scene.id}`, !sameAdvanceSceneDraft(draft, baseline));
   useEffect(() => setDraft(availableDraft()), [props.scene.id]);
   const toggle = (field: 'actorIds' | 'itemIds' | 'worldObjectIds', id: string) => setDraft(previous => ({
     ...previous,
@@ -1324,41 +1276,8 @@ export function SceneArchiveList(props: { archives: readonly CampaignSceneArchiv
   );
 }
 
-function recordMeta(
-  collection: Exclude<CollectionKey, 'scene' | 'history'>,
-  record: CommonRecord,
-  document: CampaignDocument,
-): string {
-  if (collection === 'items') {
-    const item = record as CampaignItem;
-    const owner = item.ownerActorId
-      ? document.actors.find(actor => actor.id === item.ownerActorId)?.name ?? 'Unknown Actor'
-      : 'Unattached';
-    return owner;
-  }
-  if (collection === 'quests') {
-    return (record as CampaignQuest).status === 'completed' ? 'Completed' : 'Active';
-  }
-  if (collection === 'abilities') {
-    const ability = record as CampaignAbility;
-    const learnedCount = (document.learnedAbilities ?? []).filter(entry => entry.abilityId === ability.id && !entry.archived).length;
-    return `${ability.category} · ${learnedCount} Actor${learnedCount === 1 ? '' : 's'}`;
-  }
-  if (collection === 'facts') {
-    const fact = record as CampaignFact;
-    return fact.subjectId ? subjectOptions(document).find(option => option.id === fact.subjectId)?.label ?? 'Unknown Record' : 'Campaign-wide';
-  }
-  if (collection === 'world-objects') {
-    const worldObject = record as CampaignWorldObject;
-    return worldObject.placeId
-      ? document.places.find(place => place.id === worldObject.placeId)?.name ?? 'Unknown Place'
-      : 'No Place';
-  }
-  return record.archived ? 'Archived' : 'Active';
-}
-
 function subjectOptions(document: CampaignDocument): SubjectOption[] {
-  const groups: ReadonlyArray<readonly [string, readonly CommonRecord[]]> = [
+  const groups: ReadonlyArray<readonly [string, readonly Readonly<{ id: string; name: string; archived: boolean }>[]]> = [
     ['Actor', document.actors],
     ['Item', document.items],
     ['Quest', document.quests],
@@ -1373,76 +1292,8 @@ function subjectOptions(document: CampaignDocument): SubjectOption[] {
   }))).sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
 }
 
-function RecordIndex(props: {
-  collection: Exclude<CollectionKey, 'scene' | 'history'>;
-  records: readonly CommonRecord[];
-  document: CampaignDocument;
-  route: WorkspaceRoute;
-  onNavigate: (route: WorkspaceRoute) => void;
-}) {
-  const active = props.records.filter(record => !record.archived);
-  const archived = props.records.filter(record => record.archived);
-  const renderRecords = (records: readonly CommonRecord[]) => (
-    <div className="record-index">
-      {records.map(record => {
-        const next: WorkspaceRoute = { ...props.route, recordId: record.id };
-        return (
-          <a
-            href={workspaceHref(next)}
-            className="record-index-card"
-            key={record.id}
-            onClick={event => {
-              event.preventDefault();
-              props.onNavigate(next);
-            }}
-          >
-            <div>
-              <strong>{record.name}</strong>
-              <span>{recordMeta(props.collection, record, props.document)}</span>
-            </div>
-            <p>{record.summary || 'No summary yet.'}</p>
-          </a>
-        );
-      })}
-    </div>
-  );
-
-  return (
-    <>
-      {active.length > 0 ? renderRecords(active) : <p className="empty-state">No active {collectionLabel(props.collection).toLowerCase()} in this revision.</p>}
-      {archived.length > 0 ? (
-        <details className="archive-panel">
-          <summary>Archived {collectionLabel(props.collection)} ({archived.length})</summary>
-          {renderRecords(archived)}
-        </details>
-      ) : null}
-    </>
-  );
-}
-
-function RecordRouteHeader(props: {
-  route: WorkspaceRoute;
-  onNavigate: (route: WorkspaceRoute) => void;
-}) {
-  const next = { ...props.route, recordId: null };
-  return (
-    <div className="record-route-header">
-      <a
-        href={workspaceHref(next)}
-        className="route-back"
-        onClick={event => {
-          event.preventDefault();
-          props.onNavigate(next);
-        }}
-      >
-        ← Back to {collectionLabel(props.route.collection)}
-      </a>
-    </div>
-  );
-}
-
-export default function CampaignWorkspace() {
-  const [route, navigate] = useWorkspaceRoute();
+function CampaignWorkspaceContent() {
+  const { route, navigate } = useWorkspaceNavigation();
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
   const [selected, setSelected] = useState<CampaignDocument | null>(null);
   const [historical, setHistorical] = useState<CampaignDocument | null>(null);
@@ -1669,7 +1520,7 @@ export default function CampaignWorkspace() {
     };
   }, [fetchCampaignSnapshot, selected?.campaign.id, selected?.campaign.revision]);
 
-  async function run(work: () => Promise<void>) {
+  async function run(work: () => Promise<void>): Promise<void> {
     setBusy(true);
     setError('');
     setMessage('');
@@ -1949,6 +1800,15 @@ export default function CampaignWorkspace() {
       : 'Imported Campaign opened. Its Chat Binding is blocked until the marker can be verified.');
   }
 
+  async function quickCapture(operation: CampaignOperation): Promise<boolean> {
+    let saved = false;
+    await run(async () => {
+      await executeOperation(operation);
+      saved = true;
+    });
+    return saved;
+  }
+
   async function retryBindingMarker(bindingId: string) {
     await run(async () => {
       const binding = await fetchJson<ChatBindingDocument>(
@@ -2081,6 +1941,12 @@ export default function CampaignWorkspace() {
                 onNavigate={navigateCollection}
               />
 
+              <CampaignSearch
+                document={displayed}
+                route={route}
+                onNavigate={navigate}
+              />
+
               {!readOnly ? (
                 <ChatBindingsPanel
                   bindings={bindings}
@@ -2115,6 +1981,7 @@ export default function CampaignWorkspace() {
                       {actor ? (
                         <>
                           <RecordEditor
+                            key={actor.id}
                             kind="actor"
                             record={actor}
                             actors={displayed.actors}
@@ -2157,6 +2024,7 @@ export default function CampaignWorkspace() {
                     <>
                       {!readOnly ? (
                         <>
+                          <QuickCapture collection="actors" busy={busy} onCapture={quickCapture}>
                           <form className="create-record-form" onSubmit={createActor}>
                             <label><span>Actor name</span><input value={actorName} onChange={event => setActorName(event.target.value)} disabled={busy} /></label>
                             <label><span>Summary</span><textarea rows={3} value={actorSummary} onChange={event => setActorSummary(event.target.value)} disabled={busy} /></label>
@@ -2178,9 +2046,10 @@ export default function CampaignWorkspace() {
                               <button type="submit" disabled={busy || !joinedActorName.trim() || !joinedItemName.trim()}>Create both in one revision</button>
                             </form>
                           </details>
+                          </QuickCapture>
                         </>
                       ) : null}
-                      <RecordIndex collection="actors" records={displayed.actors} document={displayed} route={route} onNavigate={navigate} />
+                      <CampaignRecordIndex collection="actors" records={displayed.actors} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
                 </section>
@@ -2194,6 +2063,7 @@ export default function CampaignWorkspace() {
                       <RecordRouteHeader route={route} onNavigate={navigate} />
                       {item ? (<>
                         <RecordEditor
+                          key={item.id}
                           kind="item"
                           record={item}
                           actors={displayed.actors}
@@ -2211,20 +2081,24 @@ export default function CampaignWorkspace() {
                   ) : (
                     <>
                       {!readOnly ? (
-                        <form className="create-record-form" onSubmit={createItem}>
-                          <label><span>Item name</span><input value={itemName} onChange={event => setItemName(event.target.value)} disabled={busy} /></label>
-                          <label><span>Summary</span><textarea rows={3} value={itemSummary} onChange={event => setItemSummary(event.target.value)} disabled={busy} /></label>
-                          <label>
-                            <span>Attach to Actor</span>
-                            <select value={itemOwnerActorId} onChange={event => setItemOwnerActorId(event.target.value)} disabled={busy}>
-                              <option value="">Unattached</option>
-                              {activeActors.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}
-                            </select>
-                          </label>
-                          <button type="submit" disabled={busy || !itemName.trim()}>Create Item</button>
-                        </form>
+                        <>
+                          <QuickCapture collection="items" busy={busy} onCapture={quickCapture}>
+                          <form className="create-record-form" onSubmit={createItem}>
+                            <label><span>Item name</span><input value={itemName} onChange={event => setItemName(event.target.value)} disabled={busy} /></label>
+                            <label><span>Summary</span><textarea rows={3} value={itemSummary} onChange={event => setItemSummary(event.target.value)} disabled={busy} /></label>
+                            <label>
+                              <span>Carried by</span>
+                              <select value={itemOwnerActorId} onChange={event => setItemOwnerActorId(event.target.value)} disabled={busy}>
+                                <option value="">Unattached</option>
+                                {activeActors.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}
+                              </select>
+                            </label>
+                            <button type="submit" disabled={busy || !itemName.trim()}>Create Item with details</button>
+                          </form>
+                          </QuickCapture>
+                        </>
                       ) : null}
-                      <RecordIndex collection="items" records={displayed.items} document={displayed} route={route} onNavigate={navigate} />
+                      <CampaignRecordIndex collection="items" records={displayed.items} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
                 </section>
@@ -2238,6 +2112,7 @@ export default function CampaignWorkspace() {
                       <RecordRouteHeader route={route} onNavigate={navigate} />
                       {quest ? (<>
                         <RecordEditor
+                          key={quest.id}
                           kind="quest"
                           record={quest}
                           actors={displayed.actors}
@@ -2255,20 +2130,24 @@ export default function CampaignWorkspace() {
                   ) : (
                     <>
                       {!readOnly ? (
-                        <form className="create-record-form" onSubmit={createQuest}>
-                          <label><span>Quest name</span><input value={questName} onChange={event => setQuestName(event.target.value)} disabled={busy} /></label>
-                          <label><span>Summary</span><textarea rows={3} value={questSummary} onChange={event => setQuestSummary(event.target.value)} disabled={busy} /></label>
-                          <label>
-                            <span>Status</span>
-                            <select value={questStatus} onChange={event => setQuestStatus(event.target.value as CampaignQuestStatus)} disabled={busy}>
-                              <option value="active">Active</option>
-                              <option value="completed">Completed</option>
-                            </select>
-                          </label>
-                          <button type="submit" disabled={busy || !questName.trim()}>Create Quest</button>
-                        </form>
+                        <>
+                          <QuickCapture collection="quests" busy={busy} onCapture={quickCapture}>
+                          <form className="create-record-form" onSubmit={createQuest}>
+                            <label><span>Quest name</span><input value={questName} onChange={event => setQuestName(event.target.value)} disabled={busy} /></label>
+                            <label><span>Summary</span><textarea rows={3} value={questSummary} onChange={event => setQuestSummary(event.target.value)} disabled={busy} /></label>
+                            <label>
+                              <span>Status</span>
+                              <select value={questStatus} onChange={event => setQuestStatus(event.target.value as CampaignQuestStatus)} disabled={busy}>
+                                <option value="active">Active</option>
+                                <option value="completed">Completed</option>
+                              </select>
+                            </label>
+                            <button type="submit" disabled={busy || !questName.trim()}>Create Quest with details</button>
+                          </form>
+                          </QuickCapture>
+                        </>
                       ) : null}
-                      <RecordIndex collection="quests" records={displayed.quests} document={displayed} route={route} onNavigate={navigate} />
+                      <CampaignRecordIndex collection="quests" records={displayed.quests} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
                 </section>
@@ -2282,6 +2161,7 @@ export default function CampaignWorkspace() {
                       <RecordRouteHeader route={route} onNavigate={navigate} />
                       {place ? (<>
                         <RecordEditor
+                          key={place.id}
                           kind="place"
                           record={place}
                           actors={displayed.actors}
@@ -2317,13 +2197,17 @@ export default function CampaignWorkspace() {
                   ) : (
                     <>
                       {!readOnly ? (
-                        <form className="create-record-form" onSubmit={createPlace}>
-                          <label><span>Place name</span><input value={placeName} onChange={event => setPlaceName(event.target.value)} disabled={busy} /></label>
-                          <label><span>Summary</span><textarea rows={4} value={placeSummary} onChange={event => setPlaceSummary(event.target.value)} disabled={busy} /></label>
-                          <button type="submit" disabled={busy || !placeName.trim()}>Create Place</button>
-                        </form>
+                        <>
+                          <QuickCapture collection="places" busy={busy} onCapture={quickCapture}>
+                          <form className="create-record-form" onSubmit={createPlace}>
+                            <label><span>Place name</span><input value={placeName} onChange={event => setPlaceName(event.target.value)} disabled={busy} /></label>
+                            <label><span>Summary</span><textarea rows={4} value={placeSummary} onChange={event => setPlaceSummary(event.target.value)} disabled={busy} /></label>
+                            <button type="submit" disabled={busy || !placeName.trim()}>Create Place with details</button>
+                          </form>
+                          </QuickCapture>
+                        </>
                       ) : null}
-                      <RecordIndex collection="places" records={displayed.places} document={displayed} route={route} onNavigate={navigate} />
+                      <CampaignRecordIndex collection="places" records={displayed.places} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
                 </section>
@@ -2333,18 +2217,22 @@ export default function CampaignWorkspace() {
                 <section className="collection-view" aria-labelledby="facts-heading">
                   <div className="collection-heading"><div><h4 id="facts-heading">Facts</h4><p>Durable Campaign truths, optionally attached to a specific Record.</p></div></div>
                   {recordId ? (<><RecordRouteHeader route={route} onNavigate={navigate} />
-                    {fact ? <WorldRecordEditor kind="fact" record={fact} options={availableSubjects} busy={busy} readOnly={readOnly}
+                    {fact ? <WorldRecordEditor key={fact.id} kind="fact" record={fact} options={availableSubjects} busy={busy} readOnly={readOnly}
                       onSave={(factId, draft) => run(() => executeOperation({ kind: 'update_fact', factId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, subjectId: draft.relationId || null }).then(() => undefined))}
                       onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))} />
                       : <p className="error-banner">Fact {recordId} does not exist in this revision.</p>}
                   </>) : (<>
-                    {!readOnly ? <form className="create-record-form" onSubmit={createFact}>
-                      <label><span>Fact name</span><input value={factName} onChange={event => setFactName(event.target.value)} disabled={busy} /></label>
-                      <label><span>Statement</span><textarea rows={3} value={factSummary} onChange={event => setFactSummary(event.target.value)} disabled={busy} /></label>
-                      <label><span>About Record</span><select value={factSubjectId} onChange={event => setFactSubjectId(event.target.value)} disabled={busy}><option value="">Campaign-wide</option>{availableSubjects.filter(option => !option.archived).map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
-                      <button type="submit" disabled={busy || !factName.trim()}>Create Fact</button>
-                    </form> : null}
-                    <RecordIndex collection="facts" records={displayed.facts ?? []} document={displayed} route={route} onNavigate={navigate} />
+                    {!readOnly ? <>
+                      <QuickCapture collection="facts" busy={busy} onCapture={quickCapture}>
+                      <form className="create-record-form" onSubmit={createFact}>
+                        <label><span>Fact name</span><input value={factName} onChange={event => setFactName(event.target.value)} disabled={busy} /></label>
+                        <label><span>Statement</span><textarea rows={3} value={factSummary} onChange={event => setFactSummary(event.target.value)} disabled={busy} /></label>
+                        <label><span>About Record</span><select value={factSubjectId} onChange={event => setFactSubjectId(event.target.value)} disabled={busy}><option value="">Campaign-wide</option>{availableSubjects.filter(option => !option.archived).map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+                        <button type="submit" disabled={busy || !factName.trim()}>Create Fact with details</button>
+                      </form>
+                      </QuickCapture>
+                    </> : null}
+                    <CampaignRecordIndex collection="facts" records={displayed.facts ?? []} document={displayed} route={route} onNavigate={navigate} />
                   </>)}
                 </section>
               ) : null}
@@ -2354,7 +2242,7 @@ export default function CampaignWorkspace() {
                   <div className="collection-heading"><div><h4 id="world-objects-heading">World Objects</h4><p>Persistent non-portable objects and features, with optional Place attachment.</p></div></div>
                   {recordId ? (<><RecordRouteHeader route={route} onNavigate={navigate} />
                     {worldObject ? <>
-                      <WorldRecordEditor kind="world-object" record={worldObject} options={displayed.places.map(record => ({ id: record.id, label: record.name, archived: record.archived }))} busy={busy} readOnly={readOnly}
+                      <WorldRecordEditor key={worldObject.id} kind="world-object" record={worldObject} options={displayed.places.map(record => ({ id: record.id, label: record.name, archived: record.archived }))} busy={busy} readOnly={readOnly}
                         onSave={(worldObjectId, draft) => run(() => executeOperation({ kind: 'update_world_object', worldObjectId, name: draft.name, summary: draft.summary, aliases: [...draft.aliases], visibility: draft.visibility, placeId: draft.relationId || null }).then(() => undefined))}
                         onArchive={(worldObjectId, archived) => run(() => executeOperation({ kind: 'set_world_object_archived', worldObjectId, archived }).then(() => undefined))} />
                       <LinkedFactsPanel facts={displayed.facts ?? []} subjectId={worldObject.id} subjectLabel={worldObject.name} options={availableSubjects} busy={busy} readOnly={readOnly || worldObject.archived}
@@ -2363,13 +2251,17 @@ export default function CampaignWorkspace() {
                         onArchive={(factId, archived) => run(() => executeOperation({ kind: 'set_fact_archived', factId, archived }).then(() => undefined))} />
                     </> : <p className="error-banner">World Object {recordId} does not exist in this revision.</p>}
                   </>) : (<>
-                    {!readOnly ? <form className="create-record-form" onSubmit={createWorldObject}>
-                      <label><span>World Object name</span><input value={worldObjectName} onChange={event => setWorldObjectName(event.target.value)} disabled={busy} /></label>
-                      <label><span>Description</span><textarea rows={3} value={worldObjectSummary} onChange={event => setWorldObjectSummary(event.target.value)} disabled={busy} /></label>
-                      <label><span>Place</span><select value={worldObjectPlaceId} onChange={event => setWorldObjectPlaceId(event.target.value)} disabled={busy}><option value="">No attached Place</option>{displayed.places.filter(record => !record.archived).map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
-                      <button type="submit" disabled={busy || !worldObjectName.trim()}>Create World Object</button>
-                    </form> : null}
-                    <RecordIndex collection="world-objects" records={displayed.worldObjects ?? []} document={displayed} route={route} onNavigate={navigate} />
+                    {!readOnly ? <>
+                      <QuickCapture collection="world-objects" busy={busy} onCapture={quickCapture}>
+                      <form className="create-record-form" onSubmit={createWorldObject}>
+                        <label><span>World Object name</span><input value={worldObjectName} onChange={event => setWorldObjectName(event.target.value)} disabled={busy} /></label>
+                        <label><span>Description</span><textarea rows={3} value={worldObjectSummary} onChange={event => setWorldObjectSummary(event.target.value)} disabled={busy} /></label>
+                        <label><span>Place</span><select value={worldObjectPlaceId} onChange={event => setWorldObjectPlaceId(event.target.value)} disabled={busy}><option value="">No attached Place</option>{displayed.places.filter(record => !record.archived).map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+                        <button type="submit" disabled={busy || !worldObjectName.trim()}>Create World Object with details</button>
+                      </form>
+                      </QuickCapture>
+                    </> : null}
+                    <CampaignRecordIndex collection="world-objects" records={displayed.worldObjects ?? []} document={displayed} route={route} onNavigate={navigate} />
                   </>)}
                 </section>
               ) : null}
@@ -2383,6 +2275,7 @@ export default function CampaignWorkspace() {
                       {ability ? (
                         <>
                           <RecordEditor
+                            key={ability.id}
                             kind="ability"
                             record={ability}
                             actors={displayed.actors}
@@ -2427,24 +2320,28 @@ export default function CampaignWorkspace() {
                   ) : (
                     <>
                       {!readOnly ? (
-                        <form className="create-record-form ability-create-form" onSubmit={createAbility}>
-                          <label><span>Ability name</span><input value={abilityName} onChange={event => setAbilityName(event.target.value)} disabled={busy} /></label>
-                          <label><span>Summary</span><textarea rows={3} value={abilitySummary} onChange={event => setAbilitySummary(event.target.value)} disabled={busy} /></label>
-                          <label><span>Category</span><select value={abilityCategory} onChange={event => setAbilityCategory(event.target.value as CampaignAbilityCategory)} disabled={busy}><option value="spell">Spell</option><option value="skill">Skill</option><option value="feat">Feat</option><option value="other">Other</option></select></label>
-                          <fieldset className="ability-learning-create">
-                            <legend>Learn now (optional)</legend>
-                            <label><span>Actor</span><select value={abilityActorId} onChange={event => setAbilityActorId(event.target.value)} disabled={busy}><option value="">Definition only</option>{activeActors.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
-                            {abilityActorId ? <>
-                              <label className="check-row"><input type="checkbox" checked={abilityPrepared} onChange={event => setAbilityPrepared(event.target.checked)} disabled={busy} /><span>Prepared</span></label>
-                              <label className="check-row"><input type="checkbox" checked={abilityEnabled} onChange={event => setAbilityEnabled(event.target.checked)} disabled={busy} /><span>Enabled</span></label>
-                              <label><span>Uses left</span><input type="number" min="0" step="1" value={abilityUsesRemaining} onChange={event => setAbilityUsesRemaining(event.target.value)} disabled={busy} placeholder="Unlimited" /></label>
-                              <label><span>Maximum</span><input type="number" min="0" step="1" value={abilityUsesMaximum} onChange={event => setAbilityUsesMaximum(event.target.value)} disabled={busy} placeholder="Untracked" /></label>
-                            </> : null}
-                          </fieldset>
-                          <button type="submit" disabled={busy || !abilityName.trim() || !validUses({ prepared: abilityPrepared, enabled: abilityEnabled, usesRemaining: abilityUsesRemaining, usesMaximum: abilityUsesMaximum })}>Create Ability{abilityActorId ? ' and learn it' : ''}</button>
-                        </form>
+                        <>
+                          <QuickCapture collection="abilities" busy={busy} onCapture={quickCapture}>
+                          <form className="create-record-form ability-create-form" onSubmit={createAbility}>
+                            <label><span>Ability name</span><input value={abilityName} onChange={event => setAbilityName(event.target.value)} disabled={busy} /></label>
+                            <label><span>Summary</span><textarea rows={3} value={abilitySummary} onChange={event => setAbilitySummary(event.target.value)} disabled={busy} /></label>
+                            <label><span>Category</span><select value={abilityCategory} onChange={event => setAbilityCategory(event.target.value as CampaignAbilityCategory)} disabled={busy}><option value="spell">Spell</option><option value="skill">Skill</option><option value="feat">Feat</option><option value="other">Other</option></select></label>
+                            <fieldset className="ability-learning-create">
+                              <legend>Learn now (optional)</legend>
+                              <label><span>Actor</span><select value={abilityActorId} onChange={event => setAbilityActorId(event.target.value)} disabled={busy}><option value="">Definition only</option>{activeActors.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label>
+                              {abilityActorId ? <>
+                                <label className="check-row"><input type="checkbox" checked={abilityPrepared} onChange={event => setAbilityPrepared(event.target.checked)} disabled={busy} /><span>Prepared</span></label>
+                                <label className="check-row"><input type="checkbox" checked={abilityEnabled} onChange={event => setAbilityEnabled(event.target.checked)} disabled={busy} /><span>Enabled</span></label>
+                                <label><span>Uses left</span><input type="number" min="0" step="1" value={abilityUsesRemaining} onChange={event => setAbilityUsesRemaining(event.target.value)} disabled={busy} placeholder="Unlimited" /></label>
+                                <label><span>Maximum</span><input type="number" min="0" step="1" value={abilityUsesMaximum} onChange={event => setAbilityUsesMaximum(event.target.value)} disabled={busy} placeholder="Untracked" /></label>
+                              </> : null}
+                            </fieldset>
+                            <button type="submit" disabled={busy || !abilityName.trim() || !validUses({ prepared: abilityPrepared, enabled: abilityEnabled, usesRemaining: abilityUsesRemaining, usesMaximum: abilityUsesMaximum })}>Create Ability{abilityActorId ? ' and learn it' : ' with details'}</button>
+                          </form>
+                          </QuickCapture>
+                        </>
                       ) : null}
-                      <RecordIndex collection="abilities" records={displayed.abilities ?? []} document={displayed} route={route} onNavigate={navigate} />
+                      <CampaignRecordIndex collection="abilities" records={displayed.abilities ?? []} document={displayed} route={route} onNavigate={navigate} />
                     </>
                   )}
                 </section>
@@ -2475,6 +2372,7 @@ export default function CampaignWorkspace() {
                 <section className="collection-view" aria-labelledby="scene-heading">
                   <div className="collection-heading"><div><h4 id="scene-heading">Current Scene</h4><p>One canonical record for the Campaign’s present moment.</p></div></div>
                   <SceneEditor
+                    key={displayed.currentScene?.id ?? 'new-scene'}
                     scene={displayed.currentScene}
                     actors={displayed.actors}
                     items={displayed.items}
@@ -2561,5 +2459,13 @@ export default function CampaignWorkspace() {
         </div>
       </div>
     </section>
+  );
+}
+
+export default function CampaignWorkspace() {
+  return (
+    <WorkspaceNavigationProvider>
+      <CampaignWorkspaceContent />
+    </WorkspaceNavigationProvider>
   );
 }
