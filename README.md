@@ -4,7 +4,7 @@ A local-first RPG Campaign system for SillyTavern and LM Studio.
 
 ## Status
 
-- **Playable preview:** `0.3.0-preview.20` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` supervisor. Actors now keep system-agnostic **Live trackers** beside their ordinary editor, with immediate `−`/`+` changes and revision-safe detailed editing; the Relationships collection adds a deterministic desktop map and keyboard/phone route list. Session Home shows tracker state for Actors in the current Scene, and narration receives tracker detail only when that Actor is already selected by the bounded Context Plan. Linked narration, Campaign-wide search, guarded drafts, bounded lists, full Campaign editing, explicit per-chat reconciliation, Narrator Context, Story Updates, JSON addon review, verified backup/restore, immutable history, and the explicit fallback/companion switch remain available.
+- **Playable preview:** `0.3.0-preview.21` starts pinned SillyTavern and the production companion through one `Wayfinder.cmd` supervisor. The new **Player Handbook** gives a task-led first-session checklist, the normal play loop, direct collection shortcuts, plain-language context/privacy/saving guidance, and recovery steps in Campaign Book and [`docs/player-guide.md`](docs/player-guide.md). Actor Live trackers, the Relationship Map, linked narration, Campaign-wide search, guarded drafts, bounded lists, full Campaign editing, explicit per-chat reconciliation, Narrator Context, Story Updates, JSON addon review, verified backup/restore, immutable history, and the explicit fallback/companion switch remain available.
 - **Working product:** `extension/st-rpg-campaign` is the tested SillyTavern fallback used today.
 - **Durable companion authority:** issue #33 owns Campaign truth in SQLite, with immutable history, reconstruction, stale-write protection, verified backup/restore, and restart evidence.
 - **Context planning milestone:** issue #36 adds revision-pinned Context Plans, visibility, ordered per-chat pins, exact/Scene/FTS5/relation retrieval, token budgets, and the inspectable Context Tray.
@@ -60,7 +60,7 @@ npm run install:bridge
 
 Before linked narration, save exactly one Narrator Model Profile for the model ID selected in SillyTavern. Use **Campaign Book → Narrator Context → Model profile**. Unlinked chats require no Campaign or profile, but still route explicitly through the running companion.
 
-See [`docs/playable-preview.md`](docs/playable-preview.md) for the shortest play path, recovery steps, fallback boundary, and known preview limits.
+Start with the plain-language [`Player Handbook`](docs/player-guide.md). See [`docs/playable-preview.md`](docs/playable-preview.md) for the compact operator play path, recovery steps, fallback boundary, and known preview limits.
 
 ## Working fallback
 

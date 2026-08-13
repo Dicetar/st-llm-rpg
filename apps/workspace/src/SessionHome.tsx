@@ -157,8 +157,8 @@ export function SessionHome(props: Readonly<{
       </div>
 
       <div className="session-home__footer">
-        <p><strong>Need a refresher?</strong> The player guide explains what to edit here, what reaches the narrator, and what stays only in Campaign Book.</p>
-        <button type="button" className="button-secondary" onClick={() => props.onNavigate('guide')}>Open player guide</button>
+        <p><strong>Need a refresher?</strong> The Player Handbook explains first-session setup, ordinary play, narrator context, saving, privacy, and recovery.</p>
+        <button type="button" className="button-secondary" onClick={() => props.onNavigate('guide')}>Open Player Handbook</button>
       </div>
     </section>
   );

@@ -354,15 +354,25 @@ test('every ordinary collection keeps quick capture and detailed creation in the
   assert.match(abilities, /Definition only/);
 });
 
-test('player guide illustrates the Campaign Book to SillyTavern review loop in plain language', () => {
+test('Player Handbook teaches setup, play, context, saving, privacy, and recovery in player language', () => {
   const html = renderToStaticMarkup(<PlayerGuide onNavigate={() => undefined} />);
-  assert.match(html, /Two-minute tour/);
-  assert.match(html, /Campaign Book and SillyTavern working together/);
-  assert.match(html, /Set the present moment/);
-  assert.match(html, /Choose narrator context/);
-  assert.match(html, /Nothing becomes Campaign truth until you review and apply it/);
+  assert.match(html, /Player handbook/);
+  assert.match(html, /Chat is the story. Campaign Book is the reference/);
+  assert.match(html, /Your repeatable session route/);
+  assert.match(html, /Link one saved chat/);
+  assert.match(html, /Set the present Scene/);
+  assert.match(html, /Live trackers/);
+  assert.match(html, /Relationship Map/);
+  assert.match(html, /Relevant detail, not the whole database/);
+  assert.match(html, /Immediate/);
+  assert.match(html, /Save or Cancel/);
+  assert.match(html, /Review then apply/);
   assert.match(html, /Player notes/);
-  assert.match(html, /Never sent to the narrator/);
+  assert.match(html, /never sent to the narrator/);
+  assert.match(html, /This tab is out of date/);
+  assert.match(html, /LM Studio is unavailable/);
+  assert.match(html, /Open Session Home/);
+  assert.doesNotMatch(html, /SQLite|FTS5|projection|Binding Event/);
 });
 
 test('Workspace error presentation leads with recovery and keeps technical detail secondary', () => {
@@ -781,4 +791,6 @@ test('narrow CSS prevents horizontal overflow and keeps routed controls touch-si
   assert.match(css, /\.campaign-detail \{ order: -1; \}/);
   assert.match(css, /\.collection-nav \{ grid-template-columns: 1fr; \}/);
   assert.match(css, /\.command-deck__actions \{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /\.guide-setup, \.guide-collection-grid \{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /\.guide-principle \{ grid-template-columns: 1fr; \}/);
 });

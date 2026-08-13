@@ -1,0 +1,35 @@
+{
+  "date": "2026-08-13",
+  "release": "0.3.0-preview.21",
+  "surface": "Campaign Book Player Handbook",
+  "environment": {
+    "workspaceAssets": "production build",
+    "browser": "installed Google Chrome through Playwright",
+    "campaignAuthority": "isolated temporary SQLite database",
+    "sillyTavern": "deliberately unavailable in the isolated fixture"
+  },
+  "viewports": [
+    "1280x900 desktop",
+    "360x800 narrow browser"
+  ],
+  "passed": [
+    "handbook principle, session route, first-session checklist, collections, context, privacy, saving, and recovery guidance render",
+    "Set Current Scene opens the current Scene route",
+    "Open Relationship Map opens the Relationships route",
+    "Review chat context opens Narrator Context",
+    "desktop document has no horizontal overflow",
+    "first-session checklist collapses to one column at 360 CSS pixels",
+    "all handbook action controls are at least 44 CSS pixels high at 360 CSS pixels",
+    "browser console and HTTP responses contain no unexpected failures"
+  ],
+  "screenshots": [
+    "docs/images/player-handbook-overview.png",
+    "docs/images/player-handbook-phone.png"
+  ],
+  "expectedDegradation": "The isolated SillyTavern migration probe returned its expected 503 while Campaign Book remained available.",
+  "boundaries": [
+    "No narrator or worker model call was made.",
+    "No production Campaign data was read or mutated.",
+    "This is browser automation at a 360px viewport, not physical-phone acceptance."
+  ]
+}

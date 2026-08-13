@@ -187,7 +187,7 @@ export function CollectionNavigation(props: {
     { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
     { key: 'review', label: 'Story Updates' },
     { key: 'context', label: 'Narrator Context', count: props.bindings.reduce((total, binding) => total + (binding.pins?.length ?? 0), 0) },
-    { key: 'guide', label: 'Player Guide' },
+    { key: 'guide', label: 'Player Handbook' },
     { key: 'history', label: 'Change History' },
   ];
   return (

@@ -110,7 +110,7 @@ export function collectionLabel(collection: CollectionKey): string {
   if (collection === 'scene') return 'Current Scene';
   if (collection === 'review') return 'Story Updates';
   if (collection === 'context') return 'Narrator Context';
-  if (collection === 'guide') return 'Player Guide';
+  if (collection === 'guide') return 'Player Handbook';
   return 'Change History';
 }
 
