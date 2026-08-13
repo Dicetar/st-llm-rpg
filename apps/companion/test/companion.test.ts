@@ -215,6 +215,55 @@ test('invalid configuration throws before server construction', () => {
   assert.throws(() => readCompanionConfig({ RPG_LOG_LEVEL: 'verbose' }), /must be one of/);
 });
 
+test('Campaign API exposes authoritative lifecycle, branching, and portable JSON', async t => {
+  const workspaceRoot = await workspaceFixture();
+  const app = await buildCompanion({ config: config(workspaceRoot), probeDependencies: async () => observations });
+  t.after(async () => {
+    await app.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  const create = await app.inject({
+    method: 'POST', url: '/api/campaigns', payload: { requestId: 'http-lifecycle-create', title: 'Source Campaign' },
+  });
+  assert.equal(create.statusCode, 201, create.body);
+  const campaignId = create.json().campaignId;
+  const actor = await app.inject({
+    method: 'POST', url: `/api/campaigns/${campaignId}/operations`,
+    payload: { requestId: 'http-lifecycle-actor', expectedRevision: 1, operation: { kind: 'create_actor', actor: { id: 'actor-1', name: 'Mara' } } },
+  });
+  assert.equal(actor.statusCode, 200, actor.body);
+
+  const archived = await app.inject({
+    method: 'POST', url: `/api/campaigns/${campaignId}/operations`,
+    payload: { requestId: 'http-lifecycle-archive', expectedRevision: 2, operation: { kind: 'set_campaign_archived', archived: true } },
+  });
+  assert.equal(archived.statusCode, 200, archived.body);
+  assert.equal(archived.json().document.campaign.status, 'archived');
+  const blocked = await app.inject({
+    method: 'POST', url: `/api/campaigns/${campaignId}/operations`,
+    payload: { requestId: 'http-lifecycle-blocked', expectedRevision: 3, operation: { kind: 'rename_actor', actorId: 'actor-1', name: 'Nope' } },
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json().code, 'CAMPAIGN_ARCHIVED');
+
+  const branch = await app.inject({
+    method: 'POST', url: `/api/campaigns/${campaignId}/branches`,
+    payload: { requestId: 'http-lifecycle-branch', sourceRevision: 2, title: 'Branched Campaign' },
+  });
+  assert.equal(branch.statusCode, 201, branch.body);
+  assert.equal(branch.json().document.campaign.lineage.sourceCampaignId, campaignId);
+  assert.equal(branch.json().document.campaign.lineage.sourceRevision, 2);
+  assert.equal(branch.json().document.actors[0].id, 'actor-1');
+
+  const portable = await app.inject({ method: 'GET', url: `/api/campaigns/${branch.json().campaignId}/export` });
+  assert.equal(portable.statusCode, 200, portable.body);
+  assert.match(portable.headers['content-disposition'] ?? '', /Branched-Campaign\.campaign\.json/);
+  assert.equal(portable.json().schema, 'st-rpg.campaign-export');
+  assert.deepEqual(portable.json().historyIndex.map((entry: { operationKind: string }) => entry.operationKind), ['branch_campaign']);
+  assert.doesNotMatch(portable.body, /prompt|activeJob|diagnostics/i);
+});
+
 test('supervisor shutdown requires the exact local run identity and drains the Companion', async t => {
   const workspaceRoot = await workspaceFixture();
   const supervisedConfig = readCompanionConfig({

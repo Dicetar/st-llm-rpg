@@ -16,7 +16,7 @@
     "bridgeProtocol": "1.0",
     "databaseSchema": {
       "minimum": 7,
-      "maximum": 9
+      "maximum": 13
     }
   },
   "bridge": {

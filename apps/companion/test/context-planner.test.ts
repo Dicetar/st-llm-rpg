@@ -135,6 +135,37 @@ test('Context plan keeps ordered pins ahead of exact textual mentions', async ()
   assert.match(outcome.value.blocks.known, /Lavir/);
 });
 
+test('archived Campaign blocks Context planning before retrieval or narration', async () => {
+  let searched = false;
+  const archivedCampaign: CampaignDocument = {
+    ...campaign,
+    campaign: { ...campaign.campaign, status: 'archived' },
+  };
+  const planner = new ContextPlanner({
+    async readAuthority() {
+      return { campaign: archivedCampaign, binding, profile };
+    },
+    async search() {
+      searched = true;
+      return [];
+    },
+  });
+  const outcome = await planner.plan({
+    requestId: 'context-archived',
+    campaignId: campaign.campaign.id,
+    campaignRevision: 7,
+    bindingId: binding.id,
+    bindingRevision: 3,
+    contextFocusRevision: 2,
+    modelProfileId: profile.id,
+    generationType: 'normal',
+    messages: [{ role: 'user', content: 'Continue.' }],
+  }, new AbortController().signal);
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) assert.equal(outcome.problem.code, 'CAMPAIGN_ARCHIVED');
+  assert.equal(searched, false);
+});
+
 test('Context plan isolates Narrator Secret material and erases Campaign Private material', async () => {
   const visibilityCampaign: CampaignDocument = {
     ...campaign,

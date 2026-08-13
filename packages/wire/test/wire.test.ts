@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BranchCampaignRequestSchema,
+  CampaignExportSchema,
+  CampaignOperationSchema,
   COMPANION_SERVICE,
   WIRE_VERSION,
   isCampaignCommit,
@@ -9,6 +12,7 @@ import {
   isProblem,
   isReadinessDocument,
 } from '../src/index.js';
+import { Value } from '@sinclair/typebox/value';
 
 const now = new Date().toISOString();
 
@@ -121,4 +125,39 @@ test('Campaign documents and commits validate routed record collections', () => 
       trackers: [{ id: 'health', label: 'Health', current: 7.5 }],
     }],
   }), false);
+});
+
+test('Campaign lifecycle and portable export contracts reject ambiguous payloads', () => {
+  assert.equal(Value.Check(CampaignOperationSchema, { kind: 'set_campaign_archived', archived: true }), true);
+  assert.equal(Value.Check(CampaignOperationSchema, { kind: 'set_campaign_archived' }), false);
+  assert.equal(Value.Check(BranchCampaignRequestSchema, {
+    requestId: 'branch-request', sourceRevision: 3, title: 'A Different Road',
+  }), true);
+  assert.equal(Value.Check(BranchCampaignRequestSchema, {
+    requestId: 'branch-request', sourceRevision: 0, title: 'A Different Road',
+  }), false);
+
+  const exportedAt = new Date().toISOString();
+  const portable = {
+    schema: 'st-rpg.campaign-export',
+    version: '1.0',
+    exportedAt,
+    document: {
+      campaign: {
+        id: 'campaign-branch', title: 'A Different Road', status: 'active', revision: 1,
+        createdAt: exportedAt, updatedAt: exportedAt,
+        lineage: {
+          sourceCampaignId: 'campaign-source', sourceRevision: 3,
+          sourceEventHash: 'a'.repeat(64), sourceTitle: 'The First Road',
+        },
+      },
+      actors: [], items: [], quests: [], places: [], currentScene: null,
+    },
+    historyIndex: [{
+      revision: 1, eventId: 'event-1', requestId: 'branch-request',
+      operationKind: 'branch_campaign', committedAt: exportedAt,
+    }],
+  };
+  assert.equal(Value.Check(CampaignExportSchema, portable), true);
+  assert.equal(Value.Check(CampaignExportSchema, { ...portable, activeJob: { prompt: 'private' } }), false);
 });

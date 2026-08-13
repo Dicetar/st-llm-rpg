@@ -2,6 +2,7 @@ export type CampaignRow = {
   campaign_id: string;
   title: string;
   status: 'active' | 'archived';
+  lineage_json: string | null;
   current_revision: number;
   current_state_json: string;
   head_event_hash: string;

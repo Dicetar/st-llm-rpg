@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
+  BranchCampaignRequestSchema,
   CampaignCommitPerformanceSchema,
   CampaignCommitSchema,
   CampaignDocumentSchema,
+  CampaignExportSchema,
   CampaignHistoryEntrySchema,
   CampaignSummarySchema,
   CampaignVerificationResultSchema,
@@ -10,6 +12,7 @@ import {
   ExecuteCampaignRequestSchema,
   ProblemSchema,
   type CampaignInvalidation,
+  type BranchCampaignRequest,
   type CreateCampaignRequest,
   type ExecuteCampaignRequest,
   type ProblemCode,
@@ -24,7 +27,7 @@ function httpStatusFor(code: ProblemCode): number {
     || code === 'CAMPAIGN_REVISION_NOT_FOUND'
     || code === 'NOT_FOUND'
   ) return 404;
-  if (code === 'CAMPAIGN_REVISION_CONFLICT' || code === 'CAMPAIGN_REQUEST_CONFLICT') return 409;
+  if (code === 'CAMPAIGN_REVISION_CONFLICT' || code === 'CAMPAIGN_REQUEST_CONFLICT' || code === 'CAMPAIGN_ARCHIVED') return 409;
   if (
     code === 'CAMPAIGN_HISTORY_CORRUPT'
     || code === 'CAMPAIGN_STORE_UNAVAILABLE'
@@ -175,6 +178,47 @@ export function registerCampaignRoutes(app: FastifyInstance, engine: CampaignEng
   }, async (request, reply) => {
     const { campaignId } = request.params as { campaignId: string };
     return sendOutcome(reply, await engine.history(campaignId, String(request.id)));
+  });
+
+  app.get('/api/campaigns/:campaignId/export', {
+    schema: {
+      params: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['campaignId'],
+        properties: { campaignId: { type: 'string', minLength: 1, maxLength: 128 } },
+      },
+      response: { 200: CampaignExportSchema, 404: ProblemSchema, 503: ProblemSchema },
+    },
+  }, async (request, reply) => {
+    const { campaignId } = request.params as { campaignId: string };
+    const outcome = await engine.export(campaignId, String(request.id));
+    if (!outcome.ok) return sendOutcome(reply, outcome);
+    const safeTitle = outcome.value.document.campaign.title.replaceAll(/[^A-Za-z0-9._-]+/g, '-').replaceAll(/^-+|-+$/g, '') || 'campaign';
+    reply.header('content-disposition', `attachment; filename="${safeTitle}.campaign.json"`);
+    return reply.send(outcome.value);
+  });
+
+  app.post('/api/campaigns/:campaignId/branches', {
+    schema: {
+      params: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['campaignId'],
+        properties: { campaignId: { type: 'string', minLength: 1, maxLength: 128 } },
+      },
+      body: BranchCampaignRequestSchema,
+      response: {
+        201: CampaignCommitSchema,
+        400: ProblemSchema,
+        404: ProblemSchema,
+        409: ProblemSchema,
+        503: ProblemSchema,
+      },
+    },
+  }, async (request, reply) => {
+    const { campaignId } = request.params as { campaignId: string };
+    return sendOutcome(reply, await engine.branch(campaignId, request.body as BranchCampaignRequest), 201);
   });
 
   app.post('/api/campaigns/:campaignId/operations', {

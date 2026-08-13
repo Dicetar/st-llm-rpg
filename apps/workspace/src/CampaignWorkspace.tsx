@@ -11,6 +11,7 @@ import {
   type CampaignActor,
   type CampaignCommit,
   type CampaignDocument,
+  type CampaignExport,
   type CampaignFact,
   type CampaignHistoryEntry,
   type CampaignItem,
@@ -57,6 +58,7 @@ import {
 } from './WorkspaceProblemBanner.js';
 import { SessionHome } from './SessionHome.js';
 import { PlayerGuide } from './PlayerGuide.js';
+import { CampaignLifecyclePanel } from './CampaignLifecyclePanel.js';
 import {
   CampaignCommandDeck,
   CampaignHistoryView,
@@ -94,9 +96,11 @@ export { parseWorkspacePath } from './workspace-navigation.js';
 export {
   CampaignCommandDeck,
   CampaignHistoryView,
+  CollectionNavigation,
   RevisionConflictBanner,
   WorkspaceRouteState,
 } from './CampaignWorkspaceShell.js';
+export { CampaignLifecyclePanel } from './CampaignLifecyclePanel.js';
 export {
   LinkedFactsPanel,
   PlaceWorldObjectsPanel,
@@ -154,13 +158,15 @@ function CampaignWorkspaceContent() {
   const [campaignTitle, setCampaignTitle] = useState('');
 
   const selectedRevisionRef = useRef(0);
-  const readOnly = route.revision !== null;
+  const isHistorical = route.revision !== null;
   const routeCampaign = selected?.campaign.id === route.campaignId ? selected : null;
-  const displayed = readOnly
+  const displayed = isHistorical
     ? historical?.campaign.id === route.campaignId && historical.campaign.revision === route.revision
       ? historical
       : null
     : routeCampaign;
+  const archived = displayed?.campaign.status === 'archived';
+  const readOnly = isHistorical || archived;
 
   useEffect(() => {
     selectedRevisionRef.current = selected?.campaign.revision ?? 0;
@@ -398,7 +404,11 @@ function CampaignWorkspaceContent() {
   }
 
   async function executeOperation(operation: CampaignOperation): Promise<CampaignCommit> {
-    if (!selected || readOnly) throw new Error('Return to the current Campaign revision before editing.');
+    if (!selected || isHistorical) throw new Error('Return to the current Campaign revision before editing.');
+    if (selected.campaign.status === 'archived'
+      && !(operation.kind === 'set_campaign_archived' && operation.archived === false)) {
+      throw new Error('Restore this Campaign before editing it.');
+    }
     const campaignId = selected.campaign.id;
     const expectedRevision = selected.campaign.revision;
     try {
@@ -504,6 +514,69 @@ function CampaignWorkspaceContent() {
     });
   }
 
+  async function branchCampaign(title: string, sourceRevision: number) {
+    if (!displayed) return;
+    await run(async () => {
+      const commit = await fetchJson<CampaignCommit>(
+        `/api/campaigns/${encodeURIComponent(displayed.campaign.id)}/branches`,
+        undefined,
+        {
+          method: 'POST',
+          body: JSON.stringify({ requestId: newRequestId(), sourceRevision, title }),
+        },
+      );
+      const entries = await fetchJson<CampaignHistoryEntry[]>(`/api/campaigns/${encodeURIComponent(commit.campaignId)}/history`);
+      selectedRevisionRef.current = commit.revision;
+      setSelected(commit.document);
+      setHistorical(null);
+      setHistory(entries);
+      setBindings([]);
+      setPendingCanonical(null);
+      setConflict(null);
+      await loadCampaigns();
+      navigate({ campaignId: commit.campaignId, collection: 'home', recordId: null, revision: null });
+      setMessage(`Created independent branch at revision ${sourceRevision}.`);
+    });
+  }
+
+  async function exportCampaign() {
+    if (!selected) return;
+    await run(async () => {
+      const portable = await fetchJson<CampaignExport>(`/api/campaigns/${encodeURIComponent(selected.campaign.id)}/export`);
+      const safeTitle = portable.document.campaign.title.replaceAll(/[^A-Za-z0-9._-]+/g, '-').replaceAll(/^-+|-+$/g, '') || 'campaign';
+      const url = URL.createObjectURL(new Blob([`${JSON.stringify(portable, null, 2)}\n`], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${safeTitle}.campaign.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage(`Exported current revision ${portable.document.campaign.revision}.`);
+    });
+  }
+
+  function campaignButton(campaign: CampaignSummary) {
+    const next: WorkspaceRoute = {
+      campaignId: campaign.id,
+      collection: 'home',
+      recordId: null,
+      revision: null,
+    };
+    return (
+      <a
+        href={workspaceHref(next)}
+        className={selected?.campaign.id === campaign.id ? 'campaign-button campaign-button--active' : 'campaign-button'}
+        key={campaign.id}
+        onClick={event => {
+          event.preventDefault();
+          navigate(next);
+        }}
+      >
+        <strong>{campaign.title}</strong>
+        <span>{campaign.status === 'archived' ? 'Archived' : `Revision ${campaign.revision}`}</span>
+      </a>
+    );
+  }
+
   return (
     <section className="authority-panel" aria-labelledby="campaign-authority">
       <div className="section-heading">
@@ -514,10 +587,10 @@ function CampaignWorkspaceContent() {
         {displayed ? (
           <div className="workspace-state">
             <span className={readOnly ? 'revision-badge revision-badge--historical' : 'revision-badge'}>
-              {readOnly ? 'Historical' : 'Current'} revision {displayed.campaign.revision}
+              {isHistorical ? 'Historical' : archived ? 'Archived' : 'Current'} revision {displayed.campaign.revision}
             </span>
             <span className={`sync-state sync-state--${syncState}`} role="status">{syncLabel(syncState)}</span>
-            <span className="pending-state" role="status">{routeLoad.phase === 'loading' ? 'Opening…' : busy ? 'Working…' : readOnly ? 'Read-only' : 'Ready'}</span>
+            <span className="pending-state" role="status">{routeLoad.phase === 'loading' ? 'Opening…' : busy ? 'Working…' : isHistorical ? 'Read-only' : archived ? 'Archived' : 'Ready'}</span>
           </div>
         ) : null}
       </div>
@@ -565,28 +638,13 @@ function CampaignWorkspaceContent() {
           </form>
 
           <div className="campaign-buttons">
-            {campaigns.map(campaign => {
-              const next: WorkspaceRoute = {
-                campaignId: campaign.id,
-                collection: 'home',
-                recordId: null,
-                revision: null,
-              };
-              return (
-                <a
-                  href={workspaceHref(next)}
-                  className={selected?.campaign.id === campaign.id ? 'campaign-button campaign-button--active' : 'campaign-button'}
-                  key={campaign.id}
-                  onClick={event => {
-                    event.preventDefault();
-                    navigate(next);
-                  }}
-                >
-                  <strong>{campaign.title}</strong>
-                  <span>Revision {campaign.revision}</span>
-                </a>
-              );
-            })}
+            {campaigns.filter(campaign => campaign.status === 'active').map(campaignButton)}
+            {campaigns.some(campaign => campaign.status === 'archived') ? (
+              <details className="archived-campaigns">
+                <summary>Archived Campaigns ({campaigns.filter(campaign => campaign.status === 'archived').length})</summary>
+                <div>{campaigns.filter(campaign => campaign.status === 'archived').map(campaignButton)}</div>
+              </details>
+            ) : null}
             {campaigns.length === 0 ? <div className="empty-state empty-state--action"><p>No Campaigns yet.</p><button type="button" className="button-secondary" onClick={() => document.getElementById('new-campaign-title')?.focus()}>Name your first Campaign</button></div> : null}
           </div>
         </aside>
@@ -605,7 +663,7 @@ function CampaignWorkspaceContent() {
             <>
               <div className="campaign-title-row">
                 <div>
-                  <p className="eyebrow">{readOnly ? 'Earlier read-only version' : 'Saved Campaign'}</p>
+                  <p className="eyebrow">{isHistorical ? 'Earlier read-only version' : archived ? 'Archived Campaign' : 'Saved Campaign'}</p>
                   <h3>{displayed.campaign.title}</h3>
                 </div>
                 <button type="button" onClick={() => { void run(() => openCampaign(selected.campaign.id)); }} disabled={busy}>
@@ -619,6 +677,7 @@ function CampaignWorkspaceContent() {
                 hasCurrentScene={displayed.currentScene !== null}
                 busy={busy}
                 readOnly={readOnly}
+                historical={isHistorical}
                 onNavigate={navigateCollection}
               />
 
@@ -644,12 +703,26 @@ function CampaignWorkspaceContent() {
 
               <CollectionNavigation route={route} document={displayed} bindings={bindings} onNavigate={navigate} />
 
-              {readOnly ? (
+              {isHistorical ? (
                 <p className="historical-note">Historical revision {route.revision} is read-only. Collection and record routes remain available for inspection.</p>
+              ) : null}
+              {!isHistorical && archived ? (
+                <p className="historical-note">This Campaign is archived. Its records and history remain readable; restore it below before editing, narration, or Story Updates.</p>
               ) : null}
 
               {route.collection === 'home' ? (
-                <SessionHome document={displayed} readOnly={readOnly} onNavigate={navigateCollection} />
+                <>
+                  <SessionHome document={displayed} readOnly={readOnly} onNavigate={navigateCollection} />
+                  <CampaignLifecyclePanel
+                    document={displayed}
+                    sourceRevision={route.revision ?? displayed.campaign.revision}
+                    historical={isHistorical}
+                    busy={busy}
+                    onArchiveChange={nextArchived => run(() => executeOperation({ kind: 'set_campaign_archived', archived: nextArchived }).then(() => undefined))}
+                    onBranch={branchCampaign}
+                    onExport={exportCampaign}
+                  />
+                </>
               ) : null}
 
               {route.collection === 'guide' ? (
@@ -1041,7 +1114,7 @@ function CampaignWorkspaceContent() {
 
               {route.collection === 'review' ? (
                 readOnly
-                  ? <p className="historical-note">Suggested story updates belong to the current Campaign and are unavailable while viewing an earlier version.</p>
+                  ? <p className="historical-note">Story Updates are unavailable for historical or archived Campaign views.</p>
                   : <StorySyncReviewInbox campaign={displayed} />
               ) : null}
 

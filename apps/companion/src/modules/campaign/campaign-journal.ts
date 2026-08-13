@@ -21,13 +21,27 @@ export type CampaignJournalRead =
   | Readonly<{ kind: 'campaign-list' }>
   | Readonly<{ kind: 'campaign'; campaignId: string; revision?: number }>
   | Readonly<{ kind: 'history'; campaignId: string }>
+  | Readonly<{ kind: 'branch-source'; campaignId: string; revision: number }>
+  | Readonly<{ kind: 'campaign-export'; campaignId: string }>
   | Readonly<{ kind: 'performance' }>;
+
+export type CampaignBranchSource = Readonly<{
+  document: CampaignDocument;
+  eventHash: string;
+}>;
+
+export type CampaignExportSource = Readonly<{
+  document: CampaignDocument;
+  historyIndex: CampaignHistoryEntry[];
+}>;
 
 export type CampaignJournalReadResult<R extends CampaignJournalRead> =
   R extends { kind: 'campaign-list' } ? CampaignSummary[]
     : R extends { kind: 'campaign' } ? CampaignDocument
       : R extends { kind: 'history' } ? CampaignHistoryEntry[]
-        : R extends { kind: 'performance' } ? CampaignCommitPerformance
+        : R extends { kind: 'branch-source' } ? CampaignBranchSource
+          : R extends { kind: 'campaign-export' } ? CampaignExportSource
+            : R extends { kind: 'performance' } ? CampaignCommitPerformance
           : never;
 
 export type CampaignCommitReceipt = Omit<CampaignCommit, 'document' | 'idempotent'>;
@@ -91,7 +105,7 @@ type CampaignJournalAppendBase = Readonly<{
 export type CampaignJournalAppend =
   | CampaignJournalAppendBase & Readonly<{
       kind: 'create';
-      baseKind: 'blank' | 'legacy_import';
+      baseKind: 'blank' | 'legacy_import' | 'branch';
       baseState: CampaignState;
     }>
   | CampaignJournalAppendBase & Readonly<{
@@ -111,6 +125,8 @@ type CampaignJournalReadValue =
   | CampaignDocument
   | CampaignSummary[]
   | CampaignHistoryEntry[]
+  | CampaignBranchSource
+  | CampaignExportSource
   | CampaignCommitPerformance;
 
 export type CampaignJournalTransactionCompletion<T> =

@@ -24,7 +24,7 @@ const IdentifierParams = {
 function statusFor(code: ProblemCode): number {
   if (code === 'CAMPAIGN_VALIDATION_FAILED' || code === 'CONTEXT_MODEL_INCOMPATIBLE') return 400;
   if (code === 'CHAT_BINDING_NOT_FOUND' || code === 'CONTEXT_MODEL_PROFILE_MISSING') return 404;
-  if (code === 'CAMPAIGN_REVISION_CONFLICT' || code === 'CONTEXT_AUTHORITY_MISMATCH') return 409;
+  if (code === 'CAMPAIGN_REVISION_CONFLICT' || code === 'CAMPAIGN_ARCHIVED' || code === 'CONTEXT_AUTHORITY_MISMATCH') return 409;
   if (
     code === 'CONTEXT_CORE_OVER_BUDGET'
     || code === 'CONTEXT_PINS_OVER_BUDGET'

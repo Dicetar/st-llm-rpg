@@ -29,6 +29,7 @@ export const ProblemCodeSchema = Type.Union([
   Type.Literal('CAMPAIGN_VALIDATION_FAILED'),
   Type.Literal('CAMPAIGN_REVISION_CONFLICT'),
   Type.Literal('CAMPAIGN_REQUEST_CONFLICT'),
+  Type.Literal('CAMPAIGN_ARCHIVED'),
   Type.Literal('CAMPAIGN_HISTORY_CORRUPT'),
   Type.Literal('CAMPAIGN_STORE_UNAVAILABLE'),
   Type.Literal('SILLYTAVERN_CHAT_UNAVAILABLE'),

@@ -237,6 +237,9 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
       revision: Number(campaign.current_revision),
       createdAt: campaign.created_at,
       updatedAt: campaign.updated_at,
+      ...(campaign.lineage_json == null
+        ? {}
+        : { lineage: parseJson<NonNullable<CampaignState['campaign']['lineage']>>(campaign.lineage_json) }),
     },
     actors: Object.fromEntries(actorRows.map(row => [row.actor_id, {
       id: row.actor_id,
@@ -388,6 +391,7 @@ export function applyCurrentCampaignProjectionChanges(
   changes: readonly CampaignSubjectChange[],
 ): void {
   for (const change of changes) {
+    if (change.subjectKind === 'campaign') continue;
     if (change.subjectKind === 'actor') {
       if (change.afterImage === null) {
         database.prepare('DELETE FROM campaign_actor_projections WHERE campaign_id = ? AND actor_id = ?')

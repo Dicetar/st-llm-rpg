@@ -11,6 +11,7 @@ import {
 } from '../src/adapters/sqlite/campaign-journal.js';
 import { CAMPAIGN_AUTHORITY_MIGRATION, campaignMigrationChecksum } from '../src/migrations/001-campaign-authority.js';
 import { canonicalJson, eventHash, type CampaignState } from '../src/modules/campaign/campaign-state.js';
+import { CampaignEngine } from '../src/modules/campaign/campaign-engine.js';
 import {
   buildCampaignSnapshotInWorker,
   readCampaignRevisionInWorker,
@@ -29,6 +30,86 @@ async function fixture() {
     backupPath: join(root, 'campaigns.backup.sqlite'),
   };
 }
+
+test('Campaign lifecycle, branch lineage, and portable export survive restart', async t => {
+  const files = await fixture();
+  let journal = await SqliteCampaignJournal.open(files.databasePath, 2);
+  const engine = new CampaignEngine(journal);
+  t.after(async () => {
+    await journal.close();
+    await rm(files.root, { recursive: true, force: true });
+  });
+
+  const created = await engine.create({ requestId: 'lifecycle-create', title: 'The First Road' });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const actor = await engine.execute(created.value.campaignId, {
+    requestId: 'lifecycle-actor',
+    expectedRevision: 1,
+    operation: { kind: 'create_actor', actor: { id: 'actor-mara', name: 'Mara', summary: 'The heir.' } },
+  });
+  assert.equal(actor.ok, true);
+  if (!actor.ok) return;
+
+  const archived = await engine.execute(created.value.campaignId, {
+    requestId: 'lifecycle-archive',
+    expectedRevision: 2,
+    operation: { kind: 'set_campaign_archived', archived: true },
+  });
+  assert.equal(archived.ok, true);
+  if (!archived.ok) return;
+  assert.equal(archived.value.document.campaign.status, 'archived');
+  assert.equal(journal.readCampaign(created.value.campaignId, 2).campaign.status, 'active');
+
+  const blocked = await engine.execute(created.value.campaignId, {
+    requestId: 'lifecycle-blocked-edit',
+    expectedRevision: 3,
+    operation: { kind: 'rename_actor', actorId: 'actor-mara', name: 'Changed while archived' },
+  });
+  assert.equal(blocked.ok, false);
+  if (!blocked.ok) assert.equal(blocked.problem.code, 'CAMPAIGN_ARCHIVED');
+
+  const restored = await engine.execute(created.value.campaignId, {
+    requestId: 'lifecycle-restore',
+    expectedRevision: 3,
+    operation: { kind: 'set_campaign_archived', archived: false },
+  });
+  assert.equal(restored.ok, true);
+  if (!restored.ok) return;
+  assert.equal(restored.value.document.campaign.status, 'active');
+
+  const branched = await engine.branch(created.value.campaignId, {
+    requestId: 'lifecycle-branch',
+    sourceRevision: 2,
+    title: 'A Different Road',
+  });
+  assert.equal(branched.ok, true);
+  if (!branched.ok) return;
+  assert.notEqual(branched.value.campaignId, created.value.campaignId);
+  assert.equal(branched.value.revision, 1);
+  assert.equal(branched.value.document.actors[0]?.id, 'actor-mara');
+  const source = await journal.readAt({ kind: 'branch-source', campaignId: created.value.campaignId, revision: 2 });
+  assert.equal(branched.value.document.campaign.lineage?.sourceCampaignId, created.value.campaignId);
+  assert.equal(branched.value.document.campaign.lineage?.sourceRevision, 2);
+  assert.equal(branched.value.document.campaign.lineage?.sourceEventHash, source.eventHash);
+  assert.equal(branched.value.document.campaign.lineage?.sourceTitle, 'The First Road');
+  assert.equal(journal.readCampaign(created.value.campaignId).campaign.revision, 4);
+
+  const portable = await engine.export(branched.value.campaignId, 'lifecycle-export');
+  assert.equal(portable.ok, true);
+  if (!portable.ok) return;
+  assert.equal(portable.value.schema, 'st-rpg.campaign-export');
+  assert.equal(portable.value.document.campaign.lineage?.sourceRevision, 2);
+  assert.deepEqual(portable.value.historyIndex.map(entry => entry.operationKind), ['branch_campaign']);
+  assert.doesNotMatch(JSON.stringify(portable.value), /prompt|worker|activeJob/i);
+
+  await journal.close();
+  journal = await SqliteCampaignJournal.open(files.databasePath, 2);
+  const restartedBranch = journal.readCampaign(branched.value.campaignId);
+  assert.equal(restartedBranch.campaign.lineage?.sourceCampaignId, created.value.campaignId);
+  assert.equal(restartedBranch.actors[0]?.id, 'actor-mara');
+  journal.verifyOrThrow();
+});
 
 test('Campaign history is durable, idempotent, revisioned, and reconstructable', async t => {
   const files = await fixture();

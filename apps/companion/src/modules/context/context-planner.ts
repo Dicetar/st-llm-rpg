@@ -362,6 +362,13 @@ export class ContextPlanner {
   async plan(request: PreflightContextRequest, signal: AbortSignal): Promise<ContextOutcome> {
     if (signal.aborted) return problem(request.requestId, 'CONTEXT_CANCELLED', 'Context planning was cancelled.');
     const authority = await this.source.readAuthority(request);
+    if (authority.campaign.campaign.status === 'archived') {
+      return problem(
+        request.requestId,
+        'CAMPAIGN_ARCHIVED',
+        'This Campaign is archived. Restore it in Campaign Book before generating narration.',
+      );
+    }
     const focusRevision = authority.binding.contextFocusRevision ?? 1;
     if (
       authority.campaign.campaign.id !== request.campaignId

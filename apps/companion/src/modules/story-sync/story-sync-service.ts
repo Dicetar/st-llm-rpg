@@ -235,6 +235,14 @@ export class StorySyncService {
       throw new CampaignExpectedError('STORY_SYNC_SOURCE_PROOF_MISMATCH', 'The captured chat does not match this Chat Binding.');
     }
     const campaignHead = await this.#authority.readCampaignRevision(binding.campaignId);
+    const campaign = await this.#authority.readCampaign(binding.campaignId, campaignHead);
+    if (campaign.campaign.status === 'archived') {
+      throw new CampaignExpectedError(
+        'CAMPAIGN_ARCHIVED',
+        'This Campaign is archived. Restore it before running Story Updates.',
+        { campaignId: binding.campaignId },
+      );
+    }
     if (campaignHead !== binding.campaignAnchor) {
       throw new CampaignExpectedError(
         'CAMPAIGN_REVISION_CONFLICT',
@@ -298,6 +306,14 @@ export class StorySyncService {
     const job = await this.#journal.readStorySyncJob(jobId);
     const binding = await this.#authority.readBinding(job.bindingId);
     const campaignHead = await this.#authority.readCampaignRevision(job.campaignId);
+    const campaign = await this.#authority.readCampaign(job.campaignId, campaignHead);
+    if (campaign.campaign.status === 'archived') {
+      throw new CampaignExpectedError(
+        'CAMPAIGN_ARCHIVED',
+        'This Campaign is archived. Restore it before resuming Story Updates.',
+        { campaignId: job.campaignId },
+      );
+    }
     const source = await this.#journal.readStorySyncSource(job.id);
     if (
       binding.markerState !== 'verified'
@@ -350,6 +366,13 @@ export class StorySyncService {
       const job = await this.#journal.readStorySyncJob(jobId);
       const profile = await this.#journal.readWorkerModelProfile(job.profileId);
       const campaign = await this.#authority.readCampaign(job.campaignId, job.campaignAnchor);
+      if (campaign.campaign.status === 'archived') {
+        throw new CampaignExpectedError(
+          'CAMPAIGN_ARCHIVED',
+          'This Campaign was archived before Story Updates could run.',
+          { campaignId: job.campaignId },
+        );
+      }
       const source = await this.source(jobId);
       const raw = await this.infer({
         model: profile.modelId,

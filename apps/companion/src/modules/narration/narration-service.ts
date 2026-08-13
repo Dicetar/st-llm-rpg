@@ -275,7 +275,7 @@ function completionContent(value: unknown, requestId: string): {
 
 function planStatus(problem: Problem): number {
   if (problem.code === 'CHAT_BINDING_NOT_FOUND' || problem.code === 'CONTEXT_MODEL_PROFILE_MISSING') return 404;
-  if (problem.code === 'CONTEXT_AUTHORITY_MISMATCH' || problem.code === 'CAMPAIGN_REVISION_CONFLICT') return 409;
+  if (problem.code === 'CONTEXT_AUTHORITY_MISMATCH' || problem.code === 'CAMPAIGN_REVISION_CONFLICT' || problem.code === 'CAMPAIGN_ARCHIVED') return 409;
   if (problem.code === 'CONTEXT_CANCELLED') return 499;
   if (problem.code.startsWith('CONTEXT_')) return 422;
   return 503;

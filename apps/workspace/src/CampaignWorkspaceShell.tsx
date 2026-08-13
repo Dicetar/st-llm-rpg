@@ -82,6 +82,7 @@ export function CampaignCommandDeck(props: {
   hasCurrentScene: boolean;
   busy: boolean;
   readOnly: boolean;
+  historical: boolean;
   onNavigate: (collection: CollectionKey) => void;
 }) {
   const actions: ReadonlyArray<Readonly<{
@@ -121,7 +122,7 @@ export function CampaignCommandDeck(props: {
             campaignId: props.campaignId,
             collection: action.collection,
             recordId: null,
-            revision: props.readOnly ? props.revision : null,
+            revision: props.historical ? props.revision : null,
           };
           return (
             <a
@@ -174,47 +175,65 @@ export function CollectionNavigation(props: {
   bindings: readonly ChatBindingDocument[];
   onNavigate: (route: WorkspaceRoute) => void;
 }) {
-  const entries: ReadonlyArray<Readonly<{ key: CollectionKey; label: string; count?: number }>> = [
-    { key: 'home', label: 'Session Home' },
-    { key: 'actors', label: 'Actors', count: props.document.actors.filter(record => !record.archived).length },
-    { key: 'items', label: 'Items', count: props.document.items.filter(record => !record.archived).length },
-    { key: 'quests', label: 'Quests', count: props.document.quests.filter(record => !record.archived).length },
-    { key: 'places', label: 'Places', count: props.document.places.filter(record => !record.archived).length },
-    { key: 'facts', label: 'Facts', count: (props.document.facts ?? []).filter(record => !record.archived).length },
-    { key: 'world-objects', label: 'Scene Features', count: (props.document.worldObjects ?? []).filter(record => !record.archived).length },
-    { key: 'abilities', label: 'Abilities', count: (props.document.abilities ?? []).filter(record => !record.archived).length },
-    { key: 'relationships', label: 'Relationships', count: (props.document.relationships ?? []).filter(record => !record.archived).length },
-    { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
-    { key: 'review', label: 'Story Updates' },
-    { key: 'context', label: 'Narrator Context', count: props.bindings.reduce((total, binding) => total + (binding.pins?.length ?? 0), 0) },
-    { key: 'guide', label: 'Player Handbook' },
-    { key: 'history', label: 'Change History' },
+  const groups: ReadonlyArray<Readonly<{
+    label: string;
+    entries: ReadonlyArray<Readonly<{ key: CollectionKey; label: string; count?: number }>>;
+  }>> = [
+    { label: 'Play', entries: [
+      { key: 'home', label: 'Session Home' },
+      { key: 'scene', label: 'Current Scene', count: props.document.currentScene ? 1 : 0 },
+    ] },
+    { label: 'Library', entries: [
+      { key: 'actors', label: 'Actors', count: props.document.actors.filter(record => !record.archived).length },
+      { key: 'items', label: 'Items', count: props.document.items.filter(record => !record.archived).length },
+      { key: 'abilities', label: 'Abilities', count: (props.document.abilities ?? []).filter(record => !record.archived).length },
+      { key: 'relationships', label: 'Relationships', count: (props.document.relationships ?? []).filter(record => !record.archived).length },
+      { key: 'quests', label: 'Quests', count: props.document.quests.filter(record => !record.archived).length },
+      { key: 'places', label: 'Places', count: props.document.places.filter(record => !record.archived).length },
+      { key: 'facts', label: 'Facts', count: (props.document.facts ?? []).filter(record => !record.archived).length },
+      { key: 'world-objects', label: 'Scene Features', count: (props.document.worldObjects ?? []).filter(record => !record.archived).length },
+    ] },
+    { label: 'Automation', entries: [
+      { key: 'context', label: 'Narrator Context', count: props.bindings.reduce((total, binding) => total + (binding.pins?.length ?? 0), 0) },
+      { key: 'review', label: 'Story Updates' },
+    ] },
+    { label: 'Campaign', entries: [
+      { key: 'history', label: 'Change History' },
+      { key: 'guide', label: 'Player Handbook' },
+    ] },
   ];
   return (
     <nav className="collection-nav" aria-label="Campaign sections">
-      {entries.map(entry => {
-        const next: WorkspaceRoute = {
-          campaignId: props.route.campaignId,
-          collection: entry.key,
-          recordId: null,
-          revision: props.route.revision,
-        };
-        return (
-          <a
-            href={workspaceHref(next)}
-            key={entry.key}
-            className={props.route.collection === entry.key ? 'collection-tab collection-tab--active' : 'collection-tab'}
-            aria-current={props.route.collection === entry.key ? 'page' : undefined}
-            onClick={event => {
-              event.preventDefault();
-              props.onNavigate(next);
-            }}
-          >
-            <span>{entry.label}</span>
-            {entry.count === undefined ? null : <strong>{entry.count}</strong>}
-          </a>
-        );
-      })}
+      {groups.map(group => (
+        <section className="collection-nav__group" aria-labelledby={`nav-${group.label.toLowerCase()}`} key={group.label}>
+          <h4 id={`nav-${group.label.toLowerCase()}`}>{group.label}</h4>
+          <div className="collection-nav__entries">
+            {group.entries.map(entry => {
+              const next: WorkspaceRoute = {
+                campaignId: props.route.campaignId,
+                collection: entry.key,
+                recordId: null,
+                revision: props.route.revision,
+              };
+              return (
+                <a
+                  href={workspaceHref(next)}
+                  key={entry.key}
+                  className={props.route.collection === entry.key ? 'collection-tab collection-tab--active' : 'collection-tab'}
+                  aria-current={props.route.collection === entry.key ? 'page' : undefined}
+                  onClick={event => {
+                    event.preventDefault();
+                    props.onNavigate(next);
+                  }}
+                >
+                  <span>{entry.label}</span>
+                  {entry.count === undefined ? null : <strong>{entry.count}</strong>}
+                </a>
+              );
+            })}
+          </div>
+        </section>
+      ))}
     </nav>
   );
 }

@@ -262,4 +262,28 @@ test('Story Sync creates a durable editable Proposal without mutating Campaign t
   assert.equal(afterDiscardCampaign.json().campaign.revision, 2, 'discard cannot mutate Campaign truth');
   const afterDiscardBinding = await app.inject({ method: 'GET', url: `/api/chat-bindings/${bindingId}` });
   assert.equal(afterDiscardBinding.json().syncBoundary.throughMessageIndex, 1, 'discard cannot advance the Sync Boundary');
+
+  const archived = await app.inject({
+    method: 'POST', url: `/api/campaigns/${campaignId}/operations`,
+    payload: { requestId: 'story-sync-archive', expectedRevision: 2, operation: { kind: 'set_campaign_archived', archived: true } },
+  });
+  assert.equal(archived.statusCode, 200, archived.body);
+  const archivedStart = await app.inject({
+    method: 'POST', url: '/api/story-sync/jobs',
+    payload: {
+      requestId: 'story-sync-archived', bindingId, profileId: 'worker-default',
+      locator: {
+        version: 1, hostId: 'desktop-host',
+        chat: { kind: 'character', ownerId: locator.avatar, chatId: locator.chatId },
+      },
+      messages: [
+        { index: 0, role: 'player', name: 'Dan', content: 'I take the Silver Key.' },
+        { index: 1, role: 'narrator', name: 'Narrator', content: 'The key settles into your pocket.' },
+        { index: 2, role: 'player', name: 'Dan', content: 'I inspect the next door.' },
+        { index: 3, role: 'narrator', name: 'Narrator', content: 'It remains closed.' },
+      ],
+    },
+  });
+  assert.equal(archivedStart.statusCode, 409, archivedStart.body);
+  assert.equal(archivedStart.json().code, 'CAMPAIGN_ARCHIVED');
 });

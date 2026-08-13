@@ -644,3 +644,69 @@ test('V11 authority receives an automatic backup before Actor Tracker schema mig
   await journal.close();
   assert.equal((await readdir(root)).some(name => name.startsWith('campaigns.sqlite.pre-migration-v12-')), true);
 });
+
+test('V12 authority receives an automatic backup before Campaign lineage schema migration', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'st-rpg-v12-lineage-upgrade-'));
+  const databasePath = join(root, 'campaigns.sqlite');
+  let journal = await SqliteCampaignJournal.open(databasePath);
+  t.after(async () => {
+    try { await journal.close(); } catch { /* already closed */ }
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await acceptCampaignCreate(journal, { requestId: 'v12-campaign', title: 'Before Lineage' });
+  await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'v12-actor', expectedRevision: created.revision,
+    operation: { kind: 'create_actor', actor: { id: 'actor-kept-v12', name: 'Kept V12 Actor' } },
+  });
+  await journal.close();
+
+  const database = new DatabaseSync(databasePath);
+  database.exec(`
+    PRAGMA foreign_keys = OFF;
+    ALTER TABLE campaigns DROP COLUMN lineage_json;
+
+    ALTER TABLE campaign_bases RENAME TO campaign_bases_v13;
+    CREATE TABLE campaign_bases (
+      campaign_id TEXT PRIMARY KEY REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
+      base_kind TEXT NOT NULL CHECK (base_kind IN ('blank', 'legacy_import')),
+      state_schema_version INTEGER NOT NULL,
+      state_json TEXT NOT NULL,
+      state_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    INSERT INTO campaign_bases SELECT * FROM campaign_bases_v13;
+    DROP TABLE campaign_bases_v13;
+
+    ALTER TABLE campaign_event_changes RENAME TO campaign_event_changes_v13;
+    CREATE TABLE campaign_event_changes (
+      event_id TEXT NOT NULL REFERENCES campaign_events(event_id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      subject_kind TEXT NOT NULL CHECK (subject_kind IN (
+        'actor', 'item', 'quest', 'place', 'fact', 'world_object',
+        'ability', 'learned_ability', 'relationship', 'current_scene', 'scene_archive'
+      )),
+      subject_id TEXT NOT NULL,
+      before_schema_version INTEGER,
+      before_image_json TEXT,
+      before_hash TEXT,
+      after_schema_version INTEGER,
+      after_image_json TEXT,
+      after_hash TEXT,
+      PRIMARY KEY (event_id, ordinal)
+    );
+    INSERT INTO campaign_event_changes SELECT * FROM campaign_event_changes_v13;
+    DROP TABLE campaign_event_changes_v13;
+    CREATE INDEX campaign_event_changes_subject ON campaign_event_changes(subject_kind, subject_id);
+    DELETE FROM schema_migrations WHERE version = 13;
+    PRAGMA foreign_keys = ON;
+  `);
+  database.close();
+
+  journal = await SqliteCampaignJournal.open(databasePath);
+  const upgraded = journal.readCampaign(created.campaignId);
+  assert.equal(upgraded.actors[0]?.name, 'Kept V12 Actor');
+  assert.equal(upgraded.campaign.lineage, undefined);
+  journal.verifyOrThrow();
+  await journal.close();
+  assert.equal((await readdir(root)).some(name => name.startsWith('campaigns.sqlite.pre-migration-v13-')), true);
+});

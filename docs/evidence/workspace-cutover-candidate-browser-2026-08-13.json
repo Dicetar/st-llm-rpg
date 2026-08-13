@@ -1,0 +1,39 @@
+{
+  "kind": "workspace-cutover-candidate-browser-evidence",
+  "capturedAt": "2026-08-13",
+  "release": "0.3.0-preview.22",
+  "sanitized": true,
+  "command": "npm run test:player-journey",
+  "environment": {
+    "browser": "installed Google Chrome driven by Playwright",
+    "companionOrigin": "http://127.0.0.1:18102",
+    "authority": "isolated temporary SQLite database",
+    "workspaceAssets": "production build",
+    "sillyTavern": "deterministic chat-source fixture",
+    "workerModel": "deterministic structured-proposal fixture"
+  },
+  "viewports": [
+    { "name": "desktop", "width": 1280, "height": 900, "result": "passed" },
+    { "name": "narrow-browser", "width": 360, "height": 800, "result": "passed" }
+  ],
+  "passed": [
+    "Campaign creation and grouped Play, Library, Automation, and Campaign navigation",
+    "Actor creation and editing through Campaign Book",
+    "Current Scene creation and one-operation Scene advance",
+    "explicit saved-chat Binding",
+    "stale Campaign mutation rejected with HTTP 409",
+    "Narrator Context profile save and deterministic Context Plan inspection",
+    "durable Story Update analysis, human acceptance, and one reviewed apply",
+    "portable current Campaign JSON download",
+    "branch from accepted revision with visible source lineage",
+    "Campaign archive and restore",
+    "360 CSS pixel Campaign Book has no horizontal overflow"
+  ],
+  "boundaries": [
+    "No production Campaign data was read or mutated.",
+    "No real narrator or worker model call was made in this journey.",
+    "The existing separate real LM Studio and pinned-SillyTavern evidence remains authoritative for those boundaries.",
+    "This is browser automation at a 360px viewport, not physical-phone acceptance.",
+    "Full portable Campaign JSON re-import remains unimplemented."
+  ]
+}

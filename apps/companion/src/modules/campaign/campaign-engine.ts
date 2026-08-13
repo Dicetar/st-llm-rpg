@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  BranchCampaignRequest,
   CampaignCommit,
   CampaignCommitPerformance,
   CampaignDocument,
+  CampaignExport,
   CampaignHistoryEntry,
   CampaignOperation,
   CampaignSummary,
@@ -33,6 +35,7 @@ import {
   cleanText,
   normalizeCampaignDocument,
   sha256,
+  stateFromDocument,
   subjectChangesForOperation,
   subjectEventHash,
   type CampaignState,
@@ -63,6 +66,9 @@ function actionsFor(error: CampaignExpectedError): readonly RecoveryAction[] {
   }
   if (error.code === 'CAMPAIGN_REQUEST_CONFLICT') {
     return [{ id: 'new-request', label: 'Retry with a new request ID', kind: 'retry' }];
+  }
+  if (error.code === 'CAMPAIGN_ARCHIVED') {
+    return [{ id: 'restore-campaign', label: 'Open Campaign Book and restore the Campaign', kind: 'open-url', target: '/' }];
   }
   if (error.code === 'CAMPAIGN_HISTORY_CORRUPT' || error.code === 'CAMPAIGN_STORE_UNAVAILABLE') {
     return [{ id: 'inspect-terminal', label: 'Inspect the companion terminal and restore a verified backup', kind: 'inspect' }];
@@ -208,6 +214,111 @@ export class CampaignEngine {
     return outcome;
   }
 
+  async branch(sourceCampaignId: string, request: BranchCampaignRequest): Promise<Outcome<CampaignCommit>> {
+    const outcome = normalizeCommitOutcome(
+      await this.capture(request.requestId, async () => {
+        const sourceId = cleanIdentifier(sourceCampaignId, 'Source Campaign ID');
+        const requestId = cleanIdentifier(request.requestId, 'Request ID');
+        const title = cleanText(request.title, 'Campaign title', 160);
+        if (!Number.isInteger(request.sourceRevision) || request.sourceRevision < 1) {
+          throw new CampaignExpectedError(
+            'CAMPAIGN_VALIDATION_FAILED',
+            'Source revision must be a positive integer.',
+            { sourceRevision: request.sourceRevision },
+          );
+        }
+        const source = await this.#journal.readAt({
+          kind: 'branch-source',
+          campaignId: sourceId,
+          revision: request.sourceRevision,
+        });
+        const requestHash = sha256({
+          kind: 'branch_campaign',
+          sourceCampaignId: sourceId,
+          sourceRevision: request.sourceRevision,
+          title,
+        });
+        return this.#journal.transact(transaction => {
+          const receipt = this.acceptReceipt(transaction, requestId, requestHash);
+          if (receipt) {
+            return readAfterJournalTransaction({
+              kind: 'campaign',
+              campaignId: receipt.campaignId,
+              revision: receipt.revision,
+            }, document => ({ ...receipt, idempotent: true, document }));
+          }
+
+          const campaignId = randomUUID();
+          const eventId = randomUUID();
+          const committedAt = new Date().toISOString();
+          const state = stateFromDocument(source.document);
+          state.campaign = {
+            id: campaignId,
+            title,
+            status: 'active',
+            revision: 1,
+            createdAt: committedAt,
+            updatedAt: committedAt,
+            lineage: {
+              sourceCampaignId: sourceId,
+              sourceRevision: request.sourceRevision,
+              sourceEventHash: source.eventHash,
+              sourceTitle: source.document.campaign.title,
+            },
+          };
+          const baseState: CampaignState = {
+            ...structuredClone(state),
+            campaign: { ...state.campaign, revision: 0 },
+          };
+          const operation = {
+            kind: 'branch_campaign',
+            sourceCampaignId: sourceId,
+            sourceRevision: request.sourceRevision,
+            sourceEventHash: source.eventHash,
+            title,
+          };
+          const eventHash = subjectEventHash({
+            campaignId,
+            revision: 1,
+            eventId,
+            requestId,
+            operationKind: operation.kind,
+            operation,
+            acceptedAt: committedAt,
+            previousEventHash: null,
+            baseStateHash: sha256(baseState),
+            changes: [],
+          });
+          const commit: CampaignCommit = {
+            campaignId,
+            revision: 1,
+            eventId,
+            requestId,
+            operationKind: operation.kind,
+            affectedIds: [campaignId],
+            committedAt,
+            idempotent: false,
+            document: asDocument(state),
+          };
+          transaction.append({
+            kind: 'create',
+            baseKind: 'branch',
+            requestId,
+            requestHash,
+            operation,
+            baseState,
+            afterState: state,
+            eventHash,
+            commit: asReceipt(commit),
+          });
+          return completeJournalTransaction(commit);
+        });
+      }),
+    );
+    this.publishCommit(outcome);
+    return outcome;
+  }
+
   async read(campaignId: string, requestId: string, revision?: number): Promise<Outcome<CampaignDocument>> {
     return this.capture(requestId, () => this.#journal.readAt({
       kind: 'campaign',
@@ -218,6 +329,20 @@ export class CampaignEngine {
 
   async history(campaignId: string, requestId: string): Promise<Outcome<CampaignHistoryEntry[]>> {
     return this.capture(requestId, () => this.#journal.readAt({ kind: 'history', campaignId }));
+  }
+
+  async export(campaignId: string, requestId: string): Promise<Outcome<CampaignExport>> {
+    return this.capture(requestId, async () => {
+      const id = cleanIdentifier(campaignId, 'Campaign ID');
+      const source = await this.#journal.readAt({ kind: 'campaign-export', campaignId: id });
+      return {
+        schema: 'st-rpg.campaign-export',
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        document: normalizeCampaignDocument(source.document),
+        historyIndex: source.historyIndex,
+      };
+    });
   }
 
   async execute(campaignId: string, request: ExecuteCampaignRequest): Promise<Outcome<CampaignCommit>> {

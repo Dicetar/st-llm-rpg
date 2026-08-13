@@ -177,6 +177,14 @@ export const CampaignSceneArchiveSchema = Type.Object({
 }, { additionalProperties: false });
 export type CampaignSceneArchive = Static<typeof CampaignSceneArchiveSchema>;
 
+export const CampaignLineageSchema = Type.Object({
+  sourceCampaignId: Identifier,
+  sourceRevision: Type.Integer({ minimum: 1 }),
+  sourceEventHash: Type.String({ minLength: 64, maxLength: 64, pattern: '^[a-f0-9]{64}$' }),
+  sourceTitle: Title,
+}, { additionalProperties: false });
+export type CampaignLineage = Static<typeof CampaignLineageSchema>;
+
 export const CampaignSummarySchema = Type.Object({
   id: Identifier,
   title: Title,
@@ -184,6 +192,7 @@ export const CampaignSummarySchema = Type.Object({
   revision: Type.Integer({ minimum: 1 }),
   createdAt: Timestamp,
   updatedAt: Timestamp,
+  lineage: Type.Optional(CampaignLineageSchema),
 }, { additionalProperties: false });
 export type CampaignSummary = Static<typeof CampaignSummarySchema>;
 
@@ -208,6 +217,13 @@ export const CreateCampaignRequestSchema = Type.Object({
   title: Title,
 }, { additionalProperties: false });
 export type CreateCampaignRequest = Static<typeof CreateCampaignRequestSchema>;
+
+export const BranchCampaignRequestSchema = Type.Object({
+  requestId: RequestId,
+  sourceRevision: Type.Integer({ minimum: 1 }),
+  title: Title,
+}, { additionalProperties: false });
+export type BranchCampaignRequest = Static<typeof BranchCampaignRequestSchema>;
 
 const NewActorSchema = Type.Object({
   id: Type.Optional(Identifier),
@@ -298,6 +314,10 @@ const NewRelationshipSchema = Type.Object({
 }, { additionalProperties: false });
 
 export const CampaignOperationSchema = Type.Union([
+  Type.Object({
+    kind: Type.Literal('set_campaign_archived'),
+    archived: Type.Boolean(),
+  }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('create_actor'),
     actor: NewActorSchema,
@@ -581,6 +601,15 @@ export const CampaignHistoryEntrySchema = Type.Object({
   committedAt: Timestamp,
 }, { additionalProperties: false });
 export type CampaignHistoryEntry = Static<typeof CampaignHistoryEntrySchema>;
+
+export const CampaignExportSchema = Type.Object({
+  schema: Type.Literal('st-rpg.campaign-export'),
+  version: Type.Literal('1.0'),
+  exportedAt: Timestamp,
+  document: CampaignDocumentSchema,
+  historyIndex: Type.Array(CampaignHistoryEntrySchema),
+}, { additionalProperties: false });
+export type CampaignExport = Static<typeof CampaignExportSchema>;
 
 export const CampaignInvalidationSchema = Type.Object({
   schema: Type.Literal('st-rpg.campaign-invalidation'),

@@ -67,6 +67,10 @@ import {
   CAMPAIGN_ACTOR_TRACKERS_MIGRATION,
   campaignActorTrackersMigrationChecksum,
 } from '../../migrations/012-campaign-actor-trackers.js';
+import {
+  CAMPAIGN_LINEAGE_MIGRATION,
+  campaignLineageMigrationChecksum,
+} from '../../migrations/013-campaign-lineage.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -80,7 +84,9 @@ import {
   type CampaignSubjectChange,
 } from '../../modules/campaign/campaign-state.js';
 import type {
+  CampaignBranchSource,
   CampaignCommitReceipt,
+  CampaignExportSource,
   CampaignJournal,
   CampaignJournalAppend,
   CampaignJournalBackupRequest,
@@ -1194,7 +1200,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
 
   listCampaigns(): CampaignSummary[] {
     const rows = this.#database.prepare(`
-      SELECT campaign_id, title, status, current_revision, created_at, updated_at
+      SELECT campaign_id, title, status, current_revision, lineage_json, created_at, updated_at
       FROM campaigns ORDER BY updated_at DESC, campaign_id ASC
     `).all() as Omit<CampaignRow, 'current_state_json' | 'head_event_hash'>[];
     return rows.map(row => ({
@@ -1204,6 +1210,9 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       revision: Number(row.current_revision),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      ...(row.lineage_json == null
+        ? {}
+        : { lineage: parseJson<NonNullable<CampaignSummary['lineage']>>(row.lineage_json) }),
     }));
   }
 
@@ -1365,6 +1374,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       { ...CAMPAIGN_WORLD_RECORDS_MIGRATION, checksum: campaignWorldRecordsMigrationChecksum() },
       { ...CAMPAIGN_SCENE_ARCHIVES_MIGRATION, checksum: campaignSceneArchivesMigrationChecksum() },
       { ...CAMPAIGN_ACTOR_TRACKERS_MIGRATION, checksum: campaignActorTrackersMigrationChecksum() },
+      { ...CAMPAIGN_LINEAGE_MIGRATION, checksum: campaignLineageMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
@@ -1476,14 +1486,35 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
   }
 
   private async performRead<R extends CampaignJournalRead>(request: R): Promise<CampaignJournalReadResult<R>> {
-    let result: CampaignDocument | CampaignSummary[] | CampaignHistoryEntry[] | CampaignCommitPerformance;
+    let result: CampaignDocument | CampaignSummary[] | CampaignHistoryEntry[] | CampaignBranchSource | CampaignExportSource | CampaignCommitPerformance;
     if (request.kind === 'campaign-list') result = this.listCampaigns();
     else if (request.kind === 'campaign') {
       result = request.revision === undefined
         ? this.readCampaign(request.campaignId)
         : await this.#revisionReader(this.databasePath, request.campaignId, request.revision);
     } else if (request.kind === 'history') result = this.history(request.campaignId);
-    else result = this.performance();
+    else if (request.kind === 'branch-source') {
+      const campaign = this.requireCampaign(request.campaignId);
+      const document = request.revision === Number(campaign.current_revision)
+        ? this.readCampaign(request.campaignId)
+        : await this.#revisionReader(this.databasePath, request.campaignId, request.revision);
+      const event = this.#database.prepare(`
+        SELECT event_hash FROM campaign_events WHERE campaign_id = ? AND revision = ?
+      `).get(request.campaignId, request.revision) as { event_hash: string } | undefined;
+      if (!event) {
+        throw new CampaignExpectedError(
+          'CAMPAIGN_REVISION_NOT_FOUND',
+          `Campaign revision ${request.revision} was not found.`,
+          { campaignId: request.campaignId, revision: request.revision },
+        );
+      }
+      result = { document, eventHash: event.event_hash };
+    } else if (request.kind === 'campaign-export') {
+      result = {
+        document: this.readCampaign(request.campaignId),
+        historyIndex: this.history(request.campaignId),
+      };
+    } else result = this.performance();
     return result as CampaignJournalReadResult<R>;
   }
 
@@ -1746,8 +1777,8 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
     const { commit } = input;
     if (input.kind === 'create') {
       this.#database.prepare(`
-        INSERT INTO campaigns(campaign_id, title, status, current_revision, current_state_json, head_event_hash, created_at, updated_at)
-        VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+        INSERT INTO campaigns(campaign_id, title, status, current_revision, current_state_json, head_event_hash, created_at, updated_at, lineage_json)
+        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
       `).run(
         commit.campaignId,
         input.afterState.campaign.title,
@@ -1756,6 +1787,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
         input.eventHash,
         commit.committedAt,
         commit.committedAt,
+        input.afterState.campaign.lineage === undefined ? null : canonicalJson(input.afterState.campaign.lineage),
       );
       this.insertBase(commit.campaignId, input.baseKind, input.baseState, commit.committedAt);
       this.insertSubjectEvent({
@@ -1789,7 +1821,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       this.inject('execute.after-event');
       applyCurrentCampaignProjectionChanges(this.#database, commit.campaignId, input.changes);
       this.#database.prepare(`
-        UPDATE campaigns SET title = ?, status = ?, current_revision = ?, head_event_hash = ?, updated_at = ?
+        UPDATE campaigns SET title = ?, status = ?, current_revision = ?, head_event_hash = ?, updated_at = ?, lineage_json = ?
         WHERE campaign_id = ?
       `).run(
         input.afterState.campaign.title,
@@ -1797,6 +1829,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
         commit.revision,
         input.eventHash,
         commit.committedAt,
+        input.afterState.campaign.lineage === undefined ? null : canonicalJson(input.afterState.campaign.lineage),
         commit.campaignId,
       );
       this.inject('execute.after-projection');
@@ -1811,7 +1844,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       .run(requestId, digest, commit.campaignId, canonicalJson(stored), createdAt);
   }
 
-  private insertBase(campaignId: string, baseKind: 'blank' | 'legacy_import', state: CampaignState, createdAt: string): void {
+  private insertBase(campaignId: string, baseKind: 'blank' | 'legacy_import' | 'branch', state: CampaignState, createdAt: string): void {
     this.#database.prepare(`
       INSERT INTO campaign_bases(campaign_id, base_kind, state_schema_version, state_json, state_hash, created_at)
       VALUES (?, ?, ?, ?, ?, ?)

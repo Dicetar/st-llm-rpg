@@ -125,6 +125,17 @@ Every record has a visibility choice:
 
 Every accepted Campaign change advances immutable history. A stale tab cannot overwrite a newer revision.
 
+## Finish, fork, or carry a Campaign elsewhere
+
+Open **Session Home**, then use **Lifecycle & portability**.
+
+- **Archive Campaign** pauses editing, linked narration, and Story Updates without deleting anything. The Campaign moves into the collapsed archived list and remains readable, exportable, and branchable.
+- **Restore Campaign** returns an archived Campaign to normal play. Archive and restore are accepted Campaign changes and appear in history.
+- **Create branch** makes a new active Campaign from the exact accepted revision you choose. Existing record IDs and source lineage are retained so the fork is explainable. Chat links, context pins, Story Update jobs, and drafts are not copied; link the new Campaign deliberately.
+- **Export Campaign JSON** downloads current canonical Campaign truth, lineage, and the accepted history index. Prompts, generated prose, jobs, drafts, and diagnostics are excluded.
+
+The exported JSON is currently for inspection, exchange, and external backup. Full Campaign re-import from that export is not implemented yet. Use verified SQLite backups for exact disaster recovery, and use the reviewed JSON addon inbox for additive external authoring.
+
 ## When generation or editing is blocked
 
 ### “Campaign changed since this chat last followed it”

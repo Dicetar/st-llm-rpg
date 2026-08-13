@@ -25,6 +25,7 @@ function statusFor(code: ProblemCode): number {
   if (code === 'CAMPAIGN_VALIDATION_FAILED') return 422;
   if (
     code === 'CAMPAIGN_REVISION_CONFLICT'
+    || code === 'CAMPAIGN_ARCHIVED'
     || code === 'STORY_SYNC_ALREADY_PENDING'
     || code === 'STORY_SYNC_PROPOSAL_REVISION_CONFLICT'
     || code === 'STORY_SYNC_REVIEW_LOCKED'

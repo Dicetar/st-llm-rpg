@@ -13,6 +13,8 @@ import { buildStatusCards } from './status-model.js';
 export {
   CampaignCommandDeck,
   CampaignHistoryView,
+  CampaignLifecyclePanel,
+  CollectionNavigation,
   RecordEditor,
   LearnedAbilitiesPanel,
   RelationshipsPanel,

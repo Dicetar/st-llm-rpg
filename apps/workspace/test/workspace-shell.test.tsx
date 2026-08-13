@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   CampaignCommandDeck,
+  CampaignLifecyclePanel,
   CampaignBookView,
   CampaignHistoryView,
   CampaignCollectionCreator,
@@ -12,6 +13,7 @@ import {
   WorkspaceRouteState,
   LegacyImportPreviewCard,
   ContextTray,
+  CollectionNavigation,
   NarrationStatusPanel,
   RecordEditor,
   LearnedAbilitiesPanel,
@@ -399,6 +401,7 @@ test('Quick Actions expose common Campaign actions without leaving the current C
     hasCurrentScene={false}
     busy={false}
     readOnly={false}
+    historical={false}
     onNavigate={() => undefined}
   />);
 
@@ -412,6 +415,53 @@ test('Quick Actions expose common Campaign actions without leaving the current C
   assert.match(html, /Revision 7/);
   assert.match(html, /\/campaigns\/campaign-1\/actors/);
   assert.match(html, /\/campaigns\/campaign-1\/history/);
+});
+
+test('Campaign sections are grouped around play, library, automation, and lifecycle work', () => {
+  const now = new Date().toISOString();
+  const document = {
+    campaign: { id: 'campaign-1', title: 'House Harcourt', status: 'active' as const, revision: 7, createdAt: now, updatedAt: now },
+    actors: [], items: [], quests: [], places: [], currentScene: null,
+  };
+  const html = renderToStaticMarkup(<CollectionNavigation
+    route={{ campaignId: 'campaign-1', collection: 'home', recordId: null, revision: null }}
+    document={document}
+    bindings={[]}
+    onNavigate={() => undefined}
+  />);
+  assert.match(html, /<h4 id="nav-play">Play<\/h4>/);
+  assert.match(html, /<h4 id="nav-library">Library<\/h4>/);
+  assert.match(html, /<h4 id="nav-automation">Automation<\/h4>/);
+  assert.match(html, /<h4 id="nav-campaign">Campaign<\/h4>/);
+  assert.ok(html.indexOf('Session Home') < html.indexOf('Actors'));
+  assert.ok(html.indexOf('Narrator Context') < html.indexOf('Change History'));
+});
+
+test('Campaign lifecycle explains archive, explicit branching, lineage, and content-safe export', () => {
+  const now = new Date().toISOString();
+  const html = renderToStaticMarkup(<CampaignLifecyclePanel
+    document={{
+      campaign: {
+        id: 'campaign-branch', title: 'A Different Road', status: 'active', revision: 4,
+        createdAt: now, updatedAt: now,
+        lineage: { sourceCampaignId: 'campaign-source', sourceRevision: 2, sourceEventHash: 'a'.repeat(64), sourceTitle: 'The First Road' },
+      },
+      actors: [], items: [], quests: [], places: [], currentScene: null,
+    }}
+    sourceRevision={4}
+    historical={false}
+    busy={false}
+    onArchiveChange={async () => undefined}
+    onBranch={async () => undefined}
+    onExport={async () => undefined}
+  />);
+  assert.match(html, /Lifecycle &amp; portability/);
+  assert.match(html, /Archive Campaign/);
+  assert.match(html, /Source revision/);
+  assert.match(html, /Create branch/);
+  assert.match(html, /Branched from <strong>The First Road<\/strong> at revision 2/);
+  assert.match(html, /Export Campaign JSON/);
+  assert.match(html, /Drafts, prompts, jobs, and diagnostics are excluded/);
 });
 
 test('legacy import preview makes preserved and unsupported data explicit before mutation', () => {
@@ -789,7 +839,7 @@ test('narrow CSS prevents horizontal overflow and keeps routed controls touch-si
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /\.authority-layout \{ grid-template-columns: 1fr; \}/);
   assert.match(css, /\.campaign-detail \{ order: -1; \}/);
-  assert.match(css, /\.collection-nav \{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /\.status-grid, \.collection-nav, \.collection-nav__entries \{ grid-template-columns: 1fr; \}/);
   assert.match(css, /\.command-deck__actions \{ grid-template-columns: 1fr; \}/);
   assert.match(css, /\.guide-setup, \.guide-collection-grid \{ grid-template-columns: 1fr; \}/);
   assert.match(css, /\.guide-principle \{ grid-template-columns: 1fr; \}/);

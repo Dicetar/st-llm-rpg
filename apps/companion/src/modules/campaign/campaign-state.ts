@@ -34,8 +34,8 @@ export type CampaignState = {
   sceneArchives?: Record<string, CampaignSceneArchive>;
 };
 
-export type CampaignSubjectKind = 'actor' | 'item' | 'quest' | 'place' | 'fact' | 'world_object' | 'ability' | 'learned_ability' | 'relationship' | 'current_scene' | 'scene_archive';
-export type CampaignSubjectImage = CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignFact | CampaignWorldObject | CampaignAbility | CampaignLearnedAbility | CampaignRelationship | CampaignScene | CampaignSceneArchive | null;
+export type CampaignSubjectKind = 'campaign' | 'actor' | 'item' | 'quest' | 'place' | 'fact' | 'world_object' | 'ability' | 'learned_ability' | 'relationship' | 'current_scene' | 'scene_archive';
+export type CampaignSubjectImage = CampaignSummary | CampaignActor | CampaignItem | CampaignQuest | CampaignPlace | CampaignFact | CampaignWorldObject | CampaignAbility | CampaignLearnedAbility | CampaignRelationship | CampaignScene | CampaignSceneArchive | null;
 export type CampaignSubjectChange = Readonly<{
   subjectKind: CampaignSubjectKind;
   subjectId: string;
@@ -224,6 +224,24 @@ function requirePlace(state: CampaignState, placeId: string): CampaignPlace {
   const place = state.places?.[id];
   if (!place) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Place ${id} was not found.`, { placeId: id });
   return place;
+}
+
+export function stateFromDocument(document: CampaignDocument): CampaignState {
+  const normalized = normalizeCampaignDocument(document);
+  return normalizeCampaignState({
+    campaign: structuredClone(normalized.campaign),
+    actors: Object.fromEntries(normalized.actors.map(record => [record.id, structuredClone(record)])),
+    items: Object.fromEntries(normalized.items.map(record => [record.id, structuredClone(record)])),
+    quests: Object.fromEntries(normalized.quests.map(record => [record.id, structuredClone(record)])),
+    places: Object.fromEntries(normalized.places.map(record => [record.id, structuredClone(record)])),
+    facts: Object.fromEntries((normalized.facts ?? []).map(record => [record.id, structuredClone(record)])),
+    worldObjects: Object.fromEntries((normalized.worldObjects ?? []).map(record => [record.id, structuredClone(record)])),
+    abilities: Object.fromEntries((normalized.abilities ?? []).map(record => [record.id, structuredClone(record)])),
+    learnedAbilities: Object.fromEntries((normalized.learnedAbilities ?? []).map(record => [record.id, structuredClone(record)])),
+    relationships: Object.fromEntries((normalized.relationships ?? []).map(record => [record.id, structuredClone(record)])),
+    currentScene: normalized.currentScene ? structuredClone(normalized.currentScene) : null,
+    sceneArchives: Object.fromEntries((normalized.sceneArchives ?? []).map(record => [record.id, structuredClone(record)])),
+  });
 }
 
 function cleanTrackerValue(value: number, field: string): number {
@@ -506,6 +524,7 @@ export function subjectImageAt(
   subjectKind: CampaignSubjectKind,
   subjectId: string,
 ): CampaignSubjectImage {
+  if (subjectKind === 'campaign') return structuredClone(state.campaign);
   if (subjectKind === 'actor') return structuredClone(state.actors[subjectId] ?? null);
   if (subjectKind === 'item') return structuredClone(state.items[subjectId] ?? null);
   if (subjectKind === 'quest') return structuredClone(state.quests?.[subjectId] ?? null);
@@ -526,7 +545,9 @@ export function subjectChangesForOperation(
   affectedIds: readonly string[],
 ): CampaignSubjectChange[] {
   let subjects: Array<readonly [CampaignSubjectKind, string]>;
-  if (operation.kind === 'create_actor_with_item') {
+  if (operation.kind === 'set_campaign_archived') {
+    subjects = [['campaign', beforeState.campaign.id]];
+  } else if (operation.kind === 'create_actor_with_item') {
     const [actorId, itemId] = affectedIds;
     if (!actorId || !itemId) throw new Error('Campaign Operation create_actor_with_item produced incomplete subjects.');
     subjects = [['actor', actorId], ['item', itemId]];
@@ -568,6 +589,11 @@ export function applySubjectChanges(
   acceptedAt: string,
 ): void {
   for (const change of changes) {
+    if (change.subjectKind === 'campaign') {
+      if (change.afterImage === null) throw new Error('Campaign lifecycle Event cannot remove the Campaign subject.');
+      state.campaign = structuredClone(change.afterImage as CampaignSummary);
+      continue;
+    }
     if (change.subjectKind === 'actor') {
       if (change.afterImage === null) delete state.actors[change.subjectId];
       else state.actors[change.subjectId] = structuredClone(change.afterImage as CampaignActor);
@@ -634,6 +660,26 @@ export function applySubjectChanges(
 }
 
 export function applyOperation(state: CampaignState, operation: CampaignOperation, acceptedAt: string): string[] {
+  if (state.campaign.status === 'archived'
+    && !(operation.kind === 'set_campaign_archived' && operation.archived === false)) {
+    throw new CampaignExpectedError(
+      'CAMPAIGN_ARCHIVED',
+      'This Campaign is archived. Restore it before changing Campaign truth.',
+      { campaignId: state.campaign.id },
+    );
+  }
+  if (operation.kind === 'set_campaign_archived') {
+    const nextStatus = operation.archived ? 'archived' : 'active';
+    if (state.campaign.status === nextStatus) {
+      throw new CampaignExpectedError(
+        'CAMPAIGN_VALIDATION_FAILED',
+        `Campaign is already ${nextStatus}.`,
+        { campaignId: state.campaign.id, status: nextStatus },
+      );
+    }
+    state.campaign = { ...state.campaign, status: nextStatus, updatedAt: acceptedAt };
+    return [state.campaign.id];
+  }
   if (operation.kind === 'create_actor') {
     const id = requireUnusedId(state, operation.actor.id, 'Actor ID');
     state.actors[id] = {
