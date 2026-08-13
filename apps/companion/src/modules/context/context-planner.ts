@@ -62,6 +62,7 @@ type ContextRecord = Readonly<{
   relationshipLabel?: string;
   subjectLabel?: string;
   placeLabel?: string;
+  trackerLabels?: readonly string[];
 }>;
 
 const INSTRUCTION_OVERHEAD_TOKENS = 128;
@@ -124,6 +125,9 @@ function recordsOf(document: CampaignDocument): ContextRecord[] {
     summary: record.summary,
     visibility: visibilityOf(record),
     archived: record.archived,
+    trackerLabels: (record.trackers ?? []).map(tracker => (
+      `${tracker.label}: ${tracker.current}${tracker.maximum === undefined ? '' : `/${tracker.maximum}`}${tracker.notes ? ` (${tracker.notes})` : ''}`
+    )),
     relations: [...new Set([...(abilityIdsByActor.get(record.id) ?? []), ...(relationIdsByActor.get(record.id) ?? []), ...(factIdsBySubject.get(record.id) ?? [])])],
   }));
   const items = document.items.map((record: CampaignItem): ContextRecord => ({
@@ -261,7 +265,8 @@ function renderRecord(record: ContextRecord): string {
   const relationship = record.relationshipLabel ? `\n${record.relationshipLabel}` : '';
   const subject = record.subjectLabel ? `\nAbout: ${record.subjectLabel}` : '';
   const place = record.placeLabel ? `\nPlace: ${record.placeLabel}` : '';
-  return `${record.kind.replace('_', ' ').toUpperCase()}: ${record.name}${category}${aliases}${relationship}${subject}${place}${record.summary ? `\n${record.summary}` : ''}${learning}`;
+  const trackers = record.trackerLabels?.length ? `\nLive trackers: ${record.trackerLabels.join('; ')}` : '';
+  return `${record.kind.replace('_', ' ').toUpperCase()}: ${record.name}${category}${aliases}${relationship}${subject}${place}${record.summary ? `\n${record.summary}` : ''}${learning}${trackers}`;
 }
 
 function fitToTokenBudget(value: string, maximumTokens: number): string {

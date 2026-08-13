@@ -46,6 +46,7 @@ function recordResult(
     aliases?: readonly string[];
     archived: boolean;
     visibility?: NarratorVisibility;
+    trackers?: CampaignDocument['actors'][number]['trackers'];
   }>,
   meta: string,
 ): CampaignSearchResult {
@@ -59,7 +60,16 @@ function recordResult(
     meta,
     archived: record.archived,
     visibility: record.visibility ?? 'known',
-    searchText: [record.name, ...(record.aliases ?? []), record.summary, meta, kind].join('\n'),
+    searchText: [
+      record.name,
+      ...(record.aliases ?? []),
+      record.summary,
+      ...(record.trackers ?? []).map(tracker => (
+        `${tracker.label} ${tracker.current}${tracker.maximum === undefined ? '' : ` ${tracker.maximum}`} ${tracker.notes ?? ''}`
+      )),
+      meta,
+      kind,
+    ].join('\n'),
   };
 }
 
@@ -73,7 +83,12 @@ export function campaignSearchResults(
   const actorNames = new Map(document.actors.map(actor => [actor.id, actor.name]));
   const placeNames = new Map(document.places.map(place => [place.id, place.name]));
   const results: CampaignSearchResult[] = [
-    ...document.actors.map(record => recordResult('actors', 'Actor', record, record.archived ? 'Archived' : 'Active')),
+    ...document.actors.map(record => recordResult(
+      'actors',
+      'Actor',
+      record,
+      [record.archived ? 'Archived' : 'Active', record.trackers?.length ? `${record.trackers.length} tracker${record.trackers.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' Â· '),
+    )),
     ...document.items.map(record => recordResult(
       'items',
       'Item',

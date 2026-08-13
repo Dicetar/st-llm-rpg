@@ -107,4 +107,18 @@ test('Campaign documents and commits validate routed record collections', () => 
     worldObjects: [{ ...document.worldObjects[0]!, placeId: '' }],
   }), false);
   assert.equal(isCampaignCommit({ ...commit, document: { ...document, actors: [{ id: '', name: '', summary: '', archived: false }] } }), false);
+  assert.equal(isCampaignDocument({
+    ...document,
+    actors: [{
+      id: 'actor-1', name: 'Mara', summary: 'The heir.', archived: false,
+      trackers: [{ id: 'health', label: 'Health', current: 7, maximum: 10, notes: 'Wounded' }],
+    }],
+  }), true);
+  assert.equal(isCampaignDocument({
+    ...document,
+    actors: [{
+      id: 'actor-1', name: 'Mara', summary: 'The heir.', archived: false,
+      trackers: [{ id: 'health', label: 'Health', current: 7.5 }],
+    }],
+  }), false);
 });

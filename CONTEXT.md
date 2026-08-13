@@ -78,6 +78,10 @@ _Avoid_: Entity, content object, card
 A person or creature with a persistent identity. Player Character and NPC are Actor roles rather than unrelated record shapes.
 _Avoid_: Cast entry, character blob
 
+**Actor Tracker**:
+A named numeric value owned by one Actor, with a stable ID, current value, optional maximum, and notes. It represents changing table state such as health, currency, charges, or reputation without hardcoding one game system.
+_Avoid_: Fact, custom field, universal rules engine
+
 **Player Character**:
 The Actor directly represented by the solo player in the Campaign.
 _Avoid_: User, persona

@@ -18,12 +18,27 @@ const NarratorVisibility = Type.Union([
   Type.Literal('campaign_private'),
 ]);
 
+const TrackerValue = Type.Integer({ minimum: -1_000_000_000, maximum: 1_000_000_000 });
+const TrackerNotes = Type.String({ maxLength: 500 });
+
+export const CampaignActorTrackerSchema = Type.Object({
+  id: Identifier,
+  label: Title,
+  current: TrackerValue,
+  maximum: Type.Optional(TrackerValue),
+  notes: Type.Optional(TrackerNotes),
+}, { additionalProperties: false });
+export type CampaignActorTracker = Static<typeof CampaignActorTrackerSchema>;
+
+const CampaignActorTrackersSchema = Type.Array(CampaignActorTrackerSchema, { maxItems: 32 });
+
 export const CampaignActorSchema = Type.Object({
   id: Identifier,
   name: Title,
   aliases: Type.Optional(Aliases),
   summary: Summary,
   visibility: Type.Optional(NarratorVisibility),
+  trackers: Type.Optional(CampaignActorTrackersSchema),
   archived: Type.Boolean(),
 }, { additionalProperties: false });
 export type CampaignActor = Static<typeof CampaignActorSchema>;
@@ -200,6 +215,13 @@ const NewActorSchema = Type.Object({
   aliases: Type.Optional(Aliases),
   summary: Type.Optional(Summary),
   visibility: Type.Optional(NarratorVisibility),
+  trackers: Type.Optional(Type.Array(Type.Object({
+    id: Type.Optional(Identifier),
+    label: Title,
+    current: Type.Optional(TrackerValue),
+    maximum: Type.Optional(TrackerValue),
+    notes: Type.Optional(TrackerNotes),
+  }, { additionalProperties: false }), { maxItems: 32 })),
 }, { additionalProperties: false });
 
 const NewItemSchema = Type.Object({
@@ -464,6 +486,37 @@ export const CampaignOperationSchema = Type.Union([
     status: CampaignRelationshipStatusSchema,
     notes: Summary,
     visibility: Type.Optional(NarratorVisibility),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('create_actor_tracker'),
+    actorId: Identifier,
+    tracker: Type.Object({
+      id: Type.Optional(Identifier),
+      label: Title,
+      current: Type.Optional(TrackerValue),
+      maximum: Type.Optional(TrackerValue),
+      notes: Type.Optional(TrackerNotes),
+    }, { additionalProperties: false }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('update_actor_tracker'),
+    actorId: Identifier,
+    trackerId: Identifier,
+    label: Title,
+    current: TrackerValue,
+    maximum: Type.Optional(Type.Union([TrackerValue, Type.Null()])),
+    notes: TrackerNotes,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('adjust_actor_tracker'),
+    actorId: Identifier,
+    trackerId: Identifier,
+    delta: Type.Integer({ minimum: -1_000_000, maximum: 1_000_000 }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('remove_actor_tracker'),
+    actorId: Identifier,
+    trackerId: Identifier,
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('set_relationship_archived'),

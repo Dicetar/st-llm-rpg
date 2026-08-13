@@ -53,6 +53,14 @@ class ContextLegacySource implements LegacyChatSource {
           title: 'Wardrobe Campaign',
           records: [
             {
+              id: 'actor-mara',
+              kind: 'actor',
+              name: 'Mara',
+              summary: 'A stubborn heir.',
+              meters: [{ id: 'tracker-resolve', label: 'Resolve', current: 4, max: 9, notes: 'Aether scarcity' }],
+              archivedAt: null,
+            },
+            {
               id: 'item-wardrobe',
               kind: 'item',
               name: 'Heirloom Wardrobe',
@@ -138,6 +146,13 @@ test('SQLite Context source plans against an imported Campaign revision through 
     limit: 16,
   });
   assert.equal(lexicalHits.find(hit => hit.recordId === 'item-wardrobe')?.matchedTerms, 1);
+  const trackerHits = await journal.search({
+    campaignId: imported.value.campaignId,
+    campaignRevision: 1,
+    query: 'aether scarcity',
+    limit: 16,
+  });
+  assert.equal(trackerHits.find(hit => hit.recordId === 'actor-mara')?.matchedTerms, 2);
 });
 
 test('V4 authority verifies, backs up, and migrates before Context columns are read', async t => {

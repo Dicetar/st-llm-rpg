@@ -61,6 +61,29 @@ test('legacy envelope inspection projects supported truth and reports preserved 
   assert.equal(inspected.issues.some(issue => issue.code === 'unsupported-scene-archive'), true);
 });
 
+test('legacy Actor meters become stable Trackers while invalid meters stay source-side', () => {
+  const envelope = legacyEnvelope();
+  const actor = envelope.campaign.records.find(record => record.id === 'actor-player');
+  Object.assign(actor!, {
+    meters: [
+      { id: 'tracker-health', label: 'Health', current: 7, max: 10, notes: 'Wounded' },
+      { id: 'tracker-invalid', label: 'Broken', current: 11, max: 10 },
+    ],
+  });
+
+  const inspected = inspectLegacyEnvelope(envelope, new Date('2026-08-09T12:00:00.000Z'));
+
+  assert.equal(inspected.valid, true);
+  assert.deepEqual(inspected.state?.actors['actor-player']?.trackers, [{
+    id: 'tracker-health',
+    label: 'Health',
+    current: 7,
+    maximum: 10,
+    notes: 'Wounded',
+  }]);
+  assert.equal(inspected.issues.some(issue => issue.code === 'actor-tracker-invalid'), true);
+});
+
 test('malformed legacy envelope produces a previewable validation report instead of partial state', () => {
   const inspected = inspectLegacyEnvelope({ envelopeVersion: 1, campaign: { revision: 2, records: 'wrong' } });
   assert.equal(inspected.valid, false);

@@ -24,6 +24,7 @@ type ActorProjectionRow = {
   aliases_json: string | null;
   summary: string;
   visibility: Exclude<CampaignActor['visibility'], undefined> | null;
+  trackers_json: string | null;
   archived: number;
 };
 
@@ -171,13 +172,16 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
     return normalizeCampaignState(parseJson<CampaignState>(campaign.current_state_json));
   }
   const hasContextColumns = hasProjectionColumn(database, 'campaign_actor_projections', 'aliases_json');
+  const trackerColumn = hasProjectionColumn(database, 'campaign_actor_projections', 'trackers_json')
+    ? 'trackers_json'
+    : 'NULL AS trackers_json';
   const narratorColumns = hasContextColumns ? 'aliases_json, summary, visibility' : 'NULL AS aliases_json, summary, NULL AS visibility';
   const sceneContextColumns = hasContextColumns
     ? `place_id, actor_ids_json, item_ids_json, ${hasProjectionColumn(database, 'campaign_scene_projections', 'world_object_ids_json') ? 'world_object_ids_json' : 'NULL AS world_object_ids_json'}`
     : 'NULL AS place_id, NULL AS actor_ids_json, NULL AS item_ids_json, NULL AS world_object_ids_json';
 
   const actorRows = database.prepare(`
-    SELECT actor_id, name, ${narratorColumns}, archived
+    SELECT actor_id, name, ${narratorColumns}, ${trackerColumn}, archived
     FROM campaign_actor_projections WHERE campaign_id = ? ORDER BY actor_id
   `).all(campaign.campaign_id) as ActorProjectionRow[];
   const itemRows = database.prepare(`
@@ -240,6 +244,7 @@ export function readCurrentCampaignState(database: DatabaseSync, campaign: Campa
       ...(row.aliases_json === null ? {} : { aliases: parseJson<string[]>(row.aliases_json) }),
       summary: row.summary,
       ...(row.visibility === null ? {} : { visibility: row.visibility }),
+      ...(row.trackers_json === null ? {} : { trackers: parseJson<NonNullable<CampaignActor['trackers']>>(row.trackers_json) }),
       archived: Boolean(row.archived),
     } satisfies CampaignActor])),
     items: Object.fromEntries(itemRows.map(row => [row.item_id, {
@@ -491,14 +496,25 @@ function upsertActor(database: DatabaseSync, campaignId: string, actor: Campaign
     `).run(campaignId, actor.id, actor.name, actor.summary, actor.archived ? 1 : 0);
     return;
   }
+  if (!hasProjectionColumn(database, 'campaign_actor_projections', 'trackers_json')) {
+    database.prepare(`
+      INSERT INTO campaign_actor_projections(campaign_id, actor_id, name, aliases_json, summary, visibility, archived)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(campaign_id, actor_id) DO UPDATE SET
+        name = excluded.name, aliases_json = excluded.aliases_json, summary = excluded.summary,
+        visibility = excluded.visibility, archived = excluded.archived
+    `).run(campaignId, actor.id, actor.name, actor.aliases === undefined ? null : JSON.stringify(actor.aliases), actor.summary,
+      actor.visibility ?? null, actor.archived ? 1 : 0);
+    return;
+  }
   database.prepare(`
-    INSERT INTO campaign_actor_projections(campaign_id, actor_id, name, aliases_json, summary, visibility, archived)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO campaign_actor_projections(campaign_id, actor_id, name, aliases_json, summary, visibility, trackers_json, archived)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(campaign_id, actor_id) DO UPDATE SET
       name = excluded.name, aliases_json = excluded.aliases_json, summary = excluded.summary,
-      visibility = excluded.visibility, archived = excluded.archived
+      visibility = excluded.visibility, trackers_json = excluded.trackers_json, archived = excluded.archived
   `).run(campaignId, actor.id, actor.name, actor.aliases === undefined ? null : JSON.stringify(actor.aliases), actor.summary,
-    actor.visibility ?? null, actor.archived ? 1 : 0);
+    actor.visibility ?? null, actor.trackers === undefined ? null : JSON.stringify(actor.trackers), actor.archived ? 1 : 0);
 }
 
 function upsertItem(database: DatabaseSync, campaignId: string, item: CampaignItem): void {

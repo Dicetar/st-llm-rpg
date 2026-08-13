@@ -1,0 +1,39 @@
+{
+  "kind": "workspace-live-session-state-browser-evidence",
+  "capturedAt": "2026-08-13",
+  "release": "0.3.0-preview.20",
+  "sanitized": true,
+  "environment": {
+    "browser": "installed Google Chrome driven by bundled Playwright",
+    "companionOrigin": "http://127.0.0.1:8102",
+    "authority": "isolated temporary SQLite database",
+    "productionAssets": true,
+    "sillyTavern": "intentionally unavailable in isolated Workspace QA"
+  },
+  "viewports": [
+    { "name": "desktop", "width": 1440, "height": 1000, "result": "passed" },
+    { "name": "360px", "width": 360, "height": 800, "result": "passed" }
+  ],
+  "checks": {
+    "trackerCreatedBesideActor": true,
+    "trackerEditedWithSave": true,
+    "trackerQuickIncrementCommitted": true,
+    "trackerRemovedAfterConfirmation": true,
+    "finalCampaignRevision": 9,
+    "relationshipDiagramVisibleOnDesktop": true,
+    "relationshipRouteListKeyboardButtons": true,
+    "relationshipRouteOpensActor": true,
+    "phoneUsesRouteListInsteadOfTinyDiagram": true,
+    "minimumQuickControlHeightCssPixels": 44,
+    "horizontalOverflow": false,
+    "unexpectedConsoleErrors": 0,
+    "unexpectedHttpFailures": 0,
+    "expectedDegradedRequests": "Legacy-chat discovery returned 503 because isolated QA deliberately did not start SillyTavern. Campaign editing remained available and showed the degraded state."
+  },
+  "boundaries": {
+    "modelCallMade": false,
+    "liveCampaignDataUsed": false,
+    "physicalPhoneUsed": false,
+    "physicalPhoneAcceptanceClaimed": false
+  }
+}

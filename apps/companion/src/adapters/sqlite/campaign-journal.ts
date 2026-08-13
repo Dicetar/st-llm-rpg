@@ -63,6 +63,10 @@ import {
   CAMPAIGN_SCENE_ARCHIVES_MIGRATION,
   campaignSceneArchivesMigrationChecksum,
 } from '../../migrations/011-campaign-scene-archives.js';
+import {
+  CAMPAIGN_ACTOR_TRACKERS_MIGRATION,
+  campaignActorTrackersMigrationChecksum,
+} from '../../migrations/012-campaign-actor-trackers.js';
 import { CampaignExpectedError } from '../../modules/campaign/campaign-error.js';
 import {
   asDocument,
@@ -1360,6 +1364,7 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       { ...CAMPAIGN_RELATIONSHIPS_MIGRATION, checksum: campaignRelationshipsMigrationChecksum() },
       { ...CAMPAIGN_WORLD_RECORDS_MIGRATION, checksum: campaignWorldRecordsMigrationChecksum() },
       { ...CAMPAIGN_SCENE_ARCHIVES_MIGRATION, checksum: campaignSceneArchivesMigrationChecksum() },
+      { ...CAMPAIGN_ACTOR_TRACKERS_MIGRATION, checksum: campaignActorTrackersMigrationChecksum() },
     ];
     const appliedRows = this.#database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all() as Array<{ version: number; name: string; checksum: string }>;
     const applied = new Map(appliedRows.map(row => [Number(row.version), row]));
@@ -1929,7 +1934,18 @@ export class SqliteCampaignJournal implements CampaignJournal, LegacyImportJourn
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     const records = [
-      ...Object.values(state.actors).map(record => ({ kind: 'actor', record })),
+      ...Object.values(state.actors).map(record => ({
+        kind: 'actor',
+        record: {
+          ...record,
+          summary: [
+            record.summary,
+            ...(record.trackers ?? []).map(tracker => (
+              `${tracker.label} ${tracker.current}${tracker.maximum === undefined ? '' : ` ${tracker.maximum}`} ${tracker.notes ?? ''}`.trim()
+            )),
+          ].filter(Boolean).join(' '),
+        },
+      })),
       ...Object.values(state.items).map(record => ({ kind: 'item', record })),
       ...Object.values(state.quests ?? {}).map(record => ({ kind: 'quest', record })),
       ...Object.values(state.places ?? {}).map(record => ({ kind: 'place', record })),

@@ -80,6 +80,11 @@ import {
   usesFields,
 } from './CampaignActorPanels.js';
 import {
+  ActorTrackersPanel,
+  normalizedTrackerDraft,
+} from './ActorTrackersPanel.js';
+import { RelationshipMap } from './RelationshipMap.js';
+import {
   AdvanceScenePanel,
   SceneArchiveList,
   SceneEditor,
@@ -99,6 +104,8 @@ export {
   WorldRecordEditor,
 } from './CampaignRecordEditors.js';
 export { LearnedAbilitiesPanel, RelationshipsPanel } from './CampaignActorPanels.js';
+export { ActorTrackersPanel, normalizedTrackerDraft } from './ActorTrackersPanel.js';
+export { RelationshipMap } from './RelationshipMap.js';
 export { AdvanceScenePanel, SceneArchiveList, SceneEditor } from './CampaignScenePanels.js';
 
 type SyncState = WorkspaceSyncState;
@@ -672,6 +679,28 @@ function CampaignWorkspaceContent() {
                             onSave={(actorId, name, summary, aliases, visibility) => run(() => executeOperation({ kind: 'update_actor', actorId, name, summary, aliases: [...aliases], visibility }).then(() => undefined))}
                             onArchive={(actorId, archived) => run(() => executeOperation({ kind: 'set_actor_archived', actorId, archived }).then(() => undefined))}
                           />
+                          <ActorTrackersPanel
+                            actor={actor}
+                            busy={busy}
+                            readOnly={readOnly || actor.archived}
+                            onCreate={draft => {
+                              const tracker = normalizedTrackerDraft(draft);
+                              if (!tracker) return Promise.resolve();
+                              return run(() => executeOperation({ kind: 'create_actor_tracker', actorId: actor.id, tracker: {
+                                label: tracker.label, current: tracker.current, notes: tracker.notes,
+                                ...(tracker.maximum === null ? {} : { maximum: tracker.maximum }),
+                              } }).then(() => undefined));
+                            }}
+                            onSave={(trackerId, draft) => {
+                              const tracker = normalizedTrackerDraft(draft);
+                              if (!tracker) return Promise.resolve();
+                              return run(() => executeOperation({ kind: 'update_actor_tracker', actorId: actor.id, trackerId,
+                                label: tracker.label, current: tracker.current, maximum: tracker.maximum, notes: tracker.notes,
+                              }).then(() => undefined));
+                            }}
+                            onAdjust={(trackerId, delta) => run(() => executeOperation({ kind: 'adjust_actor_tracker', actorId: actor.id, trackerId, delta }).then(() => undefined))}
+                            onRemove={trackerId => run(() => executeOperation({ kind: 'remove_actor_tracker', actorId: actor.id, trackerId }).then(() => undefined))}
+                          />
                           <RelationshipsPanel
                             relationships={displayed.relationships ?? []}
                             actors={displayed.actors}
@@ -923,6 +952,11 @@ function CampaignWorkspaceContent() {
               {route.collection === 'relationships' ? (
                 <section className="collection-view" aria-labelledby="relationships-collection-heading">
                   <div className="collection-heading"><div><h4 id="relationships-collection-heading">All Relationships</h4><p>Create and maintain directed links without leaving this collection.</p></div></div>
+                  <RelationshipMap
+                    actors={displayed.actors}
+                    relationships={displayed.relationships ?? []}
+                    onOpenActor={actorId => navigateCollection('actors', actorId)}
+                  />
                   <RelationshipsPanel
                     relationships={displayed.relationships ?? []}
                     actors={displayed.actors}

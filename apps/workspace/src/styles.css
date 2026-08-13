@@ -211,6 +211,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .brief-facts dt { color: #a99c89; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; }
 .brief-facts dd { min-width: 0; margin: 0; }
 .brief-link-list { display: flex !important; flex-wrap: wrap; gap: 0.25rem 0.65rem; margin: 0 !important; padding: 0 !important; list-style: none; }
+.brief-tracker-list { display: grid !important; gap: 0.35rem; margin: 0 !important; padding: 0 !important; list-style: none; }
+.brief-tracker-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(5rem, auto) auto; align-items: baseline; gap: 0.55rem; border-bottom: 1px solid rgba(233, 189, 114, 0.12); padding-bottom: 0.3rem; }
+.brief-tracker-list span { color: #b9ac98; overflow-wrap: anywhere; }
+.brief-tracker-list strong { color: #e9bd72; white-space: nowrap; }
 .text-button { min-height: 44px; border: 0; padding: 0.25rem 0; background: transparent; color: #f0c982; text-align: left; text-decoration: underline; text-decoration-color: rgba(240, 201, 130, 0.35); text-underline-offset: 0.2em; }
 .text-button:hover { background: transparent; color: #fff0cf; text-decoration-color: currentColor; }
 .brief-muted { color: #998c79; line-height: 1.4; }
@@ -371,6 +375,45 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
 .relationship-row__identity small { color: #8f8372; overflow-wrap: anywhere; }
 .relationship-list { display: grid; gap: 0.65rem; }
 .relationship-create > button, .relationship-row .record-actions { align-self: end; }
+.actor-trackers-panel { display: grid; gap: 0.75rem; margin-top: 1rem; border-top: 1px solid #4c4032; padding-top: 1rem; }
+.tracker-count, .relationship-map__count { align-self: flex-start; border: 1px solid #655542; border-radius: 999px; padding: 0.3rem 0.6rem; color: #d9c7aa; font-size: 0.78rem; white-space: nowrap; }
+.actor-tracker-create { display: grid; gap: 0.7rem; border: 1px dashed #80643e; border-radius: 0.8rem; padding: 0.8rem; background: linear-gradient(135deg, rgba(75, 55, 31, 0.34), rgba(22, 18, 14, 0.55)); }
+.actor-tracker-fields { display: grid; grid-template-columns: minmax(10rem, 1.2fr) repeat(2, minmax(7rem, 0.55fr)) minmax(12rem, 1.4fr); gap: 0.65rem; }
+.actor-tracker-fields label { display: grid; gap: 0.35rem; color: #d6c8b2; }
+.actor-tracker-fields label small { color: #8f8372; font-weight: 400; }
+.actor-tracker-create > button { justify-self: end; }
+.actor-tracker-list { display: grid; gap: 0.65rem; }
+.actor-tracker-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.65rem 0.8rem; border: 1px solid #4c4032; border-left: 3px solid #a98248; border-radius: 0.8rem; padding: 0.8rem; background: #211c16; }
+.actor-tracker-card__reading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 1rem; }
+.actor-tracker-card__reading > div { display: grid; min-width: 0; gap: 0.15rem; }
+.actor-tracker-card__reading small { color: #a99c89; overflow-wrap: anywhere; }
+.actor-tracker-card__reading output { flex: 0 0 auto; color: #f3c87f; font-family: Georgia, "Times New Roman", serif; font-size: 1.45rem; font-weight: 700; white-space: nowrap; }
+.actor-tracker-card__quick { display: grid; grid-template-columns: repeat(2, 44px); gap: 0.4rem; }
+.tracker-step { width: 44px; min-width: 44px; padding: 0; font-size: 1.25rem; font-weight: 700; }
+.actor-tracker-gauge { grid-column: 1 / -1; height: 0.45rem; border: 1px solid #4c4032; border-radius: 999px; background: #100d0a; overflow: hidden; }
+.actor-tracker-gauge span { display: block; height: 100%; border-radius: inherit; background: #d8aa63; }
+.actor-tracker-card__editor { grid-column: 1 / -1; border-top: 1px solid #4c4032; padding-top: 0.2rem; }
+.actor-tracker-card__editor > summary { display: flex; min-height: 44px; align-items: center; color: #d8aa63; cursor: pointer; }
+.actor-tracker-card__editor > form { display: grid; gap: 0.75rem; padding-top: 0.55rem; }
+.relationship-map { display: grid; gap: 0.8rem; margin: 1rem 0; border: 1px solid #655542; border-radius: 0.9rem; padding: 0.9rem; background: radial-gradient(circle at 50% 45%, rgba(75, 55, 31, 0.48), rgba(22, 18, 14, 0.74) 68%); }
+.relationship-map > .collection-heading { margin-bottom: 0; }
+.relationship-map__canvas { min-width: 0; border: 1px solid rgba(128, 100, 62, 0.52); border-radius: 0.8rem; background: rgba(12, 10, 8, 0.62); overflow: hidden; }
+.relationship-map__canvas svg { display: block; width: 100%; height: auto; max-height: 31rem; }
+.relationship-map__canvas > p { margin: 0; border-top: 1px solid #4c4032; padding: 0.6rem 0.75rem; color: #a99c89; font-size: 0.82rem; }
+.relationship-map__edge line { stroke: #c39b61; stroke-width: 2; opacity: 0.82; }
+.relationship-map__edge--strained line { stroke: #d47765; stroke-dasharray: 8 5; }
+.relationship-map__edge--dormant line, .relationship-map__edge--ended line { stroke: #857869; stroke-dasharray: 5 6; opacity: 0.55; }
+.relationship-map__edge--narrator_secret line { stroke: #978cc1; }
+.relationship-map__edge--campaign_private line { stroke: #b47d9f; stroke-dasharray: 3 5; }
+#relationship-arrow path { fill: #c39b61; }
+.relationship-map__node rect { fill: #2d241b; stroke: #e0b66f; stroke-width: 2; }
+.relationship-map__node text { fill: #fff4df; font-family: Georgia, "Times New Roman", serif; font-size: 15px; font-weight: 700; }
+.relationship-map__node--archived { opacity: 0.5; }
+.relationship-map__routes { display: grid; gap: 0.45rem; max-height: 25rem; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.relationship-map__routes li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(7rem, 0.75fr) auto minmax(0, 1fr); align-items: center; gap: 0.55rem; border: 1px solid #4c4032; border-radius: 0.7rem; padding: 0.5rem; background: rgba(33, 28, 22, 0.82); }
+.relationship-map__routes li > span:nth-of-type(1) { display: grid; min-width: 0; text-align: center; }
+.relationship-map__routes small { color: #a99c89; text-transform: capitalize; }
+.relationship-map__actor { min-width: 0; border-color: #655542; padding: 0.55rem 0.65rem; background: #1a1510; overflow-wrap: anywhere; }
 .field-error { grid-column: 1 / -1; margin: 0; color: #ffaaa2; font-size: 0.82rem; }
 .archive-panel { margin-top: 1rem; border-top: 1px solid #4c4032; padding-top: 1rem; }
 .archive-panel summary { cursor: pointer; color: #d8aa63; }
@@ -582,6 +625,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .session-brief-grid { grid-template-columns: 1fr 1fr; }
   .brief-card--scene { grid-column: 1 / -1; }
   .guide-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .actor-tracker-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -639,6 +683,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .session-home__header, .session-home__footer { align-items: stretch; flex-direction: column; }
   .session-home__header > button, .session-home__footer > button { width: 100%; }
   .player-guide__header, .guide-privacy dl { grid-template-columns: 1fr; }
+  .actor-tracker-fields { grid-template-columns: 1fr; }
+  .actor-tracker-create > button { width: 100%; justify-self: stretch; }
 }
 
 @media (max-width: 600px) {
@@ -656,6 +702,18 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .session-brief-grid, .guide-steps { grid-template-columns: 1fr; }
   .brief-card--scene { grid-column: auto; }
   .brief-facts > div { grid-template-columns: 1fr; gap: 0.2rem; }
+  .brief-tracker-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .brief-tracker-list li > button { grid-column: 1 / -1; justify-self: start; }
+  .relationship-map__canvas { display: none; }
+  .relationship-map__routes li { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .relationship-map__routes li > span:nth-of-type(1) { grid-column: 1 / -1; grid-row: 2; }
+  .relationship-map__routes li > span:nth-of-type(2) { grid-column: 2; grid-row: 1; }
+  .relationship-map__routes li > button:first-child { grid-column: 1; grid-row: 1; }
+  .relationship-map__routes li > button:last-child { grid-column: 3; grid-row: 1; }
+  .actor-tracker-card { grid-template-columns: 1fr; }
+  .actor-tracker-card__quick { grid-column: 1; grid-template-columns: repeat(2, minmax(44px, 1fr)); }
+  .tracker-step { width: 100%; }
+  .actor-tracker-card__reading { align-items: flex-start; }
   .guide-illustration { min-height: 8rem; padding: 0.35rem; }
 }
 

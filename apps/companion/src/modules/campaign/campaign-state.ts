@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   CampaignActor,
+  CampaignActorTracker,
   CampaignAbility,
   CampaignDocument,
   CampaignFact,
@@ -223,6 +224,75 @@ function requirePlace(state: CampaignState, placeId: string): CampaignPlace {
   const place = state.places?.[id];
   if (!place) throw new CampaignExpectedError('CAMPAIGN_RECORD_NOT_FOUND', `Place ${id} was not found.`, { placeId: id });
   return place;
+}
+
+function cleanTrackerValue(value: number, field: string): number {
+  if (!Number.isInteger(value) || value < -1_000_000_000 || value > 1_000_000_000) {
+    throw new CampaignExpectedError(
+      'CAMPAIGN_VALIDATION_FAILED',
+      `${field} must be a whole number from -1,000,000,000 to 1,000,000,000.`,
+      { field },
+    );
+  }
+  return value;
+}
+
+function cleanActorTracker(input: Readonly<{
+  id?: string;
+  label: string;
+  current?: number;
+  maximum?: number | null;
+  notes?: string;
+}>, field: string): CampaignActorTracker {
+  const current = cleanTrackerValue(input.current ?? 0, `${field}.current`);
+  const maximum = input.maximum === undefined || input.maximum === null
+    ? undefined
+    : cleanTrackerValue(input.maximum, `${field}.maximum`);
+  if (maximum !== undefined && current > maximum) {
+    throw new CampaignExpectedError(
+      'CAMPAIGN_VALIDATION_FAILED',
+      'Actor Tracker current value cannot exceed its maximum.',
+      { field, current, maximum },
+    );
+  }
+  return {
+    id: input.id === undefined ? randomUUID() : cleanIdentifier(input.id, `${field}.id`),
+    label: cleanText(input.label, `${field}.label`, 160),
+    current,
+    ...(maximum === undefined ? {} : { maximum }),
+    ...(input.notes === undefined ? {} : { notes: cleanOptionalText(input.notes, `${field}.notes`, 500) }),
+  };
+}
+
+function cleanActorTrackers(inputs: readonly Readonly<{
+  id?: string;
+  label: string;
+  current?: number;
+  maximum?: number;
+  notes?: string;
+}>[] | undefined): CampaignActorTracker[] {
+  if (!inputs) return [];
+  if (inputs.length > 32) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'An Actor can have at most 32 Trackers.');
+  }
+  const trackers = inputs.map((input, index) => cleanActorTracker(input, `actor.trackers[${index}]`));
+  const ids = new Set<string>();
+  for (const tracker of trackers) {
+    if (ids.has(tracker.id)) {
+      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Actor Tracker ID ${tracker.id} is duplicated.`, { trackerId: tracker.id });
+    }
+    ids.add(tracker.id);
+  }
+  return trackers;
+}
+
+function requireActorTracker(actor: CampaignActor, trackerId: string): CampaignActorTracker {
+  const id = cleanIdentifier(trackerId, 'Actor Tracker ID');
+  const tracker = (actor.trackers ?? []).find(candidate => candidate.id === id);
+  if (!tracker) {
+    throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Actor Tracker ${id} was not found.`, { actorId: actor.id, trackerId: id });
+  }
+  return tracker;
 }
 
 function requireFact(state: CampaignState, factId: string): CampaignFact {
@@ -572,6 +642,7 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       aliases: cleanAliases(operation.actor.aliases),
       summary: cleanOptionalText(operation.actor.summary, 'Actor summary', 4000),
       visibility: cleanVisibility(operation.actor.visibility),
+      ...(operation.actor.trackers === undefined ? {} : { trackers: cleanActorTrackers(operation.actor.trackers) }),
       archived: false,
     };
     return [id];
@@ -592,6 +663,7 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       aliases: cleanAliases(operation.actor.aliases),
       summary: cleanOptionalText(operation.actor.summary, 'Actor summary', 4000),
       visibility: cleanVisibility(operation.actor.visibility),
+      ...(operation.actor.trackers === undefined ? {} : { trackers: cleanActorTrackers(operation.actor.trackers) }),
       archived: false,
     };
     state.items[itemId] = {
@@ -617,6 +689,62 @@ export function applyOperation(state: CampaignState, operation: CampaignOperatio
       name: cleanText(operation.name, 'Actor name', 160),
       summary: cleanOptionalText(operation.summary, 'Actor summary', 4000),
       ...narratorFields(actor, operation.aliases, operation.visibility),
+    };
+    return [actor.id];
+  }
+  if (operation.kind === 'create_actor_tracker') {
+    const actor = requireActiveSceneRecord(requireActor(state, operation.actorId), 'Actor');
+    const trackers = actor.trackers ?? [];
+    if (trackers.length >= 32) {
+      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'An Actor can have at most 32 Trackers.', { actorId: actor.id });
+    }
+    const tracker = cleanActorTracker(operation.tracker, 'tracker');
+    if (trackers.some(candidate => candidate.id === tracker.id)) {
+      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', `Actor Tracker ID ${tracker.id} is already used.`, { actorId: actor.id, trackerId: tracker.id });
+    }
+    state.actors[actor.id] = { ...actor, trackers: [...trackers, tracker] };
+    return [actor.id];
+  }
+  if (operation.kind === 'update_actor_tracker') {
+    const actor = requireActiveSceneRecord(requireActor(state, operation.actorId), 'Actor');
+    const existing = requireActorTracker(actor, operation.trackerId);
+    const tracker = cleanActorTracker({
+      id: existing.id,
+      label: operation.label,
+      current: operation.current,
+      ...(operation.maximum === undefined ? {} : { maximum: operation.maximum }),
+      notes: operation.notes,
+    }, 'tracker');
+    state.actors[actor.id] = {
+      ...actor,
+      trackers: (actor.trackers ?? []).map(candidate => candidate.id === tracker.id ? tracker : candidate),
+    };
+    return [actor.id];
+  }
+  if (operation.kind === 'adjust_actor_tracker') {
+    const actor = requireActiveSceneRecord(requireActor(state, operation.actorId), 'Actor');
+    const tracker = requireActorTracker(actor, operation.trackerId);
+    if (!Number.isInteger(operation.delta) || operation.delta === 0) {
+      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Actor Tracker adjustment must be a non-zero whole number.', { delta: operation.delta });
+    }
+    const current = cleanTrackerValue(tracker.current + operation.delta, 'tracker.current');
+    if (tracker.maximum !== undefined && current > tracker.maximum) {
+      throw new CampaignExpectedError('CAMPAIGN_VALIDATION_FAILED', 'Actor Tracker current value cannot exceed its maximum.', {
+        actorId: actor.id, trackerId: tracker.id, current, maximum: tracker.maximum,
+      });
+    }
+    state.actors[actor.id] = {
+      ...actor,
+      trackers: (actor.trackers ?? []).map(candidate => candidate.id === tracker.id ? { ...candidate, current } : candidate),
+    };
+    return [actor.id];
+  }
+  if (operation.kind === 'remove_actor_tracker') {
+    const actor = requireActiveSceneRecord(requireActor(state, operation.actorId), 'Actor');
+    const tracker = requireActorTracker(actor, operation.trackerId);
+    state.actors[actor.id] = {
+      ...actor,
+      trackers: (actor.trackers ?? []).filter(candidate => candidate.id !== tracker.id),
     };
     return [actor.id];
   }

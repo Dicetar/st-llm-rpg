@@ -304,6 +304,58 @@ test('current Scene structural IDs select detail before lexical search', async (
   assert.equal(outcome.value.selections[1]?.recordId, 'actor-lavir');
 });
 
+test('Actor trackers enter context only with their selected Actor', async () => {
+  const trackerCampaign: CampaignDocument = {
+    ...campaign,
+    actors: [
+      {
+        ...campaign.actors[0]!,
+        trackers: [
+          { id: 'tracker-health', label: 'Health', current: 7, maximum: 10, notes: 'Wounded' },
+        ],
+      },
+      {
+        id: 'actor-mara',
+        name: 'Mara',
+        aliases: [],
+        summary: 'A distant merchant.',
+        visibility: 'known',
+        archived: false,
+        trackers: [{ id: 'tracker-gold', label: 'Gold', current: 999 }],
+      },
+    ],
+    currentScene: {
+      id: 'scene-bedroom',
+      name: 'Childhood Bedroom',
+      summary: 'A guarded conversation is underway.',
+      actorIds: ['actor-lavir'],
+      itemIds: [],
+    },
+  };
+  const planner = new ContextPlanner(source([], {
+    campaign: trackerCampaign,
+    binding: { ...binding, pins: [] },
+    profile,
+  }));
+
+  const outcome = await planner.plan({
+    requestId: 'context-request-selected-trackers',
+    campaignId: campaign.campaign.id,
+    campaignRevision: 7,
+    bindingId: binding.id,
+    bindingRevision: 3,
+    contextFocusRevision: 2,
+    modelProfileId: profile.id,
+    generationType: 'normal',
+    messages: [{ role: 'user', content: 'I wait for an answer.' }],
+  }, new AbortController().signal);
+
+  assert.equal(outcome.ok, true);
+  if (!outcome.ok) return;
+  assert.match(outcome.value.blocks.known, /Live trackers: Health: 7\/10 \(Wounded\)/);
+  assert.doesNotMatch(JSON.stringify(outcome.value), /Gold|999/);
+});
+
 test('one bounded relation hop follows an explicitly selected Record after retrieval', async () => {
   const relationBinding = { ...binding, pins: [] };
   const planner = new ContextPlanner(source([], { campaign, binding: relationBinding, profile }));

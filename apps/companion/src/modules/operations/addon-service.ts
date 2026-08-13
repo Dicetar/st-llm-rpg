@@ -231,6 +231,7 @@ function operationsFor(changes: readonly AddonChange[]): CampaignOperation[] {
   }
   const order: Record<CampaignOperation['kind'], number> = {
     create_actor: 0, rename_actor: 0, update_actor: 0, set_actor_archived: 0,
+    create_actor_tracker: 0, update_actor_tracker: 0, adjust_actor_tracker: 0, remove_actor_tracker: 0,
     create_place: 1, update_place: 1, set_place_archived: 1,
     create_fact: 6, update_fact: 6, set_fact_archived: 6,
     create_world_object: 3, update_world_object: 3, set_world_object_archived: 3,

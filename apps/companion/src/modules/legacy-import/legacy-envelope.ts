@@ -114,7 +114,35 @@ export function inspectLegacyEnvelope(
     const archived = record.archivedAt !== null && record.archivedAt !== undefined && record.archivedAt !== '';
     if (kind === 'actor') {
       counts.actors += 1;
-      actors[id] = { id, name, summary, archived };
+      const meters = Array.isArray(record.meters) ? record.meters.slice(0, 32) : [];
+      const trackerIds = new Set<string>();
+      const trackers = meters.flatMap((rawMeter, meterIndex) => {
+        const meter = object(rawMeter);
+        const meterPath = `${path}.meters[${meterIndex}]`;
+        const trackerId = text(meter?.id);
+        const label = bounded(meter?.label, 160);
+        const current = Number(meter?.current ?? 0);
+        const maximumValue = meter?.max;
+        const maximum = maximumValue === null || maximumValue === undefined || maximumValue === '' ? undefined : Number(maximumValue);
+        if (!meter || !validId(trackerId) || trackerIds.has(trackerId) || !label
+          || !Number.isInteger(current) || Math.abs(current) > 1_000_000_000
+          || (maximum !== undefined && (!Number.isInteger(maximum) || Math.abs(maximum) > 1_000_000_000 || current > maximum))) {
+          warning('actor-tracker-invalid', meterPath, 'Invalid legacy Actor meter was preserved in source but not imported as a Tracker.');
+          return [];
+        }
+        trackerIds.add(trackerId);
+        return [{
+          id: trackerId,
+          label,
+          current,
+          ...(maximum === undefined ? {} : { maximum }),
+          ...(text(meter.notes) ? { notes: bounded(meter.notes, 500) } : {}),
+        }];
+      });
+      if (Array.isArray(record.meters) && record.meters.length > 32) {
+        warning('actor-trackers-truncated', `${path}.meters`, 'Only the first 32 legacy Actor meters can be imported as Trackers.');
+      }
+      actors[id] = { id, name, summary, ...(trackers.length ? { trackers } : {}), archived };
     } else if (kind === 'item') {
       counts.items += 1;
       items[id] = { id, name, summary, archived };

@@ -5,7 +5,92 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { SqliteCampaignJournal } from '../src/adapters/sqlite/campaign-journal.js';
-import { acceptCampaignCreate, acceptCampaignOperation } from './campaign-test-helpers.js';
+import { acceptCampaignCreate, acceptCampaignOperation, CampaignOutcomeError } from './campaign-test-helpers.js';
+
+test('Actor Trackers commit, validate, reconstruct, reject stale writes, and survive restart', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'st-rpg-actor-trackers-'));
+  const databasePath = join(root, 'campaigns.sqlite');
+  let journal = await SqliteCampaignJournal.open(databasePath, 25);
+  t.after(async () => {
+    await journal.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const created = await acceptCampaignCreate(journal, { requestId: 'tracker-campaign', title: 'Live State' });
+  const actor = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'tracker-actor', expectedRevision: 1,
+    operation: {
+      kind: 'create_actor',
+      actor: {
+        id: 'actor-mara', name: 'Mara',
+        trackers: [{ id: 'health', label: 'Health', current: 7, maximum: 10, notes: 'Wounded' }],
+      },
+    },
+  });
+  assert.deepEqual(actor.document.actors[0]?.trackers, [
+    { id: 'health', label: 'Health', current: 7, maximum: 10, notes: 'Wounded' },
+  ]);
+
+  const adjusted = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'tracker-adjust', expectedRevision: 2,
+    operation: { kind: 'adjust_actor_tracker', actorId: 'actor-mara', trackerId: 'health', delta: 1 },
+  });
+  assert.equal(adjusted.document.actors[0]?.trackers?.[0]?.current, 8);
+
+  const updated = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'tracker-update', expectedRevision: 3,
+    operation: {
+      kind: 'update_actor_tracker', actorId: 'actor-mara', trackerId: 'health',
+      label: 'Resolve', current: 6, maximum: 12, notes: 'Recovering',
+    },
+  });
+  assert.equal(updated.document.actors[0]?.trackers?.[0]?.label, 'Resolve');
+
+  const second = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'tracker-create-second', expectedRevision: 4,
+    operation: {
+      kind: 'create_actor_tracker', actorId: 'actor-mara',
+      tracker: { id: 'gold', label: 'Gold', current: 42 },
+    },
+  });
+  assert.equal(second.document.actors[0]?.trackers?.length, 2);
+
+  await assert.rejects(
+    acceptCampaignOperation(journal, created.campaignId, {
+      requestId: 'tracker-stale', expectedRevision: 4,
+      operation: { kind: 'adjust_actor_tracker', actorId: 'actor-mara', trackerId: 'gold', delta: -1 },
+    }),
+    error => error instanceof CampaignOutcomeError && error.code === 'CAMPAIGN_REVISION_CONFLICT',
+  );
+  await assert.rejects(
+    acceptCampaignOperation(journal, created.campaignId, {
+      requestId: 'tracker-duplicate', expectedRevision: 5,
+      operation: { kind: 'create_actor_tracker', actorId: 'actor-mara', tracker: { id: 'gold', label: 'Duplicate', current: 0 } },
+    }),
+    /already used/i,
+  );
+  await assert.rejects(
+    acceptCampaignOperation(journal, created.campaignId, {
+      requestId: 'tracker-over-maximum', expectedRevision: 5,
+      operation: { kind: 'create_actor_tracker', actorId: 'actor-mara', tracker: { label: 'Charges', current: 4, maximum: 3 } },
+    }),
+    /cannot exceed/i,
+  );
+  assert.equal(journal.readCampaign(created.campaignId).campaign.revision, 5);
+
+  const removed = await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'tracker-remove', expectedRevision: 5,
+    operation: { kind: 'remove_actor_tracker', actorId: 'actor-mara', trackerId: 'health' },
+  });
+  assert.deepEqual(removed.document.actors[0]?.trackers, [{ id: 'gold', label: 'Gold', current: 42 }]);
+  assert.equal(journal.readCampaign(created.campaignId, 2).actors[0]?.trackers?.[0]?.current, 7);
+  assert.equal(journal.readCampaign(created.campaignId, 3).actors[0]?.trackers?.[0]?.current, 8);
+
+  await journal.close();
+  journal = await SqliteCampaignJournal.open(databasePath, 25);
+  assert.deepEqual(journal.readCampaign(created.campaignId).actors[0]?.trackers, [{ id: 'gold', label: 'Gold', current: 42 }]);
+  journal.verifyOrThrow();
+});
 
 test('Quest and Place records persist, edit, archive, and reconstruct through immutable history', async t => {
   const root = await mkdtemp(join(tmpdir(), 'st-rpg-workspace-records-'));
@@ -527,4 +612,35 @@ test('V10 authority receives an automatic backup before Scene Archive schema mig
   journal.verifyOrThrow();
   await journal.close();
   assert.equal((await readdir(root)).some(name => name.startsWith('campaigns.sqlite.pre-migration-v11-')), true);
+});
+
+test('V11 authority receives an automatic backup before Actor Tracker schema migration', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'st-rpg-v11-tracker-upgrade-'));
+  const databasePath = join(root, 'campaigns.sqlite');
+  let journal = await SqliteCampaignJournal.open(databasePath);
+  t.after(async () => {
+    try { await journal.close(); } catch { /* already closed */ }
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await acceptCampaignCreate(journal, { requestId: 'v11-campaign', title: 'Before Trackers' });
+  await acceptCampaignOperation(journal, created.campaignId, {
+    requestId: 'v11-actor', expectedRevision: created.revision,
+    operation: { kind: 'create_actor', actor: { id: 'actor-kept-v11', name: 'Kept V11 Actor' } },
+  });
+  await journal.close();
+
+  const database = new DatabaseSync(databasePath);
+  database.exec(`
+    ALTER TABLE campaign_actor_projections DROP COLUMN trackers_json;
+    DELETE FROM schema_migrations WHERE version = 12;
+  `);
+  database.close();
+
+  journal = await SqliteCampaignJournal.open(databasePath);
+  const upgraded = journal.readCampaign(created.campaignId);
+  assert.equal(upgraded.actors[0]?.name, 'Kept V11 Actor');
+  assert.deepEqual(upgraded.actors[0]?.trackers ?? [], []);
+  journal.verifyOrThrow();
+  await journal.close();
+  assert.equal((await readdir(root)).some(name => name.startsWith('campaigns.sqlite.pre-migration-v12-')), true);
 });

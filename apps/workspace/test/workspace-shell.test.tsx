@@ -16,6 +16,9 @@ import {
   RecordEditor,
   LearnedAbilitiesPanel,
   RelationshipsPanel,
+  ActorTrackersPanel,
+  RelationshipMap,
+  normalizedTrackerDraft,
   LinkedFactsPanel,
   PlaceWorldObjectsPanel,
   SceneEditor,
@@ -269,6 +272,59 @@ test('Session Home builds a deterministic recap from the loaded Campaign revisio
   assert.match(html, /The key was found/);
   assert.match(html, /Who sealed the bedroom/);
   assert.match(html, /Find the witness/);
+});
+
+test('Actor live trackers keep quick changes and detailed editing beside the Actor', () => {
+  const html = renderToStaticMarkup(<ActorTrackersPanel
+    actor={{
+      id: 'actor-mara', name: 'Mara', summary: 'The heir.', archived: false,
+      trackers: [{ id: 'tracker-health', label: 'Health', current: 7, maximum: 10, notes: 'Wounded' }],
+    }}
+    busy={false}
+    readOnly={false}
+    onCreate={async () => undefined}
+    onSave={async () => undefined}
+    onAdjust={async () => undefined}
+    onRemove={async () => undefined}
+  />);
+
+  assert.match(html, /Live trackers/);
+  assert.match(html, /Health/);
+  assert.match(html, /7 \/ 10/);
+  assert.match(html, /role="meter"/);
+  assert.match(html, /Decrease Health by one/);
+  assert.match(html, /Increase Health by one/);
+  assert.match(html, /\+ Add tracker/);
+  assert.match(html, /Edit tracker/);
+  assert.match(html, /Remove tracker/);
+  assert.deepEqual(normalizedTrackerDraft({ label: ' Resolve ', current: '4', maximum: '9', notes: ' steady ' }), {
+    label: 'Resolve', current: 4, maximum: 9, notes: 'steady',
+  });
+  assert.equal(normalizedTrackerDraft({ label: 'Resolve', current: '10', maximum: '9', notes: '' }), null);
+});
+
+test('Relationship Map provides deterministic diagram and keyboard-button routes', () => {
+  const html = renderToStaticMarkup(<RelationshipMap
+    actors={[
+      { id: 'actor-mara', name: 'Mara', summary: '', archived: false },
+      { id: 'actor-lavir', name: 'Lavir', summary: '', archived: false },
+      { id: 'actor-archived', name: 'Old Rival', summary: '', archived: true },
+    ]}
+    relationships={[
+      { id: 'relationship-trust', sourceActorId: 'actor-mara', targetActorId: 'actor-lavir', kind: 'trusts', status: 'active', notes: '', archived: false },
+      { id: 'relationship-old', sourceActorId: 'actor-lavir', targetActorId: 'actor-archived', kind: 'rival', status: 'ended', notes: '', archived: true },
+    ]}
+    onOpenActor={() => undefined}
+  />);
+
+  assert.match(html, /Relationship Map/);
+  assert.match(html, /role="img"/);
+  assert.match(html, /Relationship routes/);
+  assert.match(html, />Mara<\/button>/);
+  assert.match(html, />Lavir<\/button>/);
+  assert.match(html, /trusts/);
+  assert.doesNotMatch(html, /Old Rival|rival/);
+  assert.match(html, /1 link/);
 });
 
 test('every ordinary collection keeps quick capture and detailed creation in the same block', () => {

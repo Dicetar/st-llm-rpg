@@ -17,7 +17,7 @@ function CampaignFlowIllustration() {
 export function PlayerGuide(props: Readonly<{ onNavigate: (collection: CollectionKey) => void }>) {
   const steps = [
     ['Set the present moment', 'Open Current Scene and attach the place, people, items, and scene features that matter now.', 'scene'] as const,
-    ['Keep records current', 'Add Actors, Items, Abilities, Relationships, Quests, Facts, and Places where you can find and edit them later.', 'actors'] as const,
+    ['Keep records current', 'Add Actors, Items, Abilities, Relationships, Quests, Facts, and Places. Track changing numbers beside each Actor; use the Relationships collection to see current links.', 'actors'] as const,
     ['Choose narrator context', 'Narrator Context shows linked chats, manual pins, budget, and exactly what will be sent before a reply.', 'context'] as const,
     ['Play in SillyTavern', 'Your character card and chat settings control the narrator. Campaign Book supplies only the linked Campaign context.', 'context'] as const,
     ['Review suggested updates', 'Story Sync proposes changes from recent chat. Nothing becomes Campaign truth until you review and apply it.', 'review'] as const,
